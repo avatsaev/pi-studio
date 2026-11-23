@@ -5,6 +5,7 @@ import {
   type DaemonErrorCode,
   type DaemonSettings,
   type HostDaemons,
+  type SshHostSuggestion,
 } from "@av-pi-studio/workbench";
 
 import { isRecord, parseDaemonsView, parseEntryView, type DaemonsView } from "./daemons-view.js";
@@ -37,6 +38,13 @@ const CODES: Record<DaemonErrorCode, true> = {
   secret_missing: true,
   secret_unavailable: true,
   secret_store_failed: true,
+  invalid_host: true,
+  invalid_user: true,
+  invalid_port: true,
+  invalid_path: true,
+  invalid_jump: true,
+  not_installed: true,
+  ssh_config: true,
 };
 
 /** What a `HostDaemons` call rejects with when the app answered with one of the spec's codes. */
@@ -202,6 +210,17 @@ export function createDesktopDaemons(
       stop: () => accepted("daemon.local.stop"),
       restart: () => accepted("daemon.local.restart"),
       refresh: () => accepted("daemon.local.refresh"),
+    },
+    remote: {
+      start: () => accepted("daemon.remote.start"),
+      refresh: () => accepted("daemon.remote.refresh"),
+    },
+    async sshHosts() {
+      const answer = await call("ssh_config_hosts");
+      if (!isRecord(answer) || !Array.isArray(answer.hosts)) {
+        throw new Error("The app host answered ssh_config_hosts with an unexpected shape.");
+      }
+      return answer.hosts as SshHostSuggestion[];
     },
     onManageRequest(listener) {
       manageListeners.add(listener);

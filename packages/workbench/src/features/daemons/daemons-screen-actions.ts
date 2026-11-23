@@ -8,8 +8,18 @@
  */
 
 import { type ConnectionState } from "@av-pi-studio/client";
-import { type DaemonSettings, type HostDaemons, type HostDialogs } from "../../host/types.js";
-import { daemonFailureOf, type DaemonFailure, type LocalAction } from "./daemon-presentation.js";
+import {
+  type DaemonSettings,
+  type HostClipboard,
+  type HostDaemons,
+  type HostDialogs,
+} from "../../host/types.js";
+import {
+  daemonFailureOf,
+  type DaemonFailure,
+  type LocalAction,
+  type RemoteAction,
+} from "./daemon-presentation.js";
 import { cliPathFromField, settingsFailureText } from "./daemons-screen-view.js";
 
 /** What a `HostDaemons` call that has no value to return came to. */
@@ -38,6 +48,19 @@ export function runLocalAction(
   call: LocalAction["call"],
 ): Promise<ActionOutcome> {
   return failureOf(() => daemons.local[call]());
+}
+
+/** Start the current SSH entry's daemon, or probe its host again. Acceptance only: the outcome is a state change. */
+export function runRemoteAction(
+  daemons: HostDaemons,
+  call: RemoteAction["call"],
+): Promise<ActionOutcome> {
+  return failureOf(() => daemons.remote[call]());
+}
+
+/** Copy a command through the host's clipboard; a refusal is reported as the banner's `unexpected`. */
+export function copyCommand(clipboard: HostClipboard, command: string): Promise<ActionOutcome> {
+  return failureOf(() => clipboard.writeText(command));
 }
 
 export const STOP_CONFIRM_MESSAGE = "Agents running on this daemon will stop.";

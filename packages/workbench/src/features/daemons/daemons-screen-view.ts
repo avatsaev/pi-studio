@@ -7,16 +7,24 @@
  * (`swe/features/desktop-daemon-registry.md` § Public contract 4, § Error handling & edge cases).
  */
 
-import { type DaemonEntryView, type DaemonSettings } from "../../host/types.js";
+import {
+  type DaemonEntryView,
+  type DaemonSettings,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 import {
   INSTALL_CLI_COMMAND,
+  MIN_REMOTE_CLI_VERSION,
+  REMOTE_INSTALL_COMMAND,
   UPDATE_CLI_COMMAND,
   daemonErrorView,
   daemonFailureOf,
   localStateView,
+  remoteStateView,
   type DaemonFailure,
   type LocalAction,
   type LocalTone,
+  type RemoteAction,
 } from "./daemon-presentation.js";
 import { type DaemonsSnapshot } from "./use-daemons.js";
 
@@ -37,12 +45,20 @@ export interface LocalRowView {
   notice: LocalNotice | null;
 }
 
+export interface RemoteRowView {
+  label: string;
+  tone: LocalTone;
+  actions: RemoteAction[];
+  /** For a missing or outdated CLI: the text and the command to copy. */
+  notice: LocalNotice | null;
+}
+
 export interface EntryRowView {
   id: string;
   name: string;
-  /** "This machine", "Address" or "Relay". */
+  /** "This machine", "Address", "Relay" or "SSH". */
   kindLabel: string;
-  /** A direct entry's address, as typed; `null` for the others. */
+  /** A direct entry's address as typed, or an SSH entry's `user@host:port`; `null` for the others. */
   address: string | null;
   current: boolean;
   /** A relay entry whose pairing link stopped working (memory only); the row offers "Replace link". */
@@ -51,6 +67,8 @@ export interface EntryRowView {
   actions: EntryAction[];
   /** The local entry's state and actions; `null` for every other entry. */
   local: LocalRowView | null;
+  /** The current SSH entry's state and actions; `null` for every other entry. */
+  remote: RemoteRowView | null;
 }
 
 export interface BannerView {
@@ -75,6 +93,7 @@ const KIND_LABELS: Record<DaemonEntryView["kind"], string> = {
   local: "This machine",
   direct: "Address",
   relay: "Relay",
+  ssh: "SSH",
 };
 
 const NO_LINKS: ReadonlySet<string> = new Set();
@@ -96,6 +115,32 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
       return {
         text: `Found version ${local.version}. Update it, then retry.`,
         command: UPDATE_CLI_COMMAND,
+      };
+    default:
+      return null;
+  }
+}
+
+/** What the row shows under the name: a direct entry's address as typed, an SSH entry's `user@host:port`. */
+function entryAddress(entry: DaemonEntryView): string | null {
+  if (entry.kind === "direct") return entry.address ? entry.address : null;
+  if (entry.kind !== "ssh" || entry.ssh === undefined) return null;
+  const { host, user, port } = entry.ssh;
+  return `${user === undefined ? "" : `${user}@`}${host}${port === undefined ? "" : `:${port}`}`;
+}
+
+/** The SSH entry's explanation under its state; the command is offered with a Copy button (D22). */
+export function remoteNotice(remote: RemoteDaemonState): LocalNotice | null {
+  switch (remote.state) {
+    case "not_installed":
+      return {
+        text: "Install it on the host (it needs Node.js), then retry.",
+        command: REMOTE_INSTALL_COMMAND,
+      };
+    case "cli_outdated":
+      return {
+        text: `Found version ${remote.version}; version ${MIN_REMOTE_CLI_VERSION} or newer is needed. Update it on the host, then retry.`,
+        command: REMOTE_INSTALL_COMMAND,
       };
     default:
       return null;
@@ -126,15 +171,26 @@ function entryRow(
       notice: localNotice(snapshot.local),
     };
   }
+  let remote: RemoteRowView | null = null;
+  if (entry.kind === "ssh" && current && snapshot.remote !== null) {
+    const state = remoteStateView(snapshot.remote);
+    remote = {
+      label: state.label,
+      tone: state.tone,
+      actions: state.actions,
+      notice: remoteNotice(snapshot.remote),
+    };
+  }
   return {
     id: entry.id,
     name: entry.name,
     kindLabel: KIND_LABELS[entry.kind],
-    address: entry.kind === "direct" && entry.address ? entry.address : null,
+    address: entryAddress(entry),
     current,
     linkInvalid,
     actions,
     local,
+    remote,
   };
 }
 

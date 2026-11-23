@@ -17,16 +17,31 @@ use pistudiodesktop_model::Kind;
 /// The code a command answers with when a secret could not be stored.
 pub(crate) const STORE_FAILED: &str = "secret_store_failed";
 
-/// Which item of an entry a secret is: a relay entry's is its pairing link, the others' a password.
+/// Which item of an entry a secret is: a relay entry's is its pairing link, the others' a password;
+/// an SSH entry also has the account's password and the identity file's passphrase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Slot {
     Password,
     PairingLink,
+    SshPassword,
+    SshPassphrase,
 }
 
 impl Slot {
+    /// The slot of the secret an entry of `kind` is dialled with: the daemon's password, or a
+    /// relay entry's pairing link.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn of(kind: Kind) -> Slot {
         if kind == Kind::Relay { Slot::PairingLink } else { Slot::Password }
+    }
+
+    /// Every slot an entry of `kind` can have an item in.
+    pub(crate) fn all_of(kind: Kind) -> &'static [Slot] {
+        match kind {
+            Kind::Relay => &[Slot::PairingLink],
+            Kind::Ssh => &[Slot::Password, Slot::SshPassword, Slot::SshPassphrase],
+            Kind::Local | Kind::Direct => &[Slot::Password],
+        }
     }
 }
 
@@ -45,6 +60,8 @@ mod native {
             match slot {
                 Slot::Password => SecretKind::Password,
                 Slot::PairingLink => SecretKind::PairingLink,
+                Slot::SshPassword => SecretKind::SshPassword,
+                Slot::SshPassphrase => SecretKind::SshPassphrase,
             },
         )
     }

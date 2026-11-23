@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installHost, resetHostForTests } from "../../host/install.js";
-import { type DaemonSettings, type HostDaemons } from "../../host/types.js";
+import { type DaemonSettings, type HostDaemons, type RemoteDaemonState } from "../../host/types.js";
 import { DaemonError, createTestDaemons } from "../../test/test-daemons.js";
 import { createTestHost } from "../../test/test-host.js";
 import { DaemonsScreen } from "./DaemonsScreen.js";
+import { REMOTE_INSTALL_COMMAND } from "./daemon-presentation.js";
 import {
+  copyCommand,
   openEntry,
   removeConfirmMessage,
   removeEntry,
   runLocalAction,
+  runRemoteAction,
   runLocalActionAsking,
   saveAutoStart,
   STOP_CONFIRM_MESSAGE,
@@ -235,5 +238,58 @@ describe("runLocalActionAsking", () => {
     await runLocalActionAsking(daemons, dialogs(false, asked), "stop", false);
 
     expect(asked).toEqual([]);
+  });
+});
+
+function sshRegistry(remote: RemoteDaemonState) {
+  return createTestDaemons({
+    entries: [{ id: "s", kind: "ssh", name: "Box", host: "box" }],
+    currentId: "s",
+    remote,
+  });
+}
+
+describe("runRemoteAction", () => {
+  it("starts the remote daemon and lets the state change report the outcome", async () => {
+    const daemons = sshRegistry({ state: "stopped" });
+
+    expect(await runRemoteAction(daemons, "start")).toBeNull();
+    expect(daemons.snapshot().remote?.state).toBe("starting");
+    await daemons.settled();
+    expect(daemons.snapshot().remote?.state).toBe("running");
+  });
+
+  it("reports what a missing or outdated CLI rejects a start with", async () => {
+    expect(await runRemoteAction(sshRegistry({ state: "not_installed" }), "start")).toBe(
+      "not_installed",
+    );
+    expect(
+      await runRemoteAction(sshRegistry({ state: "cli_outdated", version: "0.0.1" }), "start"),
+    ).toBe("cli_outdated");
+  });
+
+  it("probes again on refresh and reports busy while a probe runs", async () => {
+    expect(await runRemoteAction(sshRegistry({ state: "not_installed" }), "refresh")).toBeNull();
+    expect(await runRemoteAction(sshRegistry({ state: "checking" }), "refresh")).toBe("busy");
+  });
+
+  it("reports wrong_kind when the current entry is not ssh", async () => {
+    expect(await runRemoteAction(registry(), "refresh")).toBe("wrong_kind");
+  });
+});
+
+describe("copyCommand", () => {
+  it("writes the command to the host's clipboard", async () => {
+    const written: string[] = [];
+    const clipboard = { writeText: async (text: string) => void written.push(text) };
+
+    expect(await copyCommand(clipboard, REMOTE_INSTALL_COMMAND)).toBeNull();
+    expect(written).toEqual(["npm install -g @av-pi-studio/cli"]);
+  });
+
+  it("reports unexpected when the clipboard refuses", async () => {
+    const host = createTestHost({ clipboardFails: true });
+
+    expect(await copyCommand(host.clipboard, REMOTE_INSTALL_COMMAND)).toBe("unexpected");
   });
 });

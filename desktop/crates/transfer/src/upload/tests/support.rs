@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
-use pistudiodesktop_net::dial;
+use pistudiodesktop_net::{DaemonSocket, dial};
 use serde_json::{Value, json};
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::Notify;
@@ -179,7 +179,7 @@ pub async fn fake_connection(limits: Limits, room: usize) -> (Connection, Fake) 
     let config = WebSocketConfig::default().max_message_size(Some(limits.max_message_bytes)).max_frame_size(Some(limits.max_message_bytes));
     let client = WebSocketStream::from_raw_socket(client, Role::Client, Some(config)).await;
     let mut fake = Fake { ws: WebSocketStream::from_raw_socket(daemon, Role::Server, None).await };
-    let (opened, ()) = tokio::join!(Connection::open(client, &APP, limits), fake.handshake());
+    let (opened, ()) = tokio::join!(Connection::open(DaemonSocket::new(client), &APP, limits), fake.handshake());
     (opened.expect("the handshake succeeds"), fake)
 }
 

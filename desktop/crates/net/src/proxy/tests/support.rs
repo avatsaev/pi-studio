@@ -17,9 +17,8 @@ use tokio_tungstenite::{WebSocketStream, accept_async_with_config, client_async_
 
 use crate::limits::MAX_MESSAGE_BYTES;
 use crate::proxy::{LocalUrl, Proxies};
-use crate::stream::Stream;
 use crate::testing::Rng;
-use crate::{Limits, Socket, dial};
+use crate::{DaemonSocket, Limits, dial};
 
 /// What the page's origin is on Linux and macOS.
 pub const ORIGIN: &str = "tauri://localhost";
@@ -181,16 +180,16 @@ impl Rig {
 }
 
 /// A daemon socket from the real dial.
-pub async fn dial_for(port: u16) -> Socket {
+pub async fn dial_for(port: u16) -> DaemonSocket {
     dial(&format!("ws://127.0.0.1:{port}"), None, PATIENCE, MAX_MESSAGE_BYTES).await.unwrap()
 }
 
 /// A daemon socket with message limit `cap`.
-pub async fn upstream(port: u16, cap: usize) -> Socket {
+pub async fn upstream(port: u16, cap: usize) -> DaemonSocket {
     let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     let request = format!("ws://127.0.0.1:{port}/").into_client_request().unwrap();
     let config = WebSocketConfig::default().max_message_size(Some(cap)).max_frame_size(Some(cap));
-    client_async_with_config(request, Stream::Plain(tcp), Some(config)).await.unwrap().0
+    DaemonSocket::new(client_async_with_config(request, tcp, Some(config)).await.unwrap().0)
 }
 
 /// Polls `condition` until it holds, within [`PATIENCE`].

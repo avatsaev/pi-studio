@@ -44,6 +44,7 @@ impl Class {
 /// L6  shell, automation  the shell (what the webview draws), the MCP server
 /// L7  net                 sockets: the dial and the loopback proxy. Only `transfer` and an app binary may use it, and it uses no UI crate
 /// L8  transfer            the transfer engine: the daemon's file-transfer protocol over its own connection. Only an app binary may use it, and it uses no UI crate
+/// L8  relay, ssh          the relay client (protocol 2) and the SSH client: each opens a daemon socket through `net`. Only an app binary may use them, and they use no UI crate
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
     ("model", Class::Layer(1)),
@@ -55,6 +56,9 @@ pub const TABLE: &[(&str, Class)] = &[
     ("net", Class::Layer(7)),
     // Above `net`, which it dials through, and above the shell, so that neither the shell nor the engine can depend on it: only apps may.
     ("transfer", Class::Layer(8)),
+    // Beside `transfer`: above `net`, which they dial through, and above the shell and the engine, so only apps may use them.
+    ("relay", Class::Layer(8)),
+    ("ssh", Class::Layer(8)),
     ("testkit", Class::Testkit),
     // Apps and tooling.
     ("pistudiodesktop", Class::Exempt),
@@ -79,6 +83,15 @@ pub const UI_LAYER: u8 = 6;
 
 /// The highest layer in [`TABLE`]. Apps (exempt) sit one above it.
 pub const TOP_LAYER: u8 = 8;
+
+/// Packages that must never be in `Cargo.lock`: `aws-lc-rs` and `aws-lc-sys` need cmake or NASM on Windows.
+/// The TLS provider and russh are both built with `ring` (workspace `Cargo.toml`).
+const FORBIDDEN_PACKAGES: &[&str] = &["aws-lc-rs", "aws-lc-sys"];
+
+/// The names in `lock` (the text of `Cargo.lock`) that are in [`FORBIDDEN_PACKAGES`].
+pub fn forbidden_in_lock(lock: &str) -> Vec<String> {
+    lock.lines().filter_map(|l| l.strip_prefix("name = \"")?.strip_suffix('"')).filter(|name| FORBIDDEN_PACKAGES.contains(name)).map(str::to_string).collect()
+}
 
 pub fn short_name(pkg: &str) -> &str {
     pkg.strip_prefix(PREFIX).unwrap_or(pkg)
@@ -285,6 +298,36 @@ mod tests {
             "pistudiodesktop-store (L3) depends on pistudiodesktop-net (L7)",
         ] {
             assert!(found.iter().any(|f| f.starts_with(expected)), "missing `{expected}` in {found:#?}");
+        }
+    }
+
+    #[test]
+    fn forbidden_packages_are_found_in_a_lock() {
+        let lock = "[[package]]\nname = \"ring\"\nversion = \"0.17\"\n\n[[package]]\nname = \"aws-lc-sys\"\nversion = \"0.20\"\n\n[[package]]\nname = \"aws-lc-rs-like\"\n";
+        assert_eq!(forbidden_in_lock(lock), vec!["aws-lc-sys".to_string()]);
+        assert!(forbidden_in_lock("[[package]]\nname = \"ring\"\n").is_empty());
+    }
+
+    #[test]
+    fn relay_and_ssh_are_usable_by_apps_only() {
+        for name in ["relay", "ssh"] {
+            let full = format!("pistudiodesktop-{name}");
+            let crates = [
+                krate("pistudiodesktop-engine", &[(full.as_str(), DepKind::Normal, true)]),
+                krate("pistudiodesktop-shell", &[(full.as_str(), DepKind::Normal, true)]),
+                krate("pistudiodesktop-transfer", &[(full.as_str(), DepKind::Normal, true)]),
+                krate("pistudiodesktop-net", &[(full.as_str(), DepKind::Normal, true)]),
+                krate("pistudiodesktop", &[(full.as_str(), DepKind::Normal, true)]),
+                krate(full.as_str(), &[("pistudiodesktop-net", DepKind::Normal, true)]),
+            ];
+            let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+            assert_eq!(found.len(), 4, "{name}: {found:#?}");
+            for lower in ["engine (L5)", "shell (L6)", "net (L7)", "transfer (L8)"] {
+                assert!(
+                    found.iter().any(|f| f.starts_with(&format!("pistudiodesktop-{lower} depends on {full} (L8)"))),
+                    "{name}: missing {lower} in {found:#?}"
+                );
+            }
         }
     }
 

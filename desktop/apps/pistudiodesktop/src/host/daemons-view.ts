@@ -1,10 +1,17 @@
-import { type DaemonEntryView, type DaemonSettings, type LocalDaemonState } from "@av-pi-studio/workbench";
+import {
+  type DaemonEntryView,
+  type DaemonSettings,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+  type SshEntryView,
+} from "@av-pi-studio/workbench";
 
 /** The registry as the page holds it: what `HostDaemons.snapshot()` returns. No secret is in it. */
 export interface DaemonsView {
   currentId: string | null;
   entries: DaemonEntryView[];
   local: LocalDaemonState;
+  remote: RemoteDaemonState | null;
   settings: DaemonSettings;
   /** Absent when the app does not say, or says something else. */
   secretStore?: "keychain" | "file";
@@ -15,7 +22,8 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const FAIL_REASONS = ["not_healthy", "timeout", "bad_output", "spawn_failed"] as const;
-const ENTRY_KINDS = ["local", "direct", "relay"] as const;
+const REMOTE_FAIL_REASONS = ["not_healthy", "timeout", "bad_output", "exec_failed", "no_shell"] as const;
+const ENTRY_KINDS = ["local", "direct", "relay", "ssh"] as const;
 
 /** A string, or `undefined` for an absent or null field; `null` for any other type. */
 function optionalString(value: unknown): string | undefined | null {
@@ -52,6 +60,58 @@ function parseLocalState(value: unknown): LocalDaemonState | null {
   }
 }
 
+/** The state of the current `ssh` entry's daemon; `null` for an absent or null field, or an unknown shape. */
+function parseRemoteState(value: unknown): RemoteDaemonState | null {
+  if (!isRecord(value)) return null;
+  switch (value.state) {
+    case "unknown":
+    case "checking":
+    case "running":
+    case "stopped":
+    case "not_installed":
+    case "starting":
+      return { state: value.state };
+    case "cli_outdated":
+      return typeof value.version === "string" ? { state: "cli_outdated", version: value.version } : null;
+    case "failed": {
+      const reason = REMOTE_FAIL_REASONS.find((r) => r === value.reason);
+      return reason ? { state: "failed", reason } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function parseSshView(value: unknown): SshEntryView | null {
+  if (!isRecord(value)) return null;
+  const user = optionalString(value.user);
+  const identityFile = optionalString(value.identityFile);
+  const jump = optionalString(value.jump);
+  const port = value.port === undefined || value.port === null ? undefined : value.port;
+  if (
+    typeof value.host !== "string" ||
+    typeof value.daemonPort !== "number" ||
+    typeof value.hasSshPassword !== "boolean" ||
+    typeof value.hasPassphrase !== "boolean" ||
+    user === null ||
+    identityFile === null ||
+    jump === null ||
+    (port !== undefined && typeof port !== "number")
+  ) {
+    return null;
+  }
+  return {
+    host: value.host,
+    ...(user === undefined ? {} : { user }),
+    ...(port === undefined ? {} : { port }),
+    ...(identityFile === undefined ? {} : { identityFile }),
+    ...(jump === undefined ? {} : { jump }),
+    daemonPort: value.daemonPort,
+    hasSshPassword: value.hasSshPassword,
+    hasPassphrase: value.hasPassphrase,
+  };
+}
+
 /** One entry without its secrets, or `null` when it is not the expected shape. */
 export function parseEntryView(value: unknown): DaemonEntryView | null {
   if (!isRecord(value)) return null;
@@ -66,9 +126,16 @@ export function parseEntryView(value: unknown): DaemonEntryView | null {
   ) {
     return null;
   }
-  return address === undefined
-    ? { id: value.id, kind, name: value.name, hasPassword: value.hasPassword }
-    : { id: value.id, kind, name: value.name, address, hasPassword: value.hasPassword };
+  const ssh = value.ssh === undefined || value.ssh === null ? undefined : parseSshView(value.ssh);
+  if (ssh === null || (kind === "ssh") !== (ssh !== undefined)) return null;
+  return {
+    id: value.id,
+    kind,
+    name: value.name,
+    ...(address === undefined ? {} : { address }),
+    ...(ssh === undefined ? {} : { ssh }),
+    hasPassword: value.hasPassword,
+  };
 }
 
 function parseSettings(value: unknown): DaemonSettings | null {
@@ -79,7 +146,7 @@ function parseSettings(value: unknown): DaemonSettings | null {
   return { autoStartLocalDaemon, cliPath };
 }
 
-/** The view `{ currentId, entries, local, settings, secretStore? }`, or `null` when it is not the expected shape. */
+/** The view `{ currentId, entries, local, remote, settings, secretStore? }`, or `null` when it is not the expected shape. */
 export function parseDaemonsView(value: unknown): DaemonsView | null {
   if (!isRecord(value)) return null;
   const { currentId, entries: rawEntries } = value;
@@ -94,9 +161,10 @@ export function parseDaemonsView(value: unknown): DaemonsView | null {
   const local = parseLocalState(value.local);
   const settings = parseSettings(value.settings);
   if (!local || !settings) return null;
+  const remote = parseRemoteState(value.remote);
   // Any other value, and an absent field, are dropped: the page then says nothing.
   const { secretStore } = value;
   return secretStore === "keychain" || secretStore === "file"
-    ? { currentId, entries, local, settings, secretStore }
-    : { currentId, entries, local, settings };
+    ? { currentId, entries, local, remote, settings, secretStore }
+    : { currentId, entries, local, remote, settings };
 }

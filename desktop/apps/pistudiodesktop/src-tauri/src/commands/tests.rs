@@ -3,7 +3,7 @@
 //! system.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::transfer_mode::TransfersMode;
-use pistudiodesktop_shell::{AppInfo, Services};
+use pistudiodesktop_shell::{AppInfo, Envelope, Services};
 use serde_json::{Value, json};
 use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -26,15 +26,18 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
-    save_discard, save_finish, save_write, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open, unwrap_reply,
-    upload_pick,
+    save_discard, save_finish, save_write, ssh_config_hosts, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open,
+    unwrap_reply, upload_pick,
 };
 use crate::bridge::{Bridge, Launch, on_run_event, spawn_owner};
 use crate::daemons::Events;
 use crate::services::opener_plugin;
+use crate::ssh_session::{SshEnv, SshSessions};
 use crate::transfers::TransferEngine;
 use crate::transport::{self, Transport};
 
+mod relay_tests;
+mod ssh_tests;
 mod transfer_tests;
 mod transport_tests;
 
@@ -63,11 +66,28 @@ fn built_app_telling(config_dir: &Path, services: Services, launch: Launch) -> A
 }
 
 /// The same, with the session's secret store given (a test that takes a secret away holds it).
-fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
+fn built_app_stored(config_dir: &Path, services: Services, launch: Launch, store: Arc<dyn SecretStore>) -> App<MockRuntime> {
+    // No login shell is asked and no key is known: a test of the SSH entry builds its own sessions.
+    let ssh = SshSessions::new(SshEnv::fixed(config_dir.join("home"), config_dir.join("known_hosts"), Vec::new()));
+    built_app_ssh(config_dir, services, |_, _| launch, store, ssh)
+}
+
+/// The same, with the SSH sessions given (a test of the SSH entry holds them to look at the session)
+/// and the launch made from the owner thread's channel and the platform hooks, as `main` starts the
+/// runner from them. The remote commands run over `ssh`, as in `main`.
+fn built_app_ssh(
+    config_dir: &Path,
+    mut services: Services,
+    make_launch: impl FnOnce(&Sender<Envelope>, &Services) -> Launch,
+    store: Arc<dyn SecretStore>,
+    ssh: SshSessions,
+) -> App<MockRuntime> {
     let transport = Transport::new();
-    // As `main` does: `ui.inspect` reads the proxied connections through the hook.
-    services.transports = Some(transport.inspector());
+    // As `main` does: `ui.inspect` reads the proxied connections and the SSH session through the hook.
+    services.transports = Some(transport.inspector(&ssh));
     let (requests, inbox) = channel();
+    services.remote_run = Some(ssh.remote_run_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    let launch = make_launch(&requests, &services);
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())
         .plugin(opener_plugin())
@@ -76,6 +96,7 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
         .manage(crate::transfers::Transfers::default())
         .manage(Previews::default())
         .manage(transport)
+        .manage(ssh.clone())
         .on_window_event(|window, event| {
             transport::on_window_event(window, event);
             crate::transfers::on_destroyed(window, event);
@@ -105,12 +126,13 @@ fn built_app_stored(config_dir: &Path, mut services: Services, launch: Launch, s
             preview_mount,
             preview_release,
             transport_open,
+            ssh_config_hosts,
             unlisted
         ])
         .build(tauri::generate_context!())
         .unwrap();
     // As `main` does: the engine's snapshot is what `ui.inspect` shows as `transfers`.
-    let engine = TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests, Arc::clone(&store)), "9.9.9").unwrap();
+    let engine = TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests, Arc::clone(&store)), ssh, "9.9.9").unwrap();
     services.transfers = Some(engine.inspector());
     app.manage(engine);
     app.manage(services.clone());
@@ -442,7 +464,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_twenty_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_twenty_one_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -468,6 +490,7 @@ fn the_capability_grants_the_twenty_commands_and_listening_for_events_and_nothin
             "allow-preview-mount",
             "allow-preview-release",
             "allow-transport-open",
+            "allow-ssh-config-hosts",
             "core:event:allow-listen",
             "core:event:allow-unlisten"
         ])
@@ -951,7 +974,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
     let dir = tempfile::tempdir().unwrap();
     let (app, window) = app_on(dir.path());
     invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1", "password": "hunter2"}})).unwrap();
-    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "pi://secret-link"}})).unwrap();
+    invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=secret-link"}})).unwrap();
     let booted = invoke(&window, "boot", json!({})).unwrap();
     let inspect =
         tauri::async_runtime::block_on(app.state::<Bridge>().ask(pistudiodesktop_shell::Request::Control { method: "ui.inspect".into(), params: Value::Null }))
@@ -959,7 +982,7 @@ fn ui_inspect_and_boot_hold_the_same_view_and_neither_holds_a_secret() {
     assert_eq!(booted["daemons"], inspect["result"]["daemons"]);
     assert_eq!(
         inspect["result"]["connection"],
-        json!({"secretStore": "memory", "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        json!({"secretStore": "memory", "transports": [], "ssh": {"state": "none", "hops": 0, "channels": 0}, "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
         "the test harness gives the session a memory store"
     );
     for text in [booted.to_string(), inspect.to_string()] {
@@ -985,6 +1008,20 @@ fn resolving_the_current_entry_answers_the_address_and_no_password_to_the_page()
     assert!(!answer.to_string().contains("hunter2"), "{answer}");
     // It takes no id: a page cannot ask for another entry's secret.
     assert_eq!(invoke(&window, "daemon_resolve_current", json!({"id": "local"})).unwrap()["url"], "10.0.0.2:8080");
+}
+
+#[test]
+fn resolving_a_relay_entry_answers_the_relays_address_and_never_the_link() {
+    const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&relay=https://relay.example:8443/&relayTls=1&note=hunter2-link";
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window) = app_on(dir.path());
+    let added = invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": LINK}})).unwrap();
+    let switch =
+        pistudiodesktop_shell::Request::Control { method: "engine.execute".into(), params: json!({"command": "daemon.switch", "params": {"id": added["id"]}}) };
+    assert_eq!(tauri::async_runtime::block_on(app.state::<Bridge>().ask(switch)).unwrap()["ok"], true);
+    let answer = invoke(&window, "daemon_resolve_current", json!({})).unwrap();
+    assert_eq!(answer, json!({"url": "wss://relay.example:8443", "connect": true}));
+    assert!(!answer.to_string().contains("hunter2-link") && !answer.to_string().contains("AAECAwQ"), "{answer}");
 }
 
 #[test]

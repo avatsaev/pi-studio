@@ -16,6 +16,7 @@ const LOCAL_UP: LifecycleFacts = {
   currentId: "local",
   currentKind: "local",
   local: "running",
+  remote: null,
   status: "open",
   errorReason: null,
 };
@@ -23,6 +24,7 @@ const RELAY_CONNECTING: LifecycleFacts = {
   currentId: "r",
   currentKind: "relay",
   local: "running",
+  remote: null,
   status: "connecting",
   errorReason: null,
 };
@@ -30,6 +32,7 @@ const DIRECT_UP: LifecycleFacts = {
   currentId: "d",
   currentKind: "direct",
   local: "running",
+  remote: null,
   status: "open",
   errorReason: null,
 };
@@ -321,5 +324,52 @@ describe("watchDaemonLifecycle", () => {
     daemons.requestManage();
     expect(log.opened).toBe(1);
     expect(daemons.listenerCount()).toBe(0);
+  });
+});
+
+describe("opening the screen for an SSH entry (S8)", () => {
+  const SSH: LifecycleFacts = {
+    currentId: "s",
+    currentKind: "ssh",
+    local: "running",
+    remote: "checking",
+    status: "idle",
+    errorReason: null,
+  };
+  const OPEN = [{ kind: "openScreen" }];
+
+  it("opens when the state becomes stopped, not_installed, cli_outdated or failed", () => {
+    for (const remote of ["stopped", "not_installed", "cli_outdated", "failed"] as const) {
+      expect(react(SSH, { remote })).toEqual(OPEN);
+    }
+  });
+
+  it("does not open for any other state, nor when the state did not change", () => {
+    for (const remote of ["unknown", "checking", "starting", "running"] as const) {
+      expect(react({ ...SSH, remote: "stopped" }, { remote })).toEqual([]);
+    }
+    expect(react({ ...SSH, remote: "stopped" }, { remote: "stopped" })).toEqual([]);
+  });
+
+  it("opens again when a failed start ends in another state needing the user", () => {
+    expect(react({ ...SSH, remote: "starting" }, { remote: "failed" })).toEqual(OPEN);
+  });
+
+  it("does not open for an entry that is not ssh", () => {
+    expect(react(DIRECT_UP, { remote: "stopped" })).toEqual([]);
+  });
+
+  it("opens on mount and on a state change, through the watcher", () => {
+    const daemons = createTestDaemons({
+      entries: [{ id: "s", kind: "ssh", name: "Box", host: "box" }],
+      currentId: "s",
+      remote: { state: "stopped" },
+    });
+    const { log } = mount(daemons);
+    expect(log.opened).toBe(1);
+    daemons.setRemoteState({ state: "starting" });
+    expect(log.opened).toBe(1);
+    daemons.setRemoteState({ state: "failed", reason: "timeout" });
+    expect(log.opened).toBe(2);
   });
 });

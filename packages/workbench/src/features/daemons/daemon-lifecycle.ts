@@ -14,14 +14,22 @@
  */
 
 import { type ConnectionState, type RelayConnectReason } from "@av-pi-studio/client";
-import { type DaemonEntryView, type HostDaemons, type LocalDaemonState } from "../../host/types.js";
+import {
+  type DaemonEntryView,
+  type HostDaemons,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { remoteNeedsScreen } from "./daemon-presentation.js";
 
 /** What the decision looks at: the registry's current entry and the connection. */
 export interface LifecycleFacts {
   currentId: string | null;
   currentKind: DaemonEntryView["kind"] | null;
   local: LocalDaemonState["state"];
+  /** The current SSH entry's daemon state; `null` when the current entry is not `ssh`. */
+  remote: RemoteDaemonState["state"] | null;
   status: ConnectionState;
   errorReason: RelayConnectReason | null;
 }
@@ -34,7 +42,9 @@ export type LifecycleReaction =
   /** Ask the host to probe the local daemon again; once per drop. */
   | { kind: "refreshLocal" }
   /** The local daemon came up from a start and the window is connected to nothing: connect. */
-  | { kind: "connect" };
+  | { kind: "connect" }
+  /** The current SSH entry's daemon needs the user (S8): open the Daemons screen. */
+  | { kind: "openScreen" };
 
 export function lifecycleReactions(
   prev: LifecycleFacts,
@@ -78,6 +88,15 @@ export function lifecycleReactions(
     reactions.push({ kind: "connect" });
   }
 
+  // S8: an SSH daemon is never started by itself; the screen opens when the user has to act.
+  if (
+    next.currentKind === "ssh" &&
+    remoteNeedsScreen(next.remote) &&
+    (prev.currentId !== next.currentId || prev.remote !== next.remote)
+  ) {
+    reactions.push({ kind: "openScreen" });
+  }
+
   return reactions;
 }
 
@@ -92,6 +111,9 @@ export interface LifecycleEffects {
 
 function applyReaction(effects: LifecycleEffects, reaction: LifecycleReaction): void {
   switch (reaction.kind) {
+    case "openScreen":
+      effects.openScreen();
+      return;
     case "leave":
       effects.leave();
       effects.openScreen();
@@ -118,6 +140,7 @@ function readFacts(daemons: HostDaemons): LifecycleFacts {
     currentId: snapshot.currentId,
     currentKind: snapshot.entries.find((entry) => entry.id === snapshot.currentId)?.kind ?? null,
     local: snapshot.local.state,
+    remote: snapshot.remote?.state ?? null,
     status,
     errorReason,
   };
@@ -129,6 +152,8 @@ function readFacts(daemons: HostDaemons): LifecycleFacts {
  */
 export function watchDaemonLifecycle(daemons: HostDaemons, effects: LifecycleEffects): () => void {
   let prev = readFacts(daemons);
+  // A window that opens on an SSH entry already waiting for the user has no change to react to.
+  if (remoteNeedsScreen(prev.remote)) effects.openScreen();
   const check = (): void => {
     const next = readFacts(daemons);
     const reactions = lifecycleReactions(prev, next);

@@ -118,14 +118,19 @@ fn cmd_layers() -> Result<(), String> {
         println!("{:<20} {:<14} {}", c.name, layers::describe(layers::classify(&c.name)), deps.join(" "));
     }
     let violations = layers::check(&crates);
-    if violations.is_empty() {
-        println!("\nlayering: ok ({} crates)", crates.len());
+    let lock = std::fs::read_to_string("Cargo.lock").map_err(|e| format!("Cargo.lock: {e}"))?;
+    let forbidden = layers::forbidden_in_lock(&lock);
+    if violations.is_empty() && forbidden.is_empty() {
+        println!("\nlayering: ok ({} crates, no aws-lc package)", crates.len());
         return Ok(());
     }
     for v in &violations {
         eprintln!("  {v}");
     }
-    Err(format!("{} layering violation(s)", violations.len()))
+    for name in &forbidden {
+        eprintln!("  Cargo.lock holds `{name}`: it needs cmake or NASM on Windows; build the dependency with `ring`");
+    }
+    Err(format!("{} layering violation(s), {} forbidden package(s)", violations.len(), forbidden.len()))
 }
 
 /// Everything below the apps must build for wasm32: it keeps file-system, thread and OS

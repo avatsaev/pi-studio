@@ -61,6 +61,8 @@ pub mod picked;
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod process;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod remote_supervisor;
 pub mod resume;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod saves;

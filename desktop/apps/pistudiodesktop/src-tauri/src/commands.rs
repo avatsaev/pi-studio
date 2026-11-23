@@ -1,11 +1,11 @@
-//! What the webview may call: twenty commands, and nothing else of the app is reachable from it.
+//! What the webview may call: twenty-one commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
 //! `allow-save-finish`, `allow-save-discard`, `allow-upload-pick`, `allow-transfer-upload`, `allow-transfer-save`,
 //! `allow-transfer-cancel`, `allow-transfers-set`, `allow-preview-mount`,
-//! `allow-preview-release` and `allow-transport-open` to the main window, and listening for events (`core:event:allow-listen`
+//! `allow-preview-release`, `allow-transport-open` and `allow-ssh-config-hosts` to the main window, and listening for events (`core:event:allow-listen`
 //! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
 //! `daemons_manage`, `connection_resume` and `transfer_progress`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
@@ -28,6 +28,7 @@ use tauri::{Manager as _, State, ipc};
 
 use crate::bridge::Bridge;
 use crate::daemons as app_daemons;
+use crate::ssh_session::{HostList, SshSessions};
 use crate::transfers::{self, TransferEngine, TransferFailure, Transfers};
 use crate::transport::{self, Failure, Opened, Transport};
 
@@ -42,6 +43,7 @@ pub async fn boot(
     transport: State<'_, Transport>,
     engine: State<'_, TransferEngine>,
     picked: State<'_, Arc<Picked>>,
+    ssh: State<'_, SshSessions>,
 ) -> Result<Value, String> {
     // A reloaded page has no transfers running, whatever the old one last said, and holds none of
     // the preview URLs, picked files, proxied connections or file transfers it was given or opened:
@@ -51,6 +53,8 @@ pub async fn boot(
     previews.clear();
     picked.clear();
     transport.close_all().await;
+    // A host key the person refused is asked about again on the new page (S6).
+    ssh.forget_refused_keys();
     engine.leave().await;
     unwrap_reply(bridge.ask(Request::Boot).await?)
 }
@@ -69,8 +73,9 @@ pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Optio
 /// starts it when it is stopped and the setting says so. It runs off the session's thread, which
 /// is never held up. Takes no id: the page is trusted with the entry it opens and no other. For a
 /// local or direct entry the answer holds no password (`transport_open` reads it, in Rust); for a
-/// relay entry `url` is the pairing link, the only secret a command still returns. Nothing here
-/// logs one.
+/// relay entry `url` is the relay's address (`ws(s)://<relay host>`, or `ws://<host>` for a link
+/// with a host hint), derived from the stored link, which no command returns. Nothing here
+/// logs a secret.
 #[tauri::command]
 pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>) -> Result<Value, String> {
     let (access, supervisor) = (bridge.access(), Arc::clone(&supervisor));
@@ -79,9 +84,14 @@ pub async fn daemon_resolve_current(bridge: State<'_, Bridge>, supervisor: State
 
 /// Open a connection to the current entry's daemon and answer `{ localUrl }`: a single-use
 /// `ws://127.0.0.1:<port>/<token>` the page connects its own `WebSocket` to, once Rust's socket to
-/// the daemon is open. `url` is what the page derived from the entry's stored address; it is
-/// checked against the entry, never dialled for its own sake. The password stays in Rust. Errors
-/// are `{ code, message }` ([`Failure`]). Takes the calling webview's origin from the webview.
+/// the daemon is open. `url` is what the page derived from the entry (a local or direct entry's
+/// stored address, a relay entry's relay address); it is checked against the entry, never dialled
+/// for its own sake. A relay entry is opened here too, by relay protocol 2 with the key of its
+/// stored pairing link, and an SSH entry through a channel of the entry's shared SSH session. The
+/// passwords and the link stay in Rust. Errors are `{ code, message }`
+/// ([`Failure`]): a dial's codes, the relay's reasons (`wrong_key`, `daemon_offline`, …),
+/// `invalid_link` and the SSH codes (`auth_failed`, `host_key_unknown`, `daemon_not_running`, …).
+/// Takes the calling webview's origin from the webview.
 /// A connection that opened says the daemon is reachable, so a file transfer that waits to try
 /// again does it now (the engine only ever serves the current entry, which is the one just opened).
 #[tauri::command]
@@ -90,13 +100,24 @@ pub async fn transport_open<R: tauri::Runtime>(
     bridge: State<'_, Bridge>,
     transport: State<'_, Transport>,
     engine: State<'_, TransferEngine>,
+    ssh: State<'_, SshSessions>,
     url: String,
 ) -> Result<Opened, Failure> {
     let page = webview.url().map_err(|e| Failure { code: "proxy_failed", message: format!("The page's address is not known: {e}.") })?;
     let origin = transport::origin_of(&page)?;
-    let opened = transport.open(&bridge.access(), &origin, &url).await.map(|local_url| Opened { local_url })?;
+    let opened = transport.open(&bridge.access(), &ssh, &origin, &url).await.map(|local_url| Opened { local_url })?;
     engine.wake();
     Ok(opened)
+}
+
+/// The plain `Host` names of `~/.ssh/config` and its includes, in file order, at most 256, as
+/// `{ hosts: [{ alias, hostName?, user?, port?, identityFile?, jump? }] }`: what the SSH form of
+/// the Daemons screen offers (choosing one stores only its alias). An absent file is an empty list;
+/// a file that does not parse is refused with `{ code: "ssh_config", message }`. The file is read
+/// and never written, and nothing is logged.
+#[tauri::command]
+pub async fn ssh_config_hosts(ssh: State<'_, SshSessions>) -> Result<HostList, Failure> {
+    ssh.config_hosts().await
 }
 
 /// Switch the window to another daemon entry: ask first when file transfers are running, have the

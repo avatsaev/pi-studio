@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type LocalDaemonState } from "../../host/types.js";
+import { type LocalDaemonState, type RemoteDaemonState } from "../../host/types.js";
 import {
   DAEMON_ERROR_CODES,
   INSTALL_CLI_COMMAND,
@@ -8,6 +8,8 @@ import {
   daemonFailureOf,
   isDaemonErrorCode,
   localStateView,
+  remoteNeedsScreen,
+  remoteStateView,
 } from "./daemon-presentation.js";
 
 const ALL_LOCAL_STATES: LocalDaemonState[] = [
@@ -29,6 +31,62 @@ const ALL_LOCAL_STATES: LocalDaemonState[] = [
 function kinds(state: LocalDaemonState): string[] {
   return localStateView(state).actions.map((a) => a.kind);
 }
+
+function actions(state: RemoteDaemonState): string[] {
+  return remoteStateView(state).actions.map((a) => `${a.kind}:${a.call}`);
+}
+
+describe("remoteStateView", () => {
+  it("offers Start for a stopped or failed daemon, and Retry for a probe", () => {
+    expect(actions({ state: "stopped" })).toEqual(["start:start"]);
+    expect(actions({ state: "failed", reason: "timeout" })).toEqual([
+      "start:start",
+      "retry:refresh",
+    ]);
+    expect(actions({ state: "failed", reason: "no_shell" })).toEqual([
+      "start:start",
+      "retry:refresh",
+    ]);
+  });
+
+  it("offers Retry (a new probe) for a missing or outdated CLI and an unchecked host", () => {
+    expect(actions({ state: "not_installed" })).toEqual(["retry:refresh"]);
+    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual(["retry:refresh"]);
+    expect(actions({ state: "unknown" })).toEqual(["retry:refresh"]);
+  });
+
+  it("offers nothing while checking, starting or running", () => {
+    expect(actions({ state: "checking" })).toEqual([]);
+    expect(actions({ state: "starting" })).toEqual([]);
+    expect(actions({ state: "running" })).toEqual([]);
+  });
+
+  it("words each state and flags failures as errors", () => {
+    expect(remoteStateView({ state: "not_installed" })).toMatchObject({
+      label: "pi-studio is not installed on this host",
+      tone: "error",
+    });
+    expect(remoteStateView({ state: "cli_outdated", version: "0.0.100" }).label).toContain(
+      "0.0.100",
+    );
+    expect(remoteStateView({ state: "running" }).tone).toBe("ok");
+    expect(remoteStateView({ state: "stopped" }).tone).toBe("neutral");
+    expect(remoteStateView({ state: "starting" }).tone).toBe("busy");
+    expect(remoteStateView({ state: "failed", reason: "exec_failed" }).tone).toBe("error");
+  });
+});
+
+describe("remoteNeedsScreen", () => {
+  it("is true exactly for stopped, not_installed, cli_outdated and failed (S8)", () => {
+    expect(remoteNeedsScreen("stopped")).toBe(true);
+    expect(remoteNeedsScreen("not_installed")).toBe(true);
+    expect(remoteNeedsScreen("cli_outdated")).toBe(true);
+    expect(remoteNeedsScreen("failed")).toBe(true);
+    for (const state of ["unknown", "checking", "running", "starting", null] as const) {
+      expect(remoteNeedsScreen(state)).toBe(false);
+    }
+  });
+});
 
 describe("localStateView", () => {
   it("labels every local state", () => {
@@ -120,6 +178,13 @@ describe("daemonErrorView", () => {
         "secret_missing",
         "secret_unavailable",
         "secret_store_failed",
+        "invalid_host",
+        "invalid_user",
+        "invalid_port",
+        "invalid_path",
+        "invalid_jump",
+        "not_installed",
+        "ssh_config",
       ].toSorted(),
     );
   });

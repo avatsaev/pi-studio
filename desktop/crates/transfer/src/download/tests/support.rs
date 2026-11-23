@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
-use pistudiodesktop_net::dial;
+use pistudiodesktop_net::{DaemonSocket, dial};
 use serde_json::{Value, json};
 use tokio::io::{DuplexStream, duplex};
 use tokio::sync::{Notify, Semaphore, mpsc};
@@ -270,7 +270,7 @@ pub async fn scripted_with(limits: Limits, room: usize) -> (Arc<Connection>, Dae
         let status = json!({ "type": "status", "payload": { "status": "server_info", "features": { "fileDownloadRanges": true, "fileTransferAck": true, "agentStreamsMode": true } } });
         ws.send(Message::text(status.to_string())).await.expect("the pipe takes the status");
     };
-    let (opened, ()) = tokio::join!(Connection::open(client, &APP, limits), hello_and_status);
+    let (opened, ()) = tokio::join!(Connection::open(DaemonSocket::new(client), &APP, limits), hello_and_status);
     (Arc::new(opened.expect("the handshake succeeds")), Daemon::spawn(ws))
 }
 

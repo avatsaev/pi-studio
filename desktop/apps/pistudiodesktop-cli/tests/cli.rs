@@ -72,6 +72,8 @@ fn commands_lists_the_registry() {
             "daemon.local.stop",
             "daemon.local.restart",
             "daemon.local.refresh",
+            "daemon.remote.start",
+            "daemon.remote.refresh",
             "command.list",
             "settings.get",
             "settings.set",
@@ -87,7 +89,7 @@ fn commands_lists_the_registry() {
 #[test]
 fn daemon_commands_work_from_the_cli_and_the_answers_hold_no_secret() {
     const PASSWORD: &str = "S3CRET-PASSWORD-7f3a91";
-    const LINK: &str = "pi://S3CRET-PAIRING-LINK-b04c52";
+    const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=S3CRET-PAIRING-LINK-b04c52";
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_str().unwrap();
     let add_direct = format!(r#"daemon.add {{"kind":"direct","name":"Work","address":"10.0.0.9:8080","password":"{PASSWORD}"}}"#);

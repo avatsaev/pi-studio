@@ -16,6 +16,7 @@ import {
   daemonErrorView,
   daemonFailureOf,
   localStateView,
+  remoteStateView,
 } from "../daemons/daemon-presentation.js";
 import { LINK_INVALID_LABEL } from "../daemons/daemons-screen-view.js";
 import type { DaemonsSnapshot } from "../daemons/use-daemons.js";
@@ -34,6 +35,7 @@ const KIND_LABELS: Record<DaemonEntryView["kind"], string> = {
   local: "Local",
   direct: "Direct",
   relay: "Relay",
+  ssh: "SSH",
 };
 
 /** The local state's tone as the connection kind that draws the same dot (`ok` never reaches here). */
@@ -111,10 +113,16 @@ export function daemonSwitcherView(input: {
 
   // No address is typed in this mode, so the connection view is asked without one.
   const connection = connectionBarView({ status, error, url: "" });
+  // The current entry's own daemon, while it is not running: the local one, or an SSH host's.
   const localView =
     current?.kind === "local" && snapshot.local.state !== "running"
       ? localStateView(snapshot.local)
-      : null;
+      : current?.kind === "ssh" &&
+          snapshot.remote !== null &&
+          snapshot.remote.state !== "running" &&
+          snapshot.remote.state !== "unknown"
+        ? remoteStateView(snapshot.remote)
+        : null;
 
   let action: DaemonSwitcherView["action"] = null;
   if (status === "open") {

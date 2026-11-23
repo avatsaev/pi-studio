@@ -7,6 +7,14 @@
 > for a person with those machines (`desktop/docs/platform-checks.md`).**
 > Milestone 1 of the desktop client, with [desktop-native-host.md](desktop-native-host.md); done for Linux.
 
+> **Amended by [desktop-relay-ssh.md](desktop-relay-ssh.md) (2026-11-22, milestone 4).** The registry
+> has a fourth kind, `ssh`, and `daemons.json` is version 3 (§ 1). `daemon.add` and `daemon.update` take
+> the SSH fields; `daemon.remote.start` and `.refresh` and `daemon.list`'s `remote` are new (§ 2).
+> `HostDaemons` gains `remote` and `sshHosts` (§ 3). The form, the row and the Daemons screen's
+> opening rule cover SSH (§ 4). No command returns a pairing link: `daemon_resolve_current` answers the
+> relay's address for a relay entry. The sentences below that said a relay entry's link reaches the page
+> are corrected where they stood.
+
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [desktop-native-host.md](desktop-native-host.md) (boot snapshot, storage, the
 > desktop host), [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md)
@@ -34,8 +42,8 @@ daemons connected at once (D16), a bundled daemon, a daemon on Windows, more tha
 
 | # | Decision |
 |---|---|
-| D8, D12 | A registry owned by Rust. Three kinds of entry: `local` (this machine, through the CLI), `direct` (address, optional password), `relay` (pairing link) |
-| D13, D27 | Passwords and pairing links were stored in the registry file, readable by the user only (milestone 1, `daemons.json` version 1). Carried out in milestone 2 (sprint 113): they are in the OS keychain, or in `secrets.json` when no keychain answers, and the file is version 2 without them. § 1 shows version 2; the store is in `swe/features/desktop-transport-bridge.md` § 5 |
+| D8, D12 | A registry owned by Rust. Four kinds of entry: `local` (this machine, through the CLI), `direct` (address, optional password), `relay` (pairing link) and, since milestone 4, `ssh` (a host reached over SSH) |
+| D13, D27 | Passwords and pairing links were stored in the registry file, readable by the user only (milestone 1, `daemons.json` version 1). Carried out in milestone 2 (sprint 113): they are in the OS keychain, or in `secrets.json` when no keychain answers, and the file is version 2 without them (version 3 since milestone 4, which adds SSH entries and two more secret kinds). § 1 shows the current version; the store is in `swe/features/desktop-transport-bridge.md` § 5 |
 | D14, D15 | Entries are managed in a Daemons screen drawn by the workbench when the host has a registry. The connection bar becomes a switcher. The web client has no registry and is unchanged |
 | D16 | One window, one daemon at a time. Each entry has its own stored layout |
 | D17, D19 | Launch opens the entry used last, even when it is unreachable. First run opens the local entry |
@@ -68,22 +76,27 @@ Accepted by the owner on 2026-11-20, at planning (sprints 107–111). The contra
 
 `daemons.json` in the app's configuration directory (the platform's per-user directory for
 `com.avatsaev.pi-studio`). Mode 0600 on macOS and Linux; default profile permissions on Windows.
-Written atomically (temporary file, then rename). **Version 2** (since milestone 2) holds no
-secret: a password or pairing link is in the secret store, keyed by entry id and kind
-(`swe/features/desktop-transport-bridge.md` § 5), and the entry says `hasPassword`. A version 1
-file (milestone 1: `password` on `local` and `direct` entries, `pairingLink` on `relay` ones) is
-read once, its secrets moved to the store, and rewritten as version 2 (that spec's § Launch and
-migration (P5)); a version above 2 is refused like any unknown version. The text below describes
-the rules as milestone 1 set them; `password` and `pairingLink` now name the stored secrets.
+Written atomically (temporary file, then rename). **Version 3** (since milestone 4; version 2 since
+milestone 2) holds no secret: a password, pairing link, SSH password or key passphrase is in the
+secret store, keyed by entry id and kind (`swe/features/desktop-transport-bridge.md` § 5), and the
+entry says `hasPassword`, `hasSshPassword` or `hasPassphrase`. A version 1 file (milestone 1:
+`password` on `local` and `direct` entries, `pairingLink` on `relay` ones) is read once, its secrets
+moved to the store, and rewritten as the current version (that spec's § Launch and migration (P5)); a
+version 2 file is read and rewritten as version 3; a version above 3 is refused like any unknown
+version. The text below describes the rules as milestone 1 set them; `password` and `pairingLink` now
+name the stored secrets. The SSH entry is in [desktop-relay-ssh.md](desktop-relay-ssh.md) § 1.
 
 ```
 {
-  version: 2,
+  version: 3,
   lastUsedId: string | null,
   entries: [
     { id: "local", kind: "local",  name: string, hasPassword?: boolean },
     { id: uuid,    kind: "direct", name: string, address: string, hasPassword?: boolean },
-    { id: uuid,    kind: "relay",  name: string }
+    { id: uuid,    kind: "relay",  name: string },
+    { id: uuid,    kind: "ssh",    name: string, host: string, user?: string, port?: number,
+      identityFile?: string, jump?: string, daemonPort: number,
+      hasPassword?: boolean, hasSshPassword?: boolean, hasPassphrase?: boolean }
   ]
 }
 ```
@@ -94,15 +107,15 @@ the rules as milestone 1 set them; `password` and `pairingLink` now name the sto
 | `name` | 1–64 characters after trimming; unique among entries, compared without case |
 | `address` | At most 2,048 characters. Stored as typed; the workbench normalises it when connecting, as it does for the connection bar today |
 | `password` | At most 1,024 characters. Absent means none |
-| `pairingLink` | At most 4,096 characters. Checked by the workbench's existing pairing-link parser before it is saved |
+| `pairingLink` | At most 4,096 characters. Must parse (`model::pairing::parse`, shared test vectors with the SDK's parser): `invalid_link` otherwise |
 | Number of entries | At most 64 |
 | Unknown fields | Kept on rewrite |
 | `lastUsedId` | Set when an entry is opened (at switch time, not on a successful connection) |
 
-Secrets are `password` and `pairingLink`, now in the secret store, not in this file. They are never
-logged and never returned by a control method. A password never reaches the webview (Rust reads it
-for its own dial); a relay entry's pairing link reaches it only through `resolveCurrent` (§ 3), for
-the entry being opened, until milestone 4.
+Secrets are `password`, `pairingLink`, `sshPassword` and `passphrase`, in the secret store, not in
+this file. They are never logged and never returned by a control method or a page command, without
+exception: Rust reads them for its own dial, and `resolveCurrent` (§ 3) answers an address (for a
+relay entry the relay's) and never the pairing link.
 
 ### 2. Engine commands
 
@@ -111,14 +124,15 @@ webview, the control socket and the app's CLI.
 
 | Command | Params | Result | Errors |
 |---|---|---|---|
-| `daemon.list` (query) | none | `{ currentId, entries: EntryView[], local: LocalState }` | none |
-| `daemon.add` | `{ kind: "direct", name, address, password? }` or `{ kind: "relay", name, pairingLink }` | `EntryView` | `invalid_name`, `name_taken`, `invalid_address`, `invalid_link`, `too_many` |
-| `daemon.update` | `{ id, name?, address?, password?: string \| null, pairingLink? }`. `password: null` clears it; an absent field is unchanged | `EntryView` | as `add`, plus `not_found`, `wrong_kind` (a field the kind does not have) |
+| `daemon.list` (query) | none | `{ currentId, entries: EntryView[], local: LocalState, remote: RemoteState \| null }` | none |
+| `daemon.add` | `{ kind: "direct", name, address, password? }`, `{ kind: "relay", name, pairingLink }` or `{ kind: "ssh", name, host, user?, port?, identityFile?, jump?, daemonPort?, password?, sshPassword?, passphrase? }` | `EntryView` | `invalid_name`, `name_taken`, `invalid_address`, `invalid_link`, `invalid_host`, `invalid_user`, `invalid_port`, `invalid_path`, `invalid_jump`, `too_many` |
+| `daemon.update` | `{ id, name?, address?, password?: string \| null, pairingLink?, host?, user?, port?, identityFile?, jump?, daemonPort?, sshPassword?, passphrase? }`. `null` clears an optional field or a secret; an absent field is unchanged | `EntryView` | as `add`, plus `not_found`, `wrong_kind` (a field the kind does not have) |
 | `daemon.remove` | `{ id }` | `{ removed: true }` | `not_found`, `local_not_removable` |
 | `daemon.switch` | `{ id }` | `{ currentId }` | `not_found` |
 | `daemon.local.start` / `.stop` / `.restart` / `.refresh` | none | `{ accepted: true }`; every outcome, `refresh` included, arrives as a `LocalState` change (P2) | `unsupported`, `busy`; `start`, `stop` and `restart` also `cli_missing`, `cli_outdated` (a refresh is how the state is re-read, so it is not refused for them; a refresh asked while one is pending merges into it) |
+| `daemon.remote.start` / `.refresh` | none | `{ accepted: true }`; the outcome arrives as a `RemoteState` change (`daemon.list`'s `remote`; [desktop-relay-ssh.md](desktop-relay-ssh.md) § 2) | `wrong_kind` (the current entry is not `ssh`), `no_current`, `busy`; `start` also `not_installed`, `cli_outdated` |
 
-`EntryView` is an entry without its secrets: `{ id, kind, name, address?, hasPassword }`.
+`EntryView` is an entry without its secrets: `{ id, kind, name, address?, hasPassword }`; an `ssh` entry's `address` is the display text `[user@]host[:port]` and it also has `ssh: { host, user?, port?, identityFile?, jump?, daemonPort, hasSshPassword, hasPassphrase }`.
 
 The error text of a `daemon.*` command is its code (`name_taken`, `busy`, …), nothing more (P7).
 
@@ -161,6 +175,10 @@ interface HostDaemons {
   /** `autoStartLocalDaemon` and `cliPath` (§ 6) (P3). */
   setSettings(patch: Partial<DaemonSettings>): Promise<void>;
   local: { start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; refresh(): Promise<void> };
+  /** The current SSH entry's daemon (milestone 4): `snapshot().remote` is its state, `null` for any other entry. */
+  remote: { start(): Promise<void>; refresh(): Promise<void> };
+  /** The plain `Host` names of `~/.ssh/config`, for the SSH form (milestone 4). */
+  sshHosts(): Promise<SshHostSuggestion[]>;
   /** Fires when the native menu asks for the Daemons screen. */
   onManageRequest(listener: () => void): () => void;
 }
@@ -171,22 +189,23 @@ the one constant the CLI check also uses); the browser host does not. The types 
 `packages/workbench/src/host/types.ts`, and in [../architecture/workbench-host-adapter.md](../architecture/workbench-host-adapter.md).
 
 How the page reaches Rust (`desktop/docs/architecture.md` § The webview boundary): one allow-listed
-command, `engine_command { id, params? }`, runs ten engine ids (`daemon.list`, `.add`, `.update`,
-`.remove`, `daemon.local.start`, `.stop`, `.restart`, `.refresh`, `settings.get`, `settings.set`);
-anything else, `daemon.switch` and `command.list` included, is refused. The dial answer has a
-command of its own, `daemon_resolve_current` (no password; for a relay entry the pairing link), the
-connection to a local or direct daemon another, `transport_open`, and a switch another,
-`daemon_switch` (the transfer confirm, `daemon.switch`, then the reload). Two events come back:
-`daemons_changed` (the registry view, after any change to the registry, the local state or a
-setting) and `daemons_manage` (the native menu asked for the Daemons screen).
+command, `engine_command { id, params? }`, runs twelve engine ids (`daemon.list`, `.add`, `.update`,
+`.remove`, `daemon.local.start`, `.stop`, `.restart`, `.refresh`, `daemon.remote.start`, `.refresh`,
+`settings.get`, `settings.set`); anything else, `daemon.switch` and `command.list` included, is
+refused. The dial answer has a command of its own, `daemon_resolve_current` (an address, never a
+secret), the connection to the daemon of any entry another, `transport_open`, the list of SSH hosts
+another, `ssh_config_hosts`, and a switch another, `daemon_switch` (the transfer confirm,
+`daemon.switch`, then the reload). Two events come back: `daemons_changed` (the registry view, after
+any change to the registry, the local or remote state or a setting) and `daemons_manage` (the native
+menu asked for the Daemons screen).
 
 ### 4. Workbench surfaces (drawn only when `host.daemons` exists)
 
 | Surface | Contract |
 |---|---|
 | Connection bar | The address field, password field and Connect button are replaced by a switcher: the current entry's name and the connection status, opening a list of entries (pick one to switch) and "Manage daemons…". Disconnect and Retry stay |
-| Daemons screen | A modal screen listing entries with their kind and, for the local entry, its state and Start / Stop / Restart. Add (direct or relay), edit, remove. Also holds the two settings of § 6. Opens from the switcher, from the native menu, and by itself in the cases listed under § Behavior. Its Retry re-probes the local daemon (and re-reads the shell environment); it does not connect by itself: Start does (sprint-110/task-007 check 3) |
-| Edit form | Never shows a stored secret. The password field is empty with a "saved" marker; leaving it empty keeps the password, a Clear action removes it. A relay entry has a "Replace link" field |
+| Daemons screen | A modal screen listing entries with their kind and, for the local entry, its state and Start / Stop / Restart; for the current SSH entry its address and daemon state: `stopped` and `failed` offer Start, `not_installed` shows "pi-studio is not installed on this host" with the command `npm install -g @av-pi-studio/cli` and a Copy button, `cli_outdated` shows the installed version and the minimum, and Retry probes again. Add (direct, relay or SSH), edit, remove. Also holds the two settings of § 6. Opens from the switcher, from the native menu, and by itself in the cases listed under § Behavior, and when the current SSH entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`. Its Retry re-probes the local daemon (and re-reads the shell environment); it does not connect by itself: Start does (sprint-110/task-007 check 3) |
+| Edit form | Never shows a stored secret. The password field is empty with a "saved" marker; leaving it empty keeps the password, a Clear action removes it. A relay entry has a "Replace link" field. An SSH entry has name, host, user, port, key file, jump host, daemon port (empty is 6767), SSH password, key passphrase and daemon password, each secret with its own marker and Clear; above the host field, a list of the hosts of `~/.ssh/config` fills the host and, when empty, the name, and shows the config's user, port, key and jump host as placeholders |
 | Outdated notice | When connected to a daemon whose `server_info.version` is lower than `app.minDaemonVersion`, or absent: one non-blocking notice per connection naming both versions and how to update. Features stay gated by the daemon's feature flags as they are today |
 
 With `host.daemons` absent the workbench is unchanged, including the connection bar.
@@ -312,7 +331,8 @@ The window appears before the local daemon has started; the switcher shows "star
 resolveCurrent():
     no current entry                      -> reject no_current
     direct                                -> { url: address, connect: true }      (no password: Rust reads it for the dial)
-    relay                                 -> { url: pairingLink, connect: true }
+    relay                                 -> { url: relay address, connect: true }   (ws(s)://<relay host>, or ws://<host> for a link with a host hint; never the link)
+    ssh                                   -> { url: ws://127.0.0.1:<daemonPort>, connect: true }
     local:
         unsupported | cli_missing | cli_outdated -> reject with that code
         running                           -> { url: ws://host:port, connect: true }
@@ -325,10 +345,11 @@ that fails, shows its normal connecting and error states with the switcher still
 
 Since milestone 2 the answer for a `local` or `direct` entry carries no `password`: the socket to
 that daemon is Rust's (`transport_open`, `desktop-transport-bridge.md` §§ 2–4), which reads the
-password from the secret store itself. A `relay` entry's answer still carries the pairing link as
-`url`, the one secret a command returns, until the relay leg moves to Rust (milestone 4). A
-missing or unreadable password shows at `transport_open` (`secret_missing`, `secret_unavailable`),
-not here.
+password from the secret store itself. Since milestone 4 the socket of every kind is Rust's and no
+answer carries a secret: a `relay` entry's answer is the relay's address, derived from the pairing
+link Rust reads on the blocking pool (a missing or unreadable link shows here, `secret_missing`,
+`secret_unavailable`, `invalid_link`). A missing or unreadable password shows at `transport_open`
+(`secret_missing`, `secret_unavailable`), not here.
 
 ### Switching (D16)
 
@@ -354,8 +375,8 @@ same steps.
 
 - **Add.** The form checks the address or the pairing link with the workbench's existing parsers;
   Rust checks sizes, the name and the entry count. A new entry is not opened automatically.
-- **Edit the current entry.** A changed address, password or link takes effect on the next
-  connection; the screen offers "Reconnect now".
+- **Edit the current entry.** A saved change to anything but the name (an address, a host, a
+  password, a link, a key) takes effect on the next connection; the screen offers "Reconnect now".
 - **Remove (D22).** A native confirm. The entry, its secret and its stored state are deleted. When
   it was the current entry: the workbench disconnects, `lastUsedId` becomes null, and the Daemons
   screen opens. The local entry has no Remove.

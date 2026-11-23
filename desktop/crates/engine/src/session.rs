@@ -8,29 +8,40 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use pistudiodesktop_secrets::SecretStore;
 
-use pistudiodesktop_model::{EntryId, EntryV2, Kind, LimitError, LocalState, NewEntry, RegistryV2, Secret, Settings, Update, check_link, check_password};
+use pistudiodesktop_model::{
+    EntryId, EntryV3, Kind, LimitError, LocalState, NewEntry, RegistryV3, RemoteState, Secret, Settings, Update, check_link, check_password,
+};
 use serde_json::{Map, Value};
 
 use crate::local::LocalQueue;
+use crate::remote::RemoteQueue;
 use crate::secret::{STORE_FAILED, Slot, Vault};
 use crate::secret_job::{Op, SecretJob, Work};
 use crate::storage::Storage;
 use crate::{EngineError, Result, commands, params};
 
-/// What `daemon.update` changes. `None` leaves a field as it is.
+/// What `daemon.update` changes. `None` leaves a field as it is; for the optional fields `Some(None)`
+/// clears the field.
 #[derive(Default)]
 pub(crate) struct EntryChange {
     pub(crate) name: Option<String>,
     pub(crate) address: Option<String>,
-    /// `Some(None)` clears the password.
     pub(crate) password: Option<Option<Secret>>,
     pub(crate) pairing_link: Option<Secret>,
+    pub(crate) host: Option<String>,
+    pub(crate) user: Option<Option<String>>,
+    pub(crate) port: Option<Option<u16>>,
+    pub(crate) identity_file: Option<Option<String>>,
+    pub(crate) jump: Option<Option<String>>,
+    pub(crate) daemon_port: Option<u16>,
+    pub(crate) ssh_password: Option<Option<Secret>>,
+    pub(crate) passphrase: Option<Option<Secret>>,
 }
 
 /// Refuse what the registry has always refused: a secret outside 1 to its cap.
 fn check_secret(slot: Slot, secret: &Secret) -> std::result::Result<(), &'static str> {
     match slot {
-        Slot::Password => check_password(secret.expose()),
+        Slot::Password | Slot::SshPassword | Slot::SshPassphrase => check_password(secret.expose()),
         Slot::PairingLink => check_link(secret.expose()),
     }
     .map_err(|e| e.code())
@@ -42,12 +53,24 @@ pub struct Session {
     vault: Vault,
     local: LocalState,
     pub(crate) local_queue: LocalQueue,
+    pub(crate) remote: RemoteState,
+    pub(crate) remote_queue: RemoteQueue,
+    ssh_closed: Option<EntryId>,
     changed: bool,
 }
 
 impl Default for Session {
     fn default() -> Self {
-        Session { storage: Storage::default(), vault: Vault::default(), local: LocalState::Checking, local_queue: LocalQueue::default(), changed: false }
+        Session {
+            storage: Storage::default(),
+            vault: Vault::default(),
+            local: LocalState::Checking,
+            local_queue: LocalQueue::default(),
+            remote: RemoteState::Unknown,
+            remote_queue: RemoteQueue::default(),
+            ssh_closed: None,
+            changed: false,
+        }
     }
 }
 
@@ -96,8 +119,8 @@ impl Session {
         }
     }
 
-    /// The registry: the version 2 document, with no secret in it.
-    pub fn registry(&self) -> &RegistryV2 {
+    /// The registry: the version 3 document, with no secret in it.
+    pub fn registry(&self) -> &RegistryV3 {
         self.storage.registry()
     }
 
@@ -135,30 +158,46 @@ impl Session {
         std::mem::take(&mut self.changed)
     }
 
-    /// Make `id` the current entry (see `daemon.switch`). `Ok(true)` when it changed.
+    /// Make `id` the current entry (see `daemon.switch`). `Ok(true)` when it changed. What was
+    /// learned about the SSH daemon of the entry left is forgotten.
     pub(crate) fn switch_entry(&mut self, id: &str) -> std::result::Result<bool, &'static str> {
         let changed = self.storage.switch(id)?;
+        if changed {
+            self.reset_remote();
+        }
         self.changed |= changed;
         Ok(changed)
     }
 
-    /// Plan `daemon.add` (see [`SecretJob`]). `secret` is a direct entry's password, if it has
-    /// one, or a relay entry's pairing link; it is stored first and the registry written after,
-    /// so a refused store writes nothing and the registry never says `hasPassword` for a password
-    /// that is not stored. Pure: nothing is stored or written until the job runs.
-    pub(crate) fn plan_add_job(&self, new: NewEntry, secret: Option<Secret>) -> std::result::Result<SecretJob, &'static str> {
+    /// `id` as an entry id when it is the current entry and an SSH one.
+    fn current_ssh_entry(&self, id: &str) -> Option<EntryId> {
+        let current = self.storage.current().filter(|c| c.as_str() == id)?;
+        self.storage.registry().get(id).filter(|e| e.kind == Kind::Ssh).map(|_| current.clone())
+    }
+
+    /// The SSH entry whose open SSH session must be closed because the entry was edited or removed
+    /// since this was last asked; the host takes it and closes the session.
+    pub fn take_ssh_closed(&mut self) -> Option<EntryId> {
+        self.ssh_closed.take()
+    }
+
+    /// Plan `daemon.add` (see [`SecretJob`]). `secrets` are the entry's secrets, each in its slot:
+    /// a direct or SSH entry's passwords and passphrase, or a relay entry's pairing link. They are
+    /// stored first and the registry written after, so a refused store writes nothing and the
+    /// registry never says `has...` for a secret that is not stored. Pure: nothing is stored or
+    /// written until the job runs.
+    pub(crate) fn plan_add_job(&self, new: NewEntry, secrets: Vec<(Slot, Secret)>) -> std::result::Result<SecretJob, &'static str> {
         self.refuse_while_unmigrated()?;
-        let slot = Slot::of(if matches!(new, NewEntry::Relay { .. }) { Kind::Relay } else { Kind::Direct });
         let (id, _) = self.storage.plan_add(new.clone())?;
         let mut before = Vec::new();
-        if let Some(secret) = secret {
+        for (slot, secret) in secrets {
             check_secret(slot, &secret)?;
             before.push(Op { entry: id.clone(), slot, secret: Some(secret) });
         }
         Ok(SecretJob { vault: self.vault.clone(), entry: id.clone(), work: Work::Add { id, new: Some(new) }, before, after: Vec::new() })
     }
 
-    /// Plan `daemon.update`: a secret is stored (or, for a cleared password, removed) before the
+    /// Plan `daemon.update`: a secret is stored (or, for a cleared one, removed) before the
     /// registry is written, so a refused store leaves the file as it was.
     pub(crate) fn plan_update_job(&self, id: &str, change: EntryChange) -> std::result::Result<SecretJob, &'static str> {
         self.refuse_while_unmigrated()?;
@@ -167,21 +206,31 @@ impl Session {
             address: change.address,
             has_password: change.password.as_ref().map(Option::is_some),
             new_link: change.pairing_link.is_some(),
+            host: change.host,
+            user: change.user,
+            port: change.port,
+            identity_file: change.identity_file,
+            jump: change.jump,
+            daemon_port: change.daemon_port,
+            has_ssh_password: change.ssh_password.as_ref().map(Option::is_some),
+            has_passphrase: change.passphrase.as_ref().map(Option::is_some),
         };
         self.storage.plan_update(id, update.clone())?;
         let entry = self.storage.registry().get(id).map(|e| e.id.clone()).ok_or("not_found")?;
         let mut before = Vec::new();
-        match change.password {
-            Some(Some(password)) => {
-                check_secret(Slot::Password, &password)?;
-                before.push(Op { entry: entry.clone(), slot: Slot::Password, secret: Some(password) });
+        let slots = [
+            (Slot::Password, change.password),
+            (Slot::SshPassword, change.ssh_password),
+            (Slot::SshPassphrase, change.passphrase),
+            (Slot::PairingLink, change.pairing_link.map(Some)),
+        ];
+        for (slot, secret) in slots {
+            if let Some(Some(secret)) = &secret {
+                check_secret(slot, secret)?;
             }
-            Some(None) => before.push(Op { entry: entry.clone(), slot: Slot::Password, secret: None }),
-            None => {}
-        }
-        if let Some(link) = change.pairing_link {
-            check_secret(Slot::PairingLink, &link)?;
-            before.push(Op { entry: entry.clone(), slot: Slot::PairingLink, secret: Some(link) });
+            if let Some(secret) = secret {
+                before.push(Op { entry: entry.clone(), slot, secret });
+            }
         }
         Ok(SecretJob { vault: self.vault.clone(), entry, work: Work::Update { id: id.to_owned(), update: Some(update) }, before, after: Vec::new() })
     }
@@ -191,8 +240,9 @@ impl Session {
     pub(crate) fn plan_remove_job(&self, id: &str) -> std::result::Result<SecretJob, &'static str> {
         self.refuse_while_unmigrated()?;
         self.storage.plan_remove(id)?;
-        let entry = self.storage.registry().get(id).map(|e| e.id.clone()).ok_or("not_found")?;
-        let after = [Slot::Password, Slot::PairingLink].map(|slot| Op { entry: entry.clone(), slot, secret: None }).into();
+        let entry = self.storage.registry().get(id).ok_or("not_found")?;
+        let (entry, kind) = (entry.id.clone(), entry.kind);
+        let after = Slot::all_of(kind).iter().map(|&slot| Op { entry: entry.clone(), slot, secret: None }).collect();
         Ok(SecretJob { vault: self.vault.clone(), entry, work: Work::Remove { id: id.to_owned() }, before: Vec::new(), after })
     }
 
@@ -201,8 +251,14 @@ impl Session {
     pub fn commit_secret_job(&mut self, job: &mut SecretJob) -> std::result::Result<Value, &'static str> {
         let view = |s: &Session, id: &str| -> std::result::Result<Value, &'static str> {
             let entry = s.storage.registry().get(id).ok_or("not_found")?;
-            serde_json::to_value(EntryV2::view(entry)).map_err(|_| "write_failed")
+            serde_json::to_value(EntryV3::view(entry)).map_err(|_| "write_failed")
         };
+        let id_of = match &job.work {
+            Work::Add { .. } => None,
+            Work::Update { id, .. } | Work::Remove { id } => Some(id.clone()),
+        };
+        // Editing or removing the current SSH entry ends the SSH session it has open.
+        let was_current_ssh = id_of.as_deref().and_then(|id| self.current_ssh_entry(id));
         let answer = match &mut job.work {
             Work::Add { id, new } => {
                 let next = self.storage.registry().add(id.clone(), new.take().ok_or("write_failed")?).map_err(|e| e.code())?;
@@ -221,6 +277,9 @@ impl Session {
                 serde_json::json!({"removed": true})
             }
         };
+        if let Some(entry) = was_current_ssh {
+            self.ssh_closed = Some(entry);
+        }
         self.changed = true;
         Ok(answer)
     }

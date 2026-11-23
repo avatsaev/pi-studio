@@ -1,4 +1,4 @@
-import { type Transport } from "@av-pi-studio/client";
+import { RelayConnectError, type Transport } from "@av-pi-studio/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { type Ipc } from "./ipc.js";
@@ -36,6 +36,29 @@ describe("createProxiedTransport", () => {
     expect(t.isOpen).toBe(true);
     t.sendText("a");
     expect(sendText).toHaveBeenCalledWith("a");
+  });
+
+  it("rejects a relay entry's wrong_key as a RelayConnectError", async () => {
+    const { inner, connectSpy } = fakeInner();
+    const invoke = vi.fn<Ipc["invoke"]>(async () => {
+      throw { code: "wrong_key", message: "x" };
+    });
+    const t = createProxiedTransport({ invoke } as Ipc, () => inner, true);
+    const error = await t.connect("wss://r").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RelayConnectError);
+    expect((error as RelayConnectError).reason).toBe("wrong_key");
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps a relay code a plain error for a non-relay entry", async () => {
+    const { inner } = fakeInner();
+    const invoke = vi.fn<Ipc["invoke"]>(async () => {
+      throw { code: "wrong_key", message: "boom" };
+    });
+    const t = createProxiedTransport({ invoke } as Ipc, () => inner);
+    const error = await t.connect("ws://d").catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(RelayConnectError);
+    expect((error as Error).message).toBe("boom");
   });
 
   it("rejects with the command's message and leaves the inner transport alone", async () => {

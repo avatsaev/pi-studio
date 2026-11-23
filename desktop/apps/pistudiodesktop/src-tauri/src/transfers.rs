@@ -30,6 +30,7 @@ use tauri::{AppHandle, Manager as _, RunEvent, Runtime, Window, WindowEvent};
 
 pub use self::engine::TransferEngine;
 use self::files::{FileSource, SaveSink};
+use crate::ssh_session::SshSessions;
 use crate::transport::Transport;
 
 /// The longest transfer id (the engine checks the same).
@@ -98,23 +99,27 @@ pub fn on_destroyed<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
 }
 
 /// On the way out, every transfer is cancelled and the engine's connection is closed, together with
-/// the proxied connections' close and for no longer than it ([`close_all_blocking`]). Call it before
-/// [`crate::transport::on_run_event`], which then finds nothing left to wait for.
+/// the proxied connections' close and for no longer than it ([`close_all_blocking`]), and then the
+/// SSH session they ran over. Call it before [`crate::transport::on_run_event`], which then finds
+/// nothing left to wait for.
 pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
     if matches!(event, RunEvent::Exit)
-        && let (Some(engine), Some(transport)) = (handle.try_state::<TransferEngine>(), handle.try_state::<Transport>())
+        && let (Some(engine), Some(transport), Some(ssh)) =
+            (handle.try_state::<TransferEngine>(), handle.try_state::<Transport>(), handle.try_state::<SshSessions>())
     {
-        close_all_blocking(&engine, &transport);
+        close_all_blocking(&engine, &transport, &ssh);
     }
 }
 
 /// Leaving, for a thread that is not a worker of the async runtime (a daemon switch, the exit): the
 /// engine's transfers are cancelled and its connection closed (1001) while the proxied connections
-/// are told 1001, and both are waited for, each for at most five seconds.
-pub fn close_all_blocking(engine: &TransferEngine, transport: &Transport) {
+/// are told 1001, and both are waited for, each for at most five seconds. The SSH session, which the
+/// connections were channels of, is closed last.
+pub fn close_all_blocking(engine: &TransferEngine, transport: &Transport, ssh: &SshSessions) {
     let left = engine.leave_in_background();
     transport.close_all_blocking();
     TransferEngine::wait_left(&left);
+    ssh.close_blocking();
 }
 
 /// `engine_off`: `--transfers page` turns the engine off for the run.

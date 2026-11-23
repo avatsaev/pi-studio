@@ -149,9 +149,16 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 121 | `sprint-121-desktop-transfer-engine` | desktop: **Desktop transfer engine, slice 4 — the engine.** Upload and save over the connection, the queue (three at once), the connection opened on demand and closed when idle, progress and the snapshot, recovery (reconnect without a limit, resume a save, restart an upload, final errors), and the hardening tests. | 5 |
 | 122 | `sprint-122-desktop-transfer-wiring` | desktop: **Desktop transfer engine, slice 5 — wiring.** `--transfers` and `boot.transfers`, the native open dialog and `upload_pick`, `Saves` as the engine's sink, the `transfers` view in `ui.inspect`, the three transfer commands with the `transfer_progress` event and the leave and wake wiring, the desktop host's engine-backed `files`, and Linux live checks in the real webview. | 7 |
 | 123 | `sprint-123-desktop-transfer-engine-close` | desktop + docs: **Desktop transfer engine, slice 6 — close.** The 5 GiB check with its pass marks, the checklist's milestone 3 section, documents, `minDaemonVersion` and spec close: desktop milestone 3 (Linux only; the macOS/Windows checks were dropped by the owner); the daemon removes a killed daemon's upload temporary files at start. | 3 |
+| 124 | `sprint-124-desktop-relay-ssh-foundation` | desktop: **Desktop relay and SSH, slice 1 — foundation.** The crates `relay` and `ssh` with their dependencies (russh with `ring`, no `aws-lc`), licences and layer rows; the macOS and Windows build of them; the pairing-link parser in `model` with vectors shared with the SDK; `net`'s `DaemonSocket` and `dial_over`, taken by the proxy and the engine. | 4 |
+| 125 | `sprint-125-desktop-relay-client` | desktop: **Desktop relay and SSH, slice 2 — the relay client.** Session id and the encrypted channel against the relay fixtures; connect and the SDK's reasons against a relay stand-in; the open channel as a `DaemonSocket`. | 3 |
+| 126 | `sprint-126-desktop-relay-wiring` | desktop: **Desktop relay and SSH, slice 3 — relay entries in Rust.** The engine's relay plan without the link; `transport_open` and the transfer connector for relay; the desktop host (every kind proxied, `RelayConnectError` rethrown, the engine for relay, the CSP); Linux live checks. | 4 |
+| 127 | `sprint-127-desktop-ssh-client` | desktop: **Desktop relay and SSH, slice 4 — the SSH client.** `~/.ssh/config` resolution and the host list; known hosts; connect, hops, login and keepalive against an in-process server; the daemon channel and remote commands. | 4 |
+| 128 | `sprint-128-desktop-ssh-entry` | desktop: **Desktop relay and SSH, slice 5 — SSH entries in the app.** Registry version 3 with kind `ssh` and two secret kinds; engine commands and `daemon.remote.*`; the remote supervisor; the shared SSH session with `transport_open` and the connector; the host-key dialog, `ssh_config_hosts` and `ui.inspect`. | 5 |
+| 129 | `sprint-129-desktop-ssh-ui` | desktop + workbench: **Desktop relay and SSH, slice 6 — the SSH screens.** The host contract; the form with the config's hosts; the row's state, Start and the install command; the desktop host's members; Linux live checks against OpenSSH. | 5 |
+| 130 | `sprint-130-desktop-relay-ssh-close` | desktop + docs: **Desktop relay and SSH, slice 7 — close.** Memory and rates for relay and SSH transfers; documents and spec close: desktop milestone 4. | 2 |
 
-Total: **117 sprints, 614 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22) and by adding 123/t005 (+0/+1, 2026-11-22; the table sums to 117/614). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **124 sprints, 641 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22) and by 124–130 (+7/+27, 2026-11-22; the table sums to 124/641). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3430,6 +3437,108 @@ sprint 121 and can start while it runs.
 
 t001, then t004, then t005. Numbers 002 and 003 are not used (removed).
 
+> **Closed 2026-11-22: sprints 124–130 built, 27 of 27 tasks done** (`features/desktop-relay-ssh.md`). Checked on Linux; the macOS and Windows builds passed in `desktop-release.yml` (manual runs, nothing published) and were not run (owner). Changed during the run: the plan assumed Desktop CI builds on macOS and Windows (it is Linux only; 124/t002 used the manual release run); 130/t002 (documents) was made to depend on 129/t004 instead of 130/t001. Found live and fixed: a page whose first connect failed never started its reconnection manager, so `connection_resume` after Trust or remote Start did nothing (129/t005; the browser client is unchanged, seen on 2026-11-23: its host has no registry, so the new row does nothing there). Open: `"$SHELL" -lic` on bash only; a 45 s SSH connect through a slow hop not seen live (the page has no connect timer of its own); the Windows agent branch built, not run.
+
+### sprint-124-desktop-relay-ssh-foundation
+> **What it ships.** The ground milestone 4 (`features/desktop-relay-ssh.md`) builds on: two empty
+> crates with every dependency, proof that they build on all three runners, the pairing-link
+> parser, and a daemon socket the proxy and the engine take whatever carries it.
+>
+> **Found at planning time.** Desktop CI runs on pull requests only, so t002 needs the branch
+> pushed and a draft pull request. A failure of `russh` there stops the SSH sprints (127 onward)
+> and goes to the owner; the relay sprints do not depend on it. The address rule's vectors
+> (`normalize-url.vectors.json`) are the pattern for the link vectors.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Crates `relay` and `ssh` with their dependencies, the layer table and the licences | chore | — | desktop-relay-ssh S1, § 12, TODO (build, licences) |
+| task-002 | The new dependencies build on the macOS and Windows runners | test | task-001 | desktop-relay-ssh § Acceptance criteria (Build), TODO (build) |
+| task-003 | The pairing-link parser in `model`, with vectors shared with the SDK | feature | task-001 | desktop-relay-ssh § 4 |
+| task-004 | `net`: `DaemonSocket`, `dial_over`, and the proxy and the engine over it | refactor | task-001 | desktop-relay-ssh § 6, D2, S2 |
+
+t001 first; then t002, t003 and t004 in parallel (t003 edits `model` and the engine's add/update,
+t004 `net`, `transfer` and the app's two callers).
+
+### sprint-125-desktop-relay-client
+> **What it ships.** Relay protocol 2's client side in Rust, tested against the published fixtures
+> and a relay stand-in, ready for the proxy and the engine.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Relay crate: session id and the encrypted channel, against the fixtures | feature | sprint-124/task-001 | desktop-relay-ssh § 5, D3 |
+| task-002 | Relay crate: connect, pairing and the reasons, against a relay stand-in | feature | task-001, sprint-124/task-003, sprint-124/task-004 | desktop-relay-ssh § 5, S5, § Error handling (relay) |
+| task-003 | Relay crate: the open channel as a `DaemonSocket` | feature | task-002 | desktop-relay-ssh § 5, § 6, S4 |
+
+In order.
+
+### sprint-126-desktop-relay-wiring
+> **What it ships.** A relay entry runs in Rust: the page gets the relay's address, never the link;
+> transfers use the engine; the relay half of milestone 4 is seen in the real webview on Linux.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Engine: the relay plan without the link, and `secret_guard` | feature | sprint-124/task-003 | desktop-relay-ssh § 3, D5, S3 |
+| task-002 | App binary: `transport_open` and the engine's connector dial a relay entry | feature | task-001, sprint-125/task-003 | desktop-relay-ssh § Opening a connection, § What the engine retries |
+| task-003 | Desktop host: every kind proxied, the relay reason rethrown, the engine for relay, the CSP | feature | task-001 | desktop-relay-ssh § 9, D4, D6, S14 |
+| task-004 | Linux live checks of a relay entry in the real webview | test | task-002, task-003 | desktop-relay-ssh § Acceptance criteria (Relay; recovery) |
+
+t001; then t002 and t003 in parallel; then t004. Sprint 126 may run beside sprint 127.
+
+### sprint-127-desktop-ssh-client
+> **What it ships.** The SSH client as a crate: config, known hosts, login through hops, the daemon
+> channel and remote commands, all tested against an in-process SSH server (S16).
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | SSH crate: resolving a host through `~/.ssh/config`, and the host list | feature | sprint-124/task-002 | desktop-relay-ssh § 7 (Resolve, Hops), D9, D10, S12 |
+| task-002 | SSH crate: known hosts in `~/.ssh/known_hosts` and the app's file | feature | sprint-124/task-002 | desktop-relay-ssh § 7 (Host key), D13, S15 |
+| task-003 | SSH crate: connect, hops, login and keepalive, against an in-process server | feature | task-001, task-002 | desktop-relay-ssh § 7 (Login, Agent, Keepalive), D11, D15, D18, S9, S13 |
+| task-004 | SSH crate: the daemon channel, `dial_over`, and remote commands | feature | task-003, sprint-124/task-004 | desktop-relay-ssh § 7, § 8, D21, S7 |
+
+t001 and t002 in parallel; then t003, then t004.
+
+### sprint-128-desktop-ssh-entry
+> **What it ships.** SSH entries in the registry, the engine, the shell and the app binary: an SSH
+> entry connects for the page and for transfers, a host key is trusted through a dialog, and
+> Start runs on the host.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Model and secrets: kind `ssh`, registry version 3, `RemoteState`, two secret kinds | feature | sprint-124/task-004 | desktop-relay-ssh § 1, D8, D17, S10 |
+| task-002 | Engine: SSH add/update/remove, the SSH plan, and `daemon.remote.*` | feature | task-001 | desktop-relay-ssh § 2, § 3, S3, S8 |
+| task-003 | Shell: the remote daemon's supervisor over a command-runner hook | feature | task-002 | desktop-relay-ssh § 8, D14, D21 |
+| task-004 | App binary: the shared SSH session, and `transport_open` and the connector for SSH | feature | task-002, sprint-127/task-004 | desktop-relay-ssh § 7 (the session), § Opening a connection, D15, S11 |
+| task-005 | App binary: the host-key dialog, `ssh_config_hosts`, and `ui.inspect` | feature | task-004 | desktop-relay-ssh § An unknown host key, § 3, § 11, S6, S12 |
+
+t001, t002; then t003 and t004 in parallel (t004 fills t003's hook last: if both are ready, t004
+wires it); then t005. t001 does not depend on sprint 127 and can start beside it.
+
+### sprint-129-desktop-ssh-ui
+> **What it ships.** The screens for SSH entries in the workbench and the desktop host, and the SSH
+> half of milestone 4 seen in the real webview on Linux against OpenSSH.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Workbench contract: SSH entries, `RemoteDaemonState`, `remote`, `sshHosts` | feature | sprint-128/task-002 | desktop-relay-ssh § 9 |
+| task-002 | Daemons form: the SSH kind and the hosts of `~/.ssh/config` | feature | task-001 | desktop-relay-ssh § 10, D23, S12 |
+| task-003 | Daemons row and switcher: the SSH entry's state, Start, not installed, and opening by itself | feature | task-001 | desktop-relay-ssh § 10, D22, S8 |
+| task-004 | Desktop host: the SSH members and the engine for SSH | feature | task-001, sprint-128/task-005, sprint-126/task-003 | desktop-relay-ssh § 9 |
+| task-005 | Linux live checks of SSH entries in the real webview | test | task-002, task-003, task-004 | desktop-relay-ssh § Acceptance criteria (SSH; recovery) |
+
+t001; then t002, t003 and t004 in parallel (t002 and t003 both touch the Daemons screen
+component: one after the other); then t005.
+
+### sprint-130-desktop-relay-ssh-close
+> **What it ships.** The measurements and the documents for `features/desktop-relay-ssh.md`, and
+> with them desktop milestone 4.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Memory and rates for relay and SSH transfers, and the checklist | test | sprint-126/task-004, sprint-129/task-005 | desktop-relay-ssh § Acceptance criteria (Transfers), D19 |
+| task-002 | Documents and spec close for milestone 4 | docs | sprint-129/task-004 | desktop-relay-ssh § Dependencies on other specs |
+
+t001 and t002 are independent (changed 2026-11-22, during the run: the documents describe what the code does and need none of t001's measurements; t002 leaves the acceptance ticks to the end, after t001 and the live checks).
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -3602,6 +3711,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/desktop-transport-bridge.md | s112/t001-007 (daemon frame sizes; benchmark application + baseline; `net` pure parts; bridge candidates; load, hidden window, memory; runner workflow; runs + note + gate), s113/t001-008 (`secrets` crate; keychain backend; registry v2 model; engine store + migration; engine commands; backend choice + `--secret-store`; workbench line; live checks + documents), s114/t001-004 (wake; network; host `onResume`; live check), s115/t001-004 (dial; connection; address rule; bridged `Transport`), s116/t001-005 (commands + channel; `ui.inspect`; `createTransport`; no password in the dial answer; live checks), s117/t001-004 (Linux acceptance + checklist; runner checks; sleep and wake by a person; documents + spec close). **Sprints 115–116 are built only if s112/t007 states the gate as passed.** Non-goals by the spec: relay entries on the bridge (milestone 4), the transfer engine (milestone 3), an HTTP proxy, moving the handshake or reconnect into Rust |
 | features/desktop-transfer-engine.md | s118/t001-003 (daemon: temporary file and rename; pacing; live check), s119/t001-004 (`TransferOptions` and the browser host; activity store; explorer lines; live check), s120/t001-004 (crate + `net` limit; wire against the fixtures; stand-in daemon; bulk connection), s121/t001-005 (upload; save; queue + snapshot; recovery; hardening), s122/t001-007 (`--transfers` + `boot.transfers`; `upload_pick`; `Saves` sink; `ui.inspect`; the commands + wiring; desktop host; Linux live checks), s123/t001, t004 (5 GiB check + checklist; documents + `minDaemonVersion` + spec close). **Being built 2026-11-22.** Not turned into tasks, by decision: relay entries and dropped files (D2, D3, stay on the page's path), upload resume, a transfers list, HTTP transfer endpoints; dropped by the owner 2026-11-22: runner checks and manual checks on macOS and Windows (D17's macOS/Windows half) |
 | architecture/workbench-host-adapter.md § The 2026-11-22 amendment | s119/t001 (`TransferOptions`, `saveToDisk`'s options, the browser host; the rows move into the contract), s122/t006 (the desktop host's members) |
+| features/desktop-relay-ssh.md | s124/t001-004 (crates + dependencies + licences; macOS and Windows build; pairing-link parser; `DaemonSocket`), s125/t001-003 (channel against the fixtures; connect and reasons; the channel as a socket), s126/t001-004 (relay plan without the link; app dial; desktop host + CSP; live checks), s127/t001-004 (config; known hosts; connect and login; channels and commands), s128/t001-005 (registry v3 + secrets; engine commands; remote supervisor; shared session; host-key dialog + host list + `ui.inspect`), s129/t001-005 (contract; form; row; desktop host; live checks), s130/t001-002 (memory and rates; documents + close). **Planned 2026-11-22.** Not turned into tasks, by decision: Stop and Restart over SSH, a runtime secret prompt, `ProxyCommand`/`Match`, installing the daemon over SSH (milestone 6), macOS and Windows checks (owner) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)

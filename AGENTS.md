@@ -50,18 +50,19 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     built and released by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
                     a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview,
-                    the daemon registry and, for a local or direct entry, the transport backed by Rust: Rust dials
-                    the daemon and the page's own WebSocket reaches it through a single-use loopback proxy; a relay
-                    entry keeps the webview's socket; for those entries the Upload button's native file dialog and
+                    the daemon registry and, for every entry (local, direct, relay or SSH), the transport backed by Rust: Rust
+                    opens the daemon's socket (a dial, the relay's encrypted channel, or a channel of an SSH connection to the
+                    host) and the page's own WebSocket reaches it through a single-use loopback proxy; no pairing link or
+                    other secret reaches the page; the Upload button's native file dialog and
                     saves to disk run in Rust, on a second connection of its own, through the transfer engine in
                     `crates/transfer`, and `--transfers page` turns that off), so desktop-ci.yml
                     also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
-                    (`model`, `store`, `secrets`, `engine`, `shell`, `net`, `transfer`) hold the daemon registry, the settings,
+                    (`model`, `store`, `secrets`, `engine`, `shell`, `net`, `transfer`, `relay`, `ssh`) hold the daemon registry, the settings,
                     the stored workbench state, the command registry, the secret store (OS keychain, else a 0600
                     file; no secret in daemons.json) and the sockets, and run this machine's daemon through the
-                    installed `pi-studio` CLI. Milestones 1, 2 and 3 are built and checked on Linux (milestone 3
-                    on 2026-11-22); on macOS and Windows only the automated checks of milestones 1 and 2 have run,
-                    and milestone 3 is not checked there (desktop/docs/platform-checks.md). The app's
+                    installed `pi-studio` CLI (or a remote SSH host's). Milestones 1 to 4 are built; milestones 1 to 3 were checked on Linux
+                    (milestone 3 on 2026-11-22); on macOS and Windows only the automated
+                    checks of milestones 1 and 2 have run, and milestones 3 and 4 are not checked there (desktop/docs/platform-checks.md). The app's
                     `minDaemonVersion` is 0.0.127, the release that carries the daemon's upload changes.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{Notify, oneshot};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
@@ -25,9 +25,8 @@ use super::conn::{Conn, Dir, Leg};
 use super::gate::{Gate, Refusal};
 use super::pump::{Event, Loss, Pumped, pump};
 use super::{EndCode, Shared};
-use crate::dial::Socket;
 use crate::limits::Limits;
-use crate::stream::Stream;
+use crate::socket::DaemonSocket;
 
 /// Everything a connection's task owns.
 pub(super) struct Task {
@@ -38,7 +37,7 @@ pub(super) struct Task {
     pub(super) shutdown: Arc<Notify>,
     pub(super) listener: TcpListener,
     pub(super) gate: Gate,
-    pub(super) daemon: Socket,
+    pub(super) daemon: DaemonSocket,
 }
 
 /// What the steps share.
@@ -111,13 +110,13 @@ async fn wait_for_page(ctx: &Ctx<'_>, listener: TcpListener, gate: Gate, shutdow
 }
 
 /// The daemon is told 1001 and given the close wait.
-async fn goodbye(ctx: &Ctx<'_>, mut daemon: Socket) {
+async fn goodbye(ctx: &Ctx<'_>, mut daemon: DaemonSocket) {
     ctx.conn.closing();
     say_goodbye(&mut daemon, ctx.limits.close_wait).await;
 }
 
-type ToPage = Result<Pumped<Stream, TcpStream>, JoinError>;
-type ToDaemon = Result<Pumped<TcpStream, Stream>, JoinError>;
+type ToPage = Result<Pumped<DaemonSocket, PageSocket>, JoinError>;
+type ToDaemon = Result<Pumped<PageSocket, DaemonSocket>, JoinError>;
 
 /// Stops a direction, or first lets it end by itself for `grace`, and takes its result.
 async fn stopped<T>(handle: &mut JoinHandle<T>, stop: oneshot::Sender<()>, grace: Option<Duration>) -> Result<T, JoinError> {
@@ -137,7 +136,7 @@ fn grace_for<A, B>(first: &Result<Pumped<A, B>, JoinError>, limits: &Limits) -> 
 
 /// Runs both directions until one ends (or the connection is shut down), then stops the other.
 /// The first of the answers is the direction that ended first, `None` for a shutdown.
-async fn run_pumps(ctx: &Ctx<'_>, daemon: Socket, page: PageSocket, shutdown: &Notify) -> (Option<Dir>, ToPage, ToDaemon) {
+async fn run_pumps(ctx: &Ctx<'_>, daemon: DaemonSocket, page: PageSocket, shutdown: &Notify) -> (Option<Dir>, ToPage, ToDaemon) {
     let (daemon_sink, daemon_stream) = daemon.split();
     let (page_sink, page_stream) = page.split();
     let (stop_page, stop_page_rx) = oneshot::channel();
@@ -172,7 +171,7 @@ fn verdict(first: Option<Dir>, to_page: Event, to_daemon: Event) -> Option<(Dir,
 }
 
 /// The page is connected: pump until something ends it, then end both legs.
-async fn relay(ctx: &Ctx<'_>, daemon: Socket, page: PageSocket, shutdown: &Notify) -> Option<EndCode> {
+async fn relay(ctx: &Ctx<'_>, daemon: DaemonSocket, page: PageSocket, shutdown: &Notify) -> Option<EndCode> {
     let (first, to_page, to_daemon) = run_pumps(ctx, daemon, page, shutdown).await;
     let (Ok(to_page), Ok(to_daemon)) = (to_page, to_daemon) else {
         ctx.say("a pump task failed");
@@ -196,7 +195,7 @@ fn leg_name(leg: Leg) -> &'static str {
 }
 
 /// Ends both legs for `verdict`; the answer is the abnormal end to record, if any.
-async fn end_legs(ctx: &Ctx<'_>, verdict: Option<(Dir, Event)>, daemon: Socket, page: PageSocket) -> Option<EndCode> {
+async fn end_legs(ctx: &Ctx<'_>, verdict: Option<(Dir, Event)>, daemon: DaemonSocket, page: PageSocket) -> Option<EndCode> {
     let Some((dir, event)) = verdict else {
         ctx.say("shut down");
         drop(page);
@@ -231,7 +230,7 @@ async fn end_legs(ctx: &Ctx<'_>, verdict: Option<(Dir, Event)>, daemon: Socket, 
 
 /// `closer` sent a close frame: it goes to the other leg. Not an abnormal end: what follows is the
 /// workbench's reconnect.
-async fn close_by(ctx: &Ctx<'_>, closer: Leg, frame: Option<CloseFrame>, mut daemon: Socket, mut page: PageSocket) {
+async fn close_by(ctx: &Ctx<'_>, closer: Leg, frame: Option<CloseFrame>, mut daemon: DaemonSocket, mut page: PageSocket) {
     ctx.say(&format!("the {} closed with code {}", leg_name(closer), frame.as_ref().map_or(1005, |f| u16::from(f.code))));
     ctx.conn.closing();
     let wait = ctx.limits.close_wait;
@@ -244,7 +243,7 @@ async fn close_by(ctx: &Ctx<'_>, closer: Leg, frame: Option<CloseFrame>, mut dae
 /// `leg` ended without a close frame. The daemon's leg takes the page's with it (dropped, so the
 /// page sees 1006); the page's leg ends with 1001 to the daemon. A page that reloads is normal; one
 /// that broke the protocol is recorded.
-async fn lost(ctx: &Ctx<'_>, leg: Leg, loss: Loss, daemon: Socket, page: PageSocket) -> Option<EndCode> {
+async fn lost(ctx: &Ctx<'_>, leg: Leg, loss: Loss, daemon: DaemonSocket, page: PageSocket) -> Option<EndCode> {
     ctx.say(&format!("the {}'s leg ended without a close frame", leg_name(leg)));
     match leg {
         Leg::Daemon => Some(EndCode::UpstreamLost),

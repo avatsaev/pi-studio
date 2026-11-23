@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type DaemonEntryView, type LocalDaemonState } from "../../host/types.js";
+import {
+  type DaemonEntryView,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 import { type DaemonsSnapshot } from "../daemons/use-daemons.js";
 import {
   MANAGE_DAEMONS_LABEL,
@@ -36,6 +40,7 @@ function snapshot(currentId: string | null, local: LocalDaemonState): DaemonsSna
     currentId,
     entries: [LOCAL, A, B, R],
     local,
+    remote: null,
     settings: { autoStartLocalDaemon: true, cliPath: null },
   };
 }
@@ -292,5 +297,45 @@ describe("switchFailureMessage", () => {
 
   it("falls back to a generic sentence for anything else", () => {
     expect(switchFailureMessage(new Error("boom"))).toBe("The daemon could not be opened.");
+  });
+});
+
+describe("daemonSwitcherView for an SSH entry", () => {
+  const SSH: DaemonEntryView = { id: "s", kind: "ssh", name: "Dev box", hasPassword: false };
+  const sshSnapshot = (remote: RemoteDaemonState): DaemonsSnapshot => ({
+    ...snapshot("s", RUNNING),
+    entries: [LOCAL, SSH],
+    remote,
+  });
+
+  it("lists the entry as SSH", () => {
+    const view = daemonSwitcherView({
+      snapshot: sshSnapshot({ state: "running" }),
+      status: "open",
+      error: null,
+    });
+    expect(view.items.map((item) => item.kindLabel)).toEqual(["Local", "SSH"]);
+  });
+
+  it("shows the remote state while the host's daemon is not running", () => {
+    const view = daemonSwitcherView({
+      snapshot: sshSnapshot({ state: "not_installed" }),
+      status: "idle",
+      error: null,
+    });
+    expect(view.kind).toBe("error");
+    expect(view.statusLabel).toBe("pi-studio is not installed on this host");
+    expect(view.action).toMatchObject({ label: "Retry", intent: "retry" });
+  });
+
+  it("shows a stopped host as plain, with no button", () => {
+    const view = daemonSwitcherView({
+      snapshot: sshSnapshot({ state: "stopped" }),
+      status: "idle",
+      error: null,
+    });
+    expect(view.kind).toBe("disconnected");
+    expect(view.statusLabel).toBe("Stopped");
+    expect(view.action).toBeNull();
   });
 });

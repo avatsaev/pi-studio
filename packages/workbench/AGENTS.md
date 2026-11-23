@@ -49,7 +49,9 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   rejected mount shows the error state; bookkeeping in the pure `features/files/preview-mounts.ts`),
   `{kind:"inert"}` keeps `srcdoc` with a "Scripts are disabled" line; absent = unchanged.
   Optional `daemons` (sprint-109, `HostDaemons`: the desktop daemon registry — snapshot without
-  secrets, local daemon actions, `resolveCurrent`, `switchTo`) and `app.minDaemonVersion`; read by
+  secrets, local daemon actions, `resolveCurrent`, `switchTo`; milestone 4: SSH entries
+  (`DaemonEntryView.kind: "ssh"`, `ssh`), `snapshot().remote` (`RemoteDaemonState`),
+  `remote.start/refresh`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
@@ -228,7 +230,8 @@ src/
                            and both tests must pass), query-client
                            (TanStack Query), rpc-keys, files-changed (cache-invalidation
                            signaling), resume-action (resolveResumeAction — pure decision core:
-                           status/managerActive/probeInFlight → none/reconnect-now/probe — sprint-050)
+                           status/managerActive/managerStarted/probeInFlight →
+                           none/reconnect-now/probe/connect-again — sprint-050)
                            (+ test, full decision table), resume-handler (createResumeHandler —
                            executes the decision; subscribed to the host's `connection.onResume`
                            by `WorkbenchBoot` — sprint-093, see Invariants "Connection resume
@@ -530,12 +533,39 @@ src/
                             `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
                             WorkspaceShell). Stop on the current local entry while connected asks
                             first (`stopNeedsConfirm`); the workbench never starts a daemon by itself
+                            SSH (milestone 4, `desktop-relay-ssh.md` § 9–10): the form's third kind
+                            (name, host, user, port, key file, jump host, daemon port — empty is 6767 —
+                            SSH password, key passphrase, daemon password; each secret has its own
+                            "saved" marker, Clear and Keep, a typed secret beats a pending Clear;
+                            `sshHosts()` fills a select above Host when an SSH form opens (absent when
+                            the config does not parse), `chooseSshHost` sets the host and, when empty,
+                            the name, and `sshPlaceholders` shows the config's user, port, key and jump
+                            host as placeholders when the typed host matches an alias; the host's
+                            refusals `invalid_host/user/port/path/jump` land on their own fields).
+                            `needsReconnect`: saving the current entry offers "Reconnect now" for any
+                            change but a rename (a secret-only change too). The row of an SSH entry shows
+                            `user@host:port`; for the current one `remoteStateView` (daemon-presentation.ts:
+                            label/tone/actions per `RemoteDaemonState`): `stopped` Start; `failed` Start
+                            and Retry; `unknown`, `not_installed`, `cli_outdated` Retry (`remote.refresh`);
+                            `not_installed` shows "pi-studio is not installed on this host" with
+                            `REMOTE_INSTALL_COMMAND` (`npm install -g @av-pi-studio/cli`) and a Copy
+                            button (`copyCommand`, through `getHost().clipboard`); `cli_outdated` shows the
+                            installed version and `MIN_REMOTE_CLI_VERSION` ("0.0.127"), a constant that
+                            DUPLICATES the Rust `MIN_CLI_VERSION` (`desktop/crates/shell/src/cli_answers.rs`):
+                            change both together. `runRemoteAction` calls `remote.start/refresh`.
+                            `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
+                            entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
+                            (`remoteNeedsScreen`, also on mount); the workbench still never starts a
+                            daemon by itself, Start is the user's button.
     connection/            With `host.daemons`, ConnectionBar draws DaemonSwitcher.tsx instead of the
                             url/password fields and Connect: the pill is a menu of entries + "Manage
                             daemons…"; picking another entry calls `switchTo` (page reloads), the
                             current one while down and Retry call `connectCurrent()`;
                             daemon-switcher-presentation.ts (pure `daemonSwitcherView`/`daemonChoice`)
                             (+ test). Without a registry the bar is unchanged.
+                            With an SSH entry current and its daemon not `running`/`unknown`, the
+                            switcher shows the remote state's label (`remoteStateView`); its Retry reuses
+                            `connectCurrent`.
                             outdated-daemon.ts (pure `parseVersion`/`outdatedDaemonNotice`: numeric
                             semver compare; unparsable = absent) + use-outdated-daemon-notice.ts
                             (mounted in WorkspaceShell: one toast per established connection — `open`
@@ -1023,8 +1053,16 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   effect's cleanup unsubscribes, so StrictMode's double-invoke leaves one listener). It reads
   `useConnectionStore.getState()` fresh at signal time (never captured — the store replaces
   `daemon`/`reconnection` on every `connect()`), and feeds `lib/connection/resume-action.ts`'s
-  pure `resolveResumeAction({ status, managerActive, probeInFlight })`: `closed` + an active
-  `ReconnectionManager` → `reconnection.reconnectNow()` (bypasses the pending backoff delay);
+  pure `resolveResumeAction({ status, managerActive, managerStarted, probeInFlight })`: `closed` + a
+  started `ReconnectionManager` → `reconnection.reconnectNow()` (bypasses the pending backoff delay);
+  `closed` + a manager that never started (`reconnection.isActive` false: the first connect of that
+  client never opened — a refused SSH host key, a stopped daemon; the page shows the error and Retry)
+  → `createResumeHandler(connectAgain)`'s callback, which `WorkbenchBoot` makes
+  `useDaemonsStore.getState().connectCurrent()`, the connection bar's Retry (the desktop app sends
+  one resume after the user trusts a host key and after a remote Start, so the page connects by
+  itself; a host with no `daemons` member, the browser host, has no current entry, so there
+  `connectCurrent()` returns at once and `online`/`visibilitychange` after a failed first connect
+  still do nothing, as before);
   `open` + active + no probe already in flight → a liveness probe, `daemon.ping(PROBE_TIMEOUT_MS)`
   (`PROBE_TIMEOUT_MS = 5_000`, tighter than `ping()`'s 10 s default — the daemon answers from its
   socket read loop, so 5 s of silence on a working link is already pathological); on rejection,

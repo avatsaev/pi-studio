@@ -1,0 +1,34 @@
+[package]
+name = "pistudiodesktop-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The in-process SSH server (`testing.rs`): russh's server half with key, password and agent-signed logins,
+# `direct-tcpip`, exec and refusal switches, a pausable wire and an agent socket, for this crate's tests and for
+# the integration tests of the crates that use it. Never enabled in a shipped build.
+testing = ["dep:futures-util"]
+
+# Native only, like `net`: on wasm32 the crate is empty and takes no dependency. russh is built with
+# `ring` and without its default `aws-lc-rs` (cmake or NASM on Windows); `xtask` fails on an `aws-lc` package.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pistudiodesktop-net = { workspace = true }
+russh = { workspace = true }
+ssh2-config = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net", "time", "sync", "io-util"] }
+# `ring` is already in the tree through russh; known hosts need its HMAC-SHA1 for hashed entries.
+ring = "0.17"
+# The testing server's agent listener is a `Stream` of accepted sockets.
+futures-util = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+futures-util = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "net", "time", "sync", "io-util"] }
+# The stand-in daemon of the channel tests: a WebSocket server on a loopback port.
+tokio-tungstenite = { workspace = true }

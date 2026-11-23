@@ -66,7 +66,7 @@ describe("transfer count", () => {
   });
 });
 
-const snapshotWith = (transfers: "engine" | "page", kind: "local" | "direct" | "relay" | null): BootSnapshot =>
+const snapshotWith = (transfers: "engine" | "page", kind: "local" | "direct" | "relay" | "ssh" | null): BootSnapshot =>
   ({
     transfers,
     daemons: {
@@ -79,10 +79,12 @@ describe("engineServes", () => {
   it.each([
     ["engine", "local", true],
     ["engine", "direct", true],
-    ["engine", "relay", false],
+    ["engine", "relay", true],
+    ["engine", "ssh", true],
     ["engine", null, false],
     ["page", "local", false],
     ["page", "direct", false],
+    ["page", "ssh", false],
   ] as const)("transfers %s, entry %s: %s", (transfers, kind, expected) => {
     expect(engineServes(snapshotWith(transfers, kind))).toBe(expected);
   });

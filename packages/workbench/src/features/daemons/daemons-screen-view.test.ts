@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { type DaemonEntryView, type LocalDaemonState } from "../../host/types.js";
-import { INSTALL_CLI_COMMAND, UPDATE_CLI_COMMAND } from "./daemon-presentation.js";
+import {
+  type DaemonEntryView,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
+import {
+  INSTALL_CLI_COMMAND,
+  MIN_REMOTE_CLI_VERSION,
+  REMOTE_INSTALL_COMMAND,
+  UPDATE_CLI_COMMAND,
+} from "./daemon-presentation.js";
 import {
   bannerView,
   buildDaemonsScreenView,
@@ -33,8 +42,79 @@ function snapshot(
   currentId: string | null,
   entries: DaemonEntryView[] = [LOCAL, DIRECT_B, RELAY_C],
 ): DaemonsSnapshot {
-  return { currentId, entries, local, settings: { autoStartLocalDaemon: true, cliPath: null } };
+  return {
+    currentId,
+    entries,
+    local,
+    remote: null,
+    settings: { autoStartLocalDaemon: true, cliPath: null },
+  };
 }
+
+const SSH_D: DaemonEntryView = {
+  id: "d",
+  kind: "ssh",
+  name: "Dev box",
+  hasPassword: false,
+  ssh: {
+    host: "dev.example",
+    user: "ana",
+    port: 2222,
+    daemonPort: 6767,
+    hasSshPassword: false,
+    hasPassphrase: false,
+  },
+};
+
+function sshSnapshot(
+  remote: RemoteDaemonState | null,
+  currentId: string | null = "d",
+): DaemonsSnapshot {
+  return { ...snapshot({ state: "stopped" }, currentId, [LOCAL, SSH_D]), remote };
+}
+
+describe("the SSH row", () => {
+  const rowOf = (remote: RemoteDaemonState | null, currentId: string | null = "d") =>
+    buildDaemonsScreenView(sshSnapshot(remote, currentId), null).rows[1];
+
+  it("is labelled SSH and shows user@host:port", () => {
+    expect(rowOf({ state: "running" })).toMatchObject({
+      kindLabel: "SSH",
+      address: "ana@dev.example:2222",
+    });
+  });
+
+  it("shows the state and Start for the current entry when the daemon is stopped", () => {
+    const row = rowOf({ state: "stopped" });
+    expect(row?.remote).toMatchObject({ label: "Stopped", tone: "neutral", notice: null });
+    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start"]);
+    expect(row?.local).toBeNull();
+  });
+
+  it("offers Start and Retry after a failure", () => {
+    const row = rowOf({ state: "failed", reason: "not_healthy" });
+    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start", "refresh"]);
+  });
+
+  it("says pi-studio is not installed, with the command to copy and Retry", () => {
+    const remote = rowOf({ state: "not_installed" })?.remote;
+    expect(remote?.label).toBe("pi-studio is not installed on this host");
+    expect(remote?.notice?.command).toBe("npm install -g @av-pi-studio/cli");
+    expect(remote?.actions.map((a) => a.call)).toEqual(["refresh"]);
+  });
+
+  it("names both versions for an outdated CLI", () => {
+    const remote = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
+    expect(remote?.label).toContain("0.0.100");
+    expect(remote?.notice?.text).toContain("0.0.100");
+    expect(remote?.notice?.text).toContain(MIN_REMOTE_CLI_VERSION);
+    expect(remote?.notice?.command).toBe(REMOTE_INSTALL_COMMAND);
+  });
+
+  it("has no state when it is not the current entry", () => {
+    expect(rowOf(null, "local")?.remote).toBeNull();
+  });
+});
 
 describe("buildDaemonsScreenView rows", () => {
   const view = buildDaemonsScreenView(snapshot({ state: "stopped" }, "b"), null);

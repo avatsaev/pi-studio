@@ -10,6 +10,7 @@ const daemons = {
     { id: "d1", kind: "direct", name: "Box", address: "box:6767", hasPassword: true },
   ],
   local: { state: "running", host: "127.0.0.1", port: 6767 },
+  remote: null,
   settings: { autoStartLocalDaemon: true, cliPath: null },
 };
 

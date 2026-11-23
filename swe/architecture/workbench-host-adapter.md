@@ -1,6 +1,7 @@
 # Architecture — Workbench Host Adapter
 
 > **Status: built on `feat/workbench` (sprint 093, 2026-11-14); released with the workbench package. Extended for the desktop host in sprints 103–110 (2026-11-20): `dialogs.prompt` removed; `preview`, `daemons`, `app.minDaemonVersion` and the `saveTarget` option added; external links go through the host. Milestone 2 (sprints 112–117, 2026-11-22): the desktop host's `connection.createTransport` picks a Rust-owned proxy for `local` and `direct` entries and `onResume` hears the app's resume event, with no change to this contract; the registry view's `secretStore` was added. Milestone 3, sprint 119 (2026-11-22): `files.upload` and `files.saveToDisk` take `TransferOptions` (progress, state, abort; `UploadOptions` is gone) and the browser host honours it. Checked live in the desktop app on Linux; the contract below is `packages/workbench/src/host/types.ts`.**
+> **Amended by [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md) (2026-11-22, milestone 4; sprints 126 and 129).** The desktop host's `connection.createTransport` returns the proxied transport for a current entry of every kind (`relay` and `ssh` included); a refused `transport_open` with one of the SDK's relay reasons rejects with a `RelayConnectError` of that reason for a relay entry. `resolveCurrent` answers an address for every kind, never a pairing link. `HostDaemons` gained SSH entries, `remote`, `sshHosts()` (see the table of changes below).
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [workbench-package.md](workbench-package.md) (the package this seam belongs to),
@@ -112,8 +113,12 @@ interface TransferOptions {                     // of `upload` and `saveToDisk`;
 `HostDaemons` and its types (optional; the desktop host supplies them, the browser host does not):
 
 ```ts
-interface DaemonEntryView { id: string; kind: "local" | "direct" | "relay"; name: string;
-                            address?: string; hasPassword: boolean }   // never a secret
+interface DaemonEntryView { id: string; kind: "local" | "direct" | "relay" | "ssh"; name: string;
+                            address?: string; ssh?: SshEntryView; hasPassword: boolean }   // never a secret
+interface SshEntryView { host: string; user?: string; port?: number; identityFile?: string; jump?: string;
+                         daemonPort: number; hasSshPassword: boolean; hasPassphrase: boolean }
+interface SshHostSuggestion { alias: string; hostName?: string; user?: string; port?: number;
+                              identityFile?: string; jump?: string }   // a `Host` of ~/.ssh/config
 
 type LocalDaemonState =
   | { state: "checking" } | { state: "unsupported" }
@@ -122,20 +127,33 @@ type LocalDaemonState =
   | { state: "running"; host: string; port: number }
   | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
 
+type RemoteDaemonState =   // the current `ssh` entry's daemon; in memory
+  | { state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting" }
+  | { state: "cli_outdated"; version: string }
+  | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "exec_failed" | "no_shell" };
+
 type NewDaemon =
   | { kind: "direct"; name: string; address: string; password?: string }
-  | { kind: "relay"; name: string; pairingLink: string };
-interface DaemonPatch { name?: string; address?: string; password?: string | null; pairingLink?: string }
+  | { kind: "relay"; name: string; pairingLink: string }
+  | { kind: "ssh"; name: string; host: string; user?: string; port?: number; identityFile?: string;
+      jump?: string; daemonPort?: number; password?: string; sshPassword?: string; passphrase?: string };
+interface DaemonPatch { name?: string; address?: string; password?: string | null; pairingLink?: string;
+                        host?: string; user?: string | null; port?: number | null; identityFile?: string | null;
+                        jump?: string | null; daemonPort?: number; sshPassword?: string | null;
+                        passphrase?: string | null }   // null clears; wrong_kind for a field the kind lacks
 interface DaemonSettings { autoStartLocalDaemon: boolean; cliPath: string | null }
 
 type DaemonErrorCode = "invalid_name" | "name_taken" | "invalid_address" | "invalid_link" | "too_many"
   | "not_found" | "wrong_kind" | "local_not_removable" | "unsupported" | "cli_missing" | "cli_outdated"
   | "busy" | "no_current" | "local_stopped" | "not_healthy" | "timeout" | "bad_output" | "spawn_failed"
-  | "secret_missing" | "secret_unavailable" | "secret_store_failed";   // the last three: the secret store (sprint 113)
+  | "secret_missing" | "secret_unavailable" | "secret_store_failed"   // the last three: the secret store (sprint 113)
+  | "invalid_host" | "invalid_user" | "invalid_port" | "invalid_path" | "invalid_jump"
+  | "not_installed" | "ssh_config";                                   // SSH entries (milestone 4)
 interface DaemonError extends Error { readonly code: DaemonErrorCode }   // message is the code; a type only
 
 interface HostDaemons {
   snapshot(): { currentId: string | null; entries: DaemonEntryView[]; local: LocalDaemonState;
+                remote: RemoteDaemonState | null;                       // non-null only for a current `ssh` entry
                 settings: DaemonSettings;
                 secretStore?: "keychain" | "file" };                    // synchronous, in memory
   subscribe(listener: () => void): () => void;
@@ -146,6 +164,8 @@ interface HostDaemons {
   switchTo(id: string): Promise<void>;                                  // reloads the page; does not resolve on success
   setSettings(patch: Partial<DaemonSettings>): Promise<void>;
   local: { start(): Promise<void>; stop(): Promise<void>; restart(): Promise<void>; refresh(): Promise<void> };
+  remote: { start(): Promise<void>; refresh(): Promise<void> };         // wrong_kind unless the current entry is `ssh`
+  sshHosts(): Promise<SshHostSuggestion[]>;                             // rejects `ssh_config` when the file does not parse
   onManageRequest(listener: () => void): () => void;
 }
 ```
@@ -154,7 +174,7 @@ Supporting types:
 
 | Type | Meaning |
 |---|---|
-| `ConnectIntent` | `{ url?: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link; every field pre-fills the connection bar. The desktop host's `resolveCurrent` leaves `password` out for a `local` or `direct` entry: Rust reads it |
+| `ConnectIntent` | `{ url?: string; password?: string; cwd?: string; connect: boolean }`. `url` may be an address or a pairing link (the browser host's launch); every field pre-fills the connection bar. The desktop host's `resolveCurrent` leaves `password` out and answers an address only, for every kind: the entry's own, the relay's for a relay entry, `ws://127.0.0.1:<daemonPort>` for an SSH entry; Rust reads every secret |
 | `ConnectTarget` | The result of today's `resolveConnectTarget`: `{ mode: "direct"; url } \| { mode: "relay"; url; daemonPublicKey: Uint8Array }` |
 | `UploadSource` | `{ name: string; readonly size?: number }` plus host-private data. The browser host wraps a `File`; a native host may accept its own kind. Opaque to the workbench, which reads only `name` and `size`; every host must accept a `Blob`, because the workbench makes `File`s itself |
 | `ViewableFile` | `{ url: string; mimeType?: string; fileName?: string; release(): void }` |
@@ -172,7 +192,7 @@ Supporting types:
 | `launch.agentDeepLink.current` | The pending agent id at boot, or `null` |
 | `launch.agentDeepLink.subscribe` | Fires for each later deep-link request while the app is open |
 | `launch.agentDeepLink.consume` | Called after a target is applied or rejected, so it is not applied again. The browser host strips `agent=` from the URL fragment |
-| `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer`. The desktop host returns a proxied transport (Rust owns the socket to the daemon) for a `local` or `direct` current entry, and the browser host's choice otherwise ([The desktop host](#the-desktop-host)) |
+| `connection.createTransport` | Returns the transport `DaemonClient` uses, or `undefined` for the SDK default. Called once per `connect()`. The transport must honour the `Transport` contract: frames in wire order, binary delivered as `ArrayBuffer`. The desktop host returns a proxied transport (Rust owns the socket to the daemon) for a current entry of any kind (`local`, `direct`, `relay`, `ssh`), and the browser host's choice when there is no current entry ([The desktop host](#the-desktop-host)) |
 | `connection.timers` | Passed to `ReconnectionManager`. Must keep firing when the window is hidden |
 | `connection.onResume` | Fires when the host believes a stale connection may need checking: the window became visible, the network came back, the machine woke. The workbench decides what to do (`resolveResumeAction`, unchanged) |
 | `files.upload` | Stores `source` at `<dir>/<source.name>` on the daemon. Resolves when the daemon has confirmed the file is written (`fileTransferAck`; an older daemon resolves when the bytes have left the machine); rejects with the daemon's reason. `options` is a `TransferOptions`: `onProgress(done, total?)` is the bytes sent so far and the source's size when known; `signal` aborting stops the upload and rejects with an error named `AbortError`; `onStateChange` is for hosts that queue or wait (the browser host never calls it). The browser host passes the `File` to the SDK as the chunk source (sprint-096/task-005), with `onProgress` and `signal`. The workbench then refreshes the explorer listing |
@@ -181,7 +201,7 @@ Supporting types:
 | `files.pickUploads` | Optional. When present, the explorer's upload action calls it instead of opening an `<input type="file">` |
 | `pdf` | Optional. `createWorker` returns a pdf.js worker; `assetBaseUrl` is where the pdf.js data directories are served (trailing slash) |
 | `preview` | Optional. Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled document to `mount` and loads its frame from the returned `url` (same sandbox tokens, never `allow-same-origin`) instead of `srcdoc`; it calls `release` once a newer document replaces it and on unmount; a `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this host; the viewer keeps `srcdoc` and says so. Absent: `srcdoc`, unchanged |
-| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; its optional `secretStore` (`"keychain" \| "file"`) says where the host keeps them: with `file` the Daemons screen shows one line (kept in a file only this user can read, because no keychain is available), with `keychain` or when absent it shows nothing; `subscribe` fires after any change to the registry, the settings or the local daemon's state; a rejected call carries a `DaemonError` code; `local.*` resolve once the action is accepted and the outcome arrives as a state change; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract. Absent: the address and password fields, unchanged |
+| `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; its optional `secretStore` (`"keychain" \| "file"`) says where the host keeps them: with `file` the Daemons screen shows one line (kept in a file only this user can read, because no keychain is available), with `keychain` or when absent it shows nothing; `snapshot().remote` is the state of the current SSH entry's daemon (`RemoteDaemonState`) or `null`; `subscribe` fires after any change to the registry, the settings, the local daemon's state or the remote one's; a rejected call carries a `DaemonError` code; `local.*` and `remote.*` resolve once the action is accepted and the outcome arrives as a state change; `sshHosts()` lists the `Host` names of `~/.ssh/config` for the SSH form; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract and [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md) § 9. Absent: the address and password fields, unchanged |
 
 ### Browser host
 
@@ -212,15 +232,16 @@ transfers. Which member comes from where: [../features/desktop-native-host.md](.
 
 `connection` is the browser host's with two changes (`src/host/connection.ts`; built in milestone 2,
 [../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 4):
-`createTransport` returns, when the registry's current entry is of kind `local` or `direct` (the
-entry's kind decides, not the target's shape), the SDK's WebSocket transport whose `connect(url)`
+`createTransport` returns, when the registry has a current entry (of any kind: `local`, `direct`,
+`relay` or `ssh`; the entry's kind decides, not the target's shape), the SDK's WebSocket transport whose `connect(url)`
 first calls the app's `transport_open` and connects to the single-use loopback address it answers,
-so Rust holds the socket to the daemon and the password (`options.password` is ignored); for a
-`relay` entry, or with no current entry, it returns what the browser host returns. `onResume` adds
+so Rust holds the socket to the daemon and every secret (`options.password` is ignored); a refusal
+of `transport_open` with one of the SDK's eight relay reasons rejects with a `RelayConnectError` of that reason when the entry is `relay`,
+and is a plain `Error` otherwise; with no current entry it returns what the browser host returns. `onResume` adds
 the app's `connection_resume` event (wake, network change) to the browser triggers. `timers` is
 unchanged. The registry view the host reads carries `secretStore` (`"keychain"` or `"file"`; absent
-when the app's store is in memory) and the host's `resolveCurrent` answers no password for a
-`local` or `direct` entry.
+when the app's store is in memory) and the host's `resolveCurrent` answers no secret for any entry
+(an address only).
 
 ### History — the 2026-11-15 amendment, built
 
@@ -233,6 +254,7 @@ in the contract above. Kept so the reasons are findable.
 | `app.minDaemonVersion?: string` | Added, optional | Sprint-109 (the app sets it to `0.0.119`); the notice, sprint-110 |
 | `daemons?: HostDaemons` | Added, optional | Types and an in-memory test registry sprint-109; consumed by the connection bar, the Daemons screen and connection boot in sprint-110 |
 | `HostDaemons.snapshot().secretStore?` | Added, optional | Sprint-113 (task-007): the desktop host reads it from the app's registry view; the Daemons screen draws one line for `file` ([../features/desktop-transport-bridge.md](../features/desktop-transport-bridge.md) § 5) |
+| `DaemonEntryView.kind: "ssh"`, `ssh`, `RemoteDaemonState`, `snapshot().remote`, `remote.start/refresh`, `sshHosts()`, SSH variants of `NewDaemon`/`DaemonPatch`, seven new `DaemonErrorCode`s | Added | Milestone 4, sprint-129 (task-001); the desktop host maps them to `daemon.remote.*`, `ssh_config_hosts` and the registry view's `remote` ([../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md) § 9) |
 | `preview?: HostPreview` | Added, optional | Sprint-105 |
 | External links | Behaviour | Sprint-104: through `links.openExternal` when the host has it, a new tab otherwise; before, links in messages had no target and replaced the page |
 | `saveTarget` option of `createBrowserHost` | Added (planned later) | Sprint-104 |

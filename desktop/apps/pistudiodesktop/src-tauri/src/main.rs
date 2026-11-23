@@ -25,6 +25,7 @@ mod network;
 mod preview_scheme;
 mod resume;
 mod services;
+mod ssh_session;
 mod transfers;
 mod transport;
 
@@ -40,12 +41,15 @@ use pistudiodesktop_shell::owner::FLUSH_DELAY;
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::picked::Picked;
 use pistudiodesktop_shell::preview::{self, Previews};
-use pistudiodesktop_shell::resume::ResumeSignals;
+use pistudiodesktop_shell::remote_supervisor::{RemoteLimits, RemoteSupervisor};
+use pistudiodesktop_shell::resume::{Reason, ResumeSignals};
 use pistudiodesktop_shell::saves::Saves;
 use pistudiodesktop_shell::secret_choice;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use tauri::Manager as _;
+
+use crate::ssh_session::{SshEnv, SshSessions};
 
 #[derive(Parser)]
 #[command(name = "pistudiodesktop", version, about = "Pi Studio")]
@@ -154,6 +158,7 @@ fn main() {
             commands::preview_mount,
             commands::preview_release,
             commands::transport_open,
+            commands::ssh_config_hosts,
             commands::transfer_upload,
             commands::transfer_save,
             commands::transfer_cancel
@@ -180,33 +185,58 @@ fn main() {
     // The page's dialog and link commands take their hooks from the managed state; the owner
     // thread holds the same ones.
     let mut services = services::native(app.handle(), title.clone());
-    // `ui.inspect` reads the proxied connections and the last connection error through this.
-    services.transports = Some(app.state::<transport::Transport>().inspector());
+    // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
+    let resume_signals = Arc::new(ResumeSignals::new());
+    // What makes the page connect again: after a Start left the remote daemon running, and after a host key was
+    // trusted. It is the signal of a network change.
+    let resumed: Arc<dyn Fn() + Send + Sync> = {
+        let (handle, signals) = (app.handle().clone(), Arc::clone(&resume_signals));
+        Arc::new(move || {
+            resume::emit(&handle, &signals, Reason::Network, resume::steady_ms());
+        })
+    };
+    // The current SSH entry's one connection, shared by the page, the transfer engine and the remote
+    // commands; the supervisor runs those through the hook. Its known hosts and the login shell's
+    // environment (the agent's socket) are read when it first connects; an unknown host key is asked about
+    // through the confirmation hook, and trusting it tells the page to connect again. Its copy of the
+    // services is taken before the hooks that read it are set.
+    let ssh = SshSessions::new(SshEnv::native(&services, &config_dir).on_trusted(Arc::clone(&resumed)));
+    // `ui.inspect` reads the proxied connections, the SSH session and the last connection error through this.
+    services.transports = Some(app.state::<transport::Transport>().inspector(&ssh));
+    services.remote_run = Some(ssh.remote_run_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    app.manage(ssh.clone());
     // The file transfer engine takes the current entry from the owner thread and the password from
     // the store, as `transport_open` does; `ui.inspect` reads its snapshot through the hook.
-    let engine =
-        match transfers::TransferEngine::new(app.handle().clone(), OwnerAccess::new(requests.clone(), Arc::clone(&store)), &package.version.to_string()) {
-            Ok(engine) => engine,
-            Err(e) => fail(2, format!("no random source for the transfer engine's client id: {e}")),
-        };
+    let engine = match transfers::TransferEngine::new(
+        app.handle().clone(),
+        OwnerAccess::new(requests.clone(), Arc::clone(&store)),
+        ssh.clone(),
+        &package.version.to_string(),
+    ) {
+        Ok(engine) => engine,
+        Err(e) => fail(2, format!("no random source for the transfer engine's client id: {e}")),
+    };
     services.transfers = Some(engine.inspector());
     app.manage(engine);
     app.manage(services.clone());
     // Opening the saves removes the temporary files a run that ended mid-save left behind. The
     // dialog starts in the user's Downloads folder until a save has been made.
     app.manage(Arc::new(Saves::open(&config_dir, app.path().download_dir().ok())));
-    // The background runner carries out what the session queues for the local daemon, off the
-    // session's thread; the page's `daemon_resolve_current` uses the same supervisor.
+    // The background runner carries out what the session queues for the local daemon and for the
+    // current SSH entry's daemon, off the session's thread; the page's `daemon_resolve_current` uses
+    // the same local supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
+    // After a Start left the remote daemon running the page connects again.
+    let started = move || resumed();
+    let remote = RemoteSupervisor::new(services.clone(), RemoteLimits::default());
+    let owner = daemons::RemoteOwner::new(OwnerAccess::new(requests.clone(), Arc::clone(&store)), ssh.clone(), started);
     // The store reaches the page's dial (`Bridge`), the runner and the owner thread; it is only now
     // known, because the file backend needs the configuration directory.
     app.manage(bridge::Bridge::new(requests, Arc::clone(&store)));
-    let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor);
-    // The resume signals' rate limit and counts: the ticker emits, the owner thread reports.
-    let resume_signals = Arc::new(ResumeSignals::new());
+    let wake = daemons::start_runner(runner_requests, Arc::clone(&store), supervisor, remote, owner);
     let launch = bridge::Launch {
-        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake)),
+        notify: Box::new(daemons::Events::to_page(app.handle().clone(), wake).closing(ssh)),
         local_supported: daemons::LOCAL_SUPPORTED,
         notices: chosen.notices,
         resume: Arc::clone(&resume_signals),

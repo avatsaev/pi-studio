@@ -368,7 +368,7 @@ async fn wss_server(leaf: Leaf) -> (u16, oneshot::Receiver<Seen>) {
     (port, rx)
 }
 
-async fn dial_trusting(url: &str, password: Option<&str>, ca: &Ca) -> Result<Socket, DialError> {
+async fn dial_trusting(url: &str, password: Option<&str>, ca: &Ca) -> Result<DaemonSocket, DialError> {
     dial_with_roots(url, password, LIMIT, MAX_MESSAGE_BYTES, vec![ca.issuer.der().clone()]).await
 }
 
@@ -458,6 +458,32 @@ async fn the_upgrade_over_tls_reports_401_like_over_tcp() {
         }
     });
     let e = dial_trusting(&url("wss", port), Some(MARKER), &ca).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Unauthorized, "{e}");
+    assert_no_secret(&e);
+}
+
+#[tokio::test]
+async fn dial_over_upgrades_on_the_stream_it_is_given_with_the_url_host_and_the_bearer_subprotocol() {
+    let (near, far) = tokio::io::duplex(64 * 1024);
+    let (tx, seen) = oneshot::channel();
+    tokio::spawn(serve_ws(far, tx));
+    let mut socket = dial_over(near, "ws://daemon.test:4321/x", Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap();
+    assert_eq!(socket.max_message_bytes(), MAX_MESSAGE_BYTES);
+    assert_eq!(socket.next().await.unwrap().unwrap(), Message::text("hi"));
+    let seen = seen.await.unwrap();
+    assert_eq!(seen.host.as_deref(), Some("daemon.test:4321"));
+    assert_eq!(seen.protocol, Some(format!("pi-studio.bearer.{MARKER}")));
+}
+
+#[tokio::test]
+async fn dial_over_maps_a_refused_upgrade_like_dial_does() {
+    let (near, mut far) = tokio::io::duplex(64 * 1024);
+    tokio::spawn(async move {
+        let mut buf = [0u8; 4096];
+        let _ = far.read(&mut buf).await;
+        let _ = far.write_all(b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n").await;
+    });
+    let e = dial_over(near, "ws://daemon.test:4321", Some(MARKER), LIMIT, MAX_MESSAGE_BYTES).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Unauthorized, "{e}");
     assert_no_secret(&e);
 }

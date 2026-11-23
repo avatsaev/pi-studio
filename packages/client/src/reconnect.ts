@@ -134,6 +134,11 @@ export class ReconnectionManager {
     return this.attempt;
   }
 
+  /** Whether `start()` was called and `stop()` was not: false for a connection whose first connect never opened. */
+  get isActive(): boolean {
+    return this.active;
+  }
+
   private scheduleReconnect(): void {
     if (!this.active) return;
     if (this.timer) return; // already armed — see reconnectNow()'s docstring for why this must be unique

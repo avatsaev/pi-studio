@@ -51,9 +51,8 @@ mod tests;
 use std::sync::Arc;
 
 use futures_util::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite};
+use pistudiodesktop_net::DaemonSocket;
 use tokio::time::timeout;
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
@@ -64,11 +63,6 @@ use crate::Limits;
 use crate::error::{Ended, Error};
 use crate::held::Held;
 use crate::wire::inbound::Reply;
-
-/// What a WebSocket can run over: [`pistudiodesktop_net::Stream`] in the app, a pipe in a test.
-pub trait Transport: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
-
-impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> Transport for T {}
 
 /// How the engine closes the connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,8 +102,8 @@ impl Drop for Pending<'_> {
 
 impl Connection {
     /// Says `hello` on `socket`, waits for the daemon's `server_info`, and starts the connection.
-    /// In the app `socket` is a [`pistudiodesktop_net::Socket`] from
-    /// [`net::dial`](pistudiodesktop_net::dial), dialled with `limits.max_message_bytes` as its message
+    /// In the app `socket` is a [`DaemonSocket`] from
+    /// [`net::dial`](pistudiodesktop_net::dial) (or [`dial_over`](pistudiodesktop_net::dial_over)), dialled with `limits.max_message_bytes` as its message
     /// limit; it must refuse a message above that limit as it reads.
     ///
     /// # Errors
@@ -121,7 +115,7 @@ impl Connection {
     /// * [`Error::Internal`]: the socket does not have the message limit.
     ///
     /// On an error the socket has been closed.
-    pub async fn open<S: Transport>(socket: WebSocketStream<S>, hello: &Hello<'_>, limits: Limits) -> Result<Self, Error> {
+    pub async fn open(socket: DaemonSocket, hello: &Hello<'_>, limits: Limits) -> Result<Self, Error> {
         Self::open_counting(socket, hello, limits, Held::new()).await
     }
 
@@ -130,8 +124,8 @@ impl Connection {
     ///
     /// # Errors
     /// As [`open`](Self::open).
-    pub async fn open_counting<S: Transport>(mut socket: WebSocketStream<S>, hello: &Hello<'_>, limits: Limits, held: Held) -> Result<Self, Error> {
-        if !handshake::is_bounded(&socket, limits.max_message_bytes) {
+    pub async fn open_counting(mut socket: DaemonSocket, hello: &Hello<'_>, limits: Limits, held: Held) -> Result<Self, Error> {
+        if socket.max_message_bytes() > limits.max_message_bytes {
             return Err(Error::Internal("the socket does not refuse a message above the message limit"));
         }
         handshake::run(&mut socket, hello, &limits).await?;

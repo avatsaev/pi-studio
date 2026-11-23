@@ -77,12 +77,12 @@ fn execute(app: &mut AppShell, params: &Value) -> Result<Value, String> {
 /// Everything the frontend draws, and everything `ui.inspect` returns: what a person sees is
 /// what an agent reads. `connection` is what an agent reads about how the app reaches daemons:
 /// the kind of secret store (`keychain`, `file` or `memory`), never a secret; the proxied
-/// connections now (`transports`: entry id, state and four counters plus the peak bytes held in
-/// each direction, from the app's [`crate::Services::transports`] hook; empty without one) and the
-/// last connection error (`lastError: { code, atMs }` or null); and the counts of resume signals
+/// connections now (`transports`: entry id, how it goes (`via`: `direct`, `relay` or `ssh`), state and four counters plus the peak bytes held in
+/// each direction, from the app's [`crate::Services::transports`] hook; empty without one), the SSH session (`ssh: { state, hops, channels }`, counts only)
+/// and the last connection error (`lastError: { code, atMs }` or null); and the counts of resume signals
 /// sent since launch (`resumeSignals: { wake, network }`). `transfers` is the transfer engine's view (the launch
 /// mode, the bulk connection, the active transfers, counts and the peak bytes held, from
-/// [`crate::Services::transfers`]; empty without a hook). No address, token, path, handle or message is in it.
+/// [`crate::Services::transfers`]; empty without a hook). No address, user name, fingerprint, token, path, handle or message is in it.
 pub fn view(app: &mut AppShell) -> Value {
     let proxied = app.services.transports.as_ref().map(|hook| hook()).unwrap_or_default();
     let transfers = crate::transfers_view::TransfersView::new(app.transfers, app.services.transfers.as_ref().map(|hook| hook()).unwrap_or_default());
@@ -93,6 +93,7 @@ pub fn view(app: &mut AppShell) -> Value {
         "connection": {
             "secretStore": daemons::secret_store_kind(app),
             "transports": proxied.transports,
+            "ssh": proxied.ssh,
             "lastError": proxied.last_error,
             "resumeSignals": app.resume.counts(),
         },

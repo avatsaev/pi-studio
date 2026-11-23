@@ -8,14 +8,14 @@ use pistudiodesktop_model::EntryId;
 use pistudiodesktop_secrets::{MemoryStore, Secret, SecretError, SecretKey, SecretKind, SecretStore, StoreKind};
 use pistudiodesktop_shell::daemons::LocalOp;
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
-use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, TransportState, TransportView};
+use pistudiodesktop_shell::transports::{ConnectionError, Snapshot, SshState, SshView, TransportState, TransportView, Via};
 use pistudiodesktop_shell::{AppShell, Request, Services, control, process};
 use serde_json::{Value, json};
 
 const PASSWORD: &str = "S3CRET-PASSWORD-7f3a91";
-const LINK: &str = "pi://S3CRET-PAIRING-LINK-b04c52";
+const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=relay-host.example&note=S3CRET-PAIRING-LINK-b04c52";
 const NEW_PASSWORD: &str = "S3CRET-NEW-PASSWORD-1d8e66";
-const NEW_LINK: &str = "pi://S3CRET-NEW-LINK-92aa07";
+const NEW_LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=relay-host.example&note=S3CRET-NEW-LINK-92aa07";
 /// The secrets of the version 1 file the session opens on.
 const OLD_PASSWORD: &str = "S3CRET-OLD-PASSWORD-44b1c8";
 const OLD_LINK: &str = "pi://S3CRET-OLD-LINK-0e6d13";
@@ -160,6 +160,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
             Snapshot {
                 transports: vec![TransportView {
                     entry_id: ARCHIVE.into(),
+                    via: Via::Relay,
                     state: TransportState::Open,
                     frames_in: 4,
                     frames_out: 3,
@@ -168,6 +169,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
                     peak_held_in: 20,
                     peak_held_out: 10,
                 }],
+                ssh: SshView { state: SshState::Open, hops: 1, channels: 1 },
                 last_error: Some(ConnectionError { code: "page_refused", at_ms: 1 }),
             }
         })),
@@ -265,7 +267,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     // The secrets are where they belong: the migrated ones in the store, and none in the file.
     let file = std::fs::read_to_string(dir.path().join("daemons.json")).expect("read the registry");
     assert!(leaks(&file).is_none(), "daemons.json holds a secret: {file}");
-    assert!(file.contains("\"version\": 2") && !file.contains("\"password\"") && !file.contains("\"pairingLink\""), "{file}");
+    assert!(file.contains("\"version\": 3") && !file.contains("\"password\"") && !file.contains("\"pairingLink\""), "{file}");
     let held = |entry: &str, kind| store.get(&SecretKey::new(EntryId::parse(entry).expect("id"), kind)).expect("store read").map(|s| s.expose().to_owned());
     assert_eq!(held("local", SecretKind::Password).as_deref(), Some(OLD_PASSWORD));
     assert_eq!(held(ARCHIVE, SecretKind::PairingLink).as_deref(), Some(OLD_LINK));
@@ -281,9 +283,9 @@ fn no_answer_and_no_log_line_contains_a_secret() {
 }
 
 /// What the page is told to open the current entry, and what the transport bridge plans, as the
-/// app wires them (the supervisor over the owner thread's channel). A local or direct entry's
-/// password reaches Rust's dial (`bridge_password`) and no answer, event or log line; a relay
-/// entry's pairing link is the one secret an answer still holds, and it is asserted as such.
+/// app wires them (the supervisor over the owner thread's channel). An entry's password or pairing
+/// link reaches Rust's dial (`bridge_password`) and no answer, event or log line; a relay entry's
+/// page answer is the relay's address, never the link.
 fn page_answers_hold_no_password() {
     use std::sync::mpsc::channel;
     use std::time::Duration;
@@ -310,6 +312,9 @@ fn page_answers_hold_no_password() {
     // The guard sees a page answer that carries the password.
     let leaky = json!({"url": "10.0.0.9:8080", "password": PASSWORD, "connect": true});
     assert!(std::panic::catch_unwind(|| check_answer("canary", &leaky)).is_err());
+    // ... and one that answers the relay entry's link, as `daemon_resolve_current` once did.
+    let leaky_link = json!({"url": LINK, "connect": true});
+    assert!(std::panic::catch_unwind(|| check_answer("canary", &leaky_link)).is_err());
 
     for (what, switch_to, url) in [("local", "local", "ws://127.0.0.1:6767"), ("direct", direct["id"].as_str().expect("id"), "10.0.0.9:8080")] {
         access.execute("daemon.switch", json!({"id": switch_to})).expect("switch");
@@ -332,8 +337,16 @@ fn page_answers_hold_no_password() {
 
     access.execute("daemon.switch", json!({"id": relay["id"]})).expect("switch to the relay entry");
     let answer = pistudiodesktop_shell::daemons::dial_for_page(supervisor.resolve_current(&access).expect("a dial")).expect("a page answer");
-    assert_eq!(answer, json!({"url": LINK, "connect": true}), "a relay entry's pairing link is its address");
-    assert_eq!(access.bridge_plan(), Err("not_bridged"));
+    check_answer("the page's answer for the relay entry", &answer);
+    assert_eq!(answer, json!({"url": "ws://relay-host.example", "connect": true}), "a relay entry is answered by its relay's address");
+    for op in [LocalOp::Resolve, LocalOp::Bridge] {
+        let reply = access.call(Request::Local(op)).expect("a plan");
+        check_answer("the owner thread's plan for the relay entry", &reply);
+    }
+    let plan = access.bridge_plan().expect("a relay bridge plan");
+    assert!(leaks(&format!("{plan:?}")).is_none(), "{plan:?}");
+    let link = access.bridge_password(&plan).expect("the stored link").map(|p| p.expose().to_owned());
+    assert_eq!(link.as_deref(), Some(LINK), "the link is read in Rust, for its own dial");
     drop(access);
     worker.join().expect("the owner thread ends when its channel closes");
 }
@@ -353,7 +366,7 @@ fn views_name_the_kind(kind: StoreKind) {
     let inspect = control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
     assert_eq!(
         inspect["result"]["connection"],
-        json!({"secretStore": kind.as_str(), "transports": [], "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
+        json!({"secretStore": kind.as_str(), "transports": [], "ssh": {"state": "none", "hops": 0, "channels": 0}, "lastError": null, "resumeSignals": {"wake": 0, "network": 0}}),
         "{inspect}"
     );
     assert_eq!(inspect["result"]["daemons"]["secretStore"], kind.as_str(), "{inspect}");

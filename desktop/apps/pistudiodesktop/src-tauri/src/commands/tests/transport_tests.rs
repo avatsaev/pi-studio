@@ -75,8 +75,8 @@ pub(super) fn logged() -> String {
 /// the order they came) the events `open`, `text`, `binary`, `close:<code>` and `end`, and the
 /// subprotocols the upgrades offered.
 #[derive(Clone)]
-struct Daemon {
-    port: u16,
+pub(super) struct Daemon {
+    pub(super) port: u16,
     events: Arc<Mutex<Vec<String>>>,
     offered: Arc<Mutex<Vec<Option<String>>>>,
     upgrades: Arc<AtomicUsize>,
@@ -84,7 +84,7 @@ struct Daemon {
 
 impl Daemon {
     /// `password`: when set, an upgrade that does not offer `pi-studio.bearer.<password>` is answered 401.
-    fn start(password: Option<&'static str>) -> Daemon {
+    pub(super) fn start(password: Option<&'static str>) -> Daemon {
         let events = Arc::new(Mutex::new(Vec::new()));
         let offered = Arc::new(Mutex::new(Vec::new()));
         let upgrades = Arc::new(AtomicUsize::new(0));
@@ -146,11 +146,11 @@ impl Daemon {
         self.events.lock().is_ok_and(|events| events.iter().any(|e| e == event))
     }
 
-    fn offered(&self) -> Vec<Option<String>> {
+    pub(super) fn offered(&self) -> Vec<Option<String>> {
         self.offered.lock().map(|offered| offered.clone()).unwrap_or_default()
     }
 
-    fn wait_for(&self, event: &str) {
+    pub(super) fn wait_for(&self, event: &str) {
         wait_until(event, || self.saw(event));
     }
 }
@@ -165,11 +165,11 @@ pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
 
 // ---- the page stand-in
 
-type Page = WebSocketStream<TcpStream>;
+pub(super) type Page = WebSocketStream<TcpStream>;
 
 /// The page's `WebSocket` to `local_url`, sending `origin` as its `Origin`. Answers the upgrade
 /// response's `Sec-WebSocket-Protocol` (none is expected) with the socket.
-async fn connect_page(local_url: &str, origin: &str) -> Result<(Page, Option<String>), String> {
+pub(super) async fn connect_page(local_url: &str, origin: &str) -> Result<(Page, Option<String>), String> {
     let mut request = local_url.into_client_request().map_err(|e| e.to_string())?;
     request.headers_mut().insert("origin", HeaderValue::from_str(origin).map_err(|e| e.to_string())?);
     let authority = request.uri().authority().map(|a| a.to_string()).ok_or("no authority")?;
@@ -296,20 +296,6 @@ fn an_address_that_cannot_be_dialled_is_invalid_address_before_any_place_or_secr
     let refused = f.open_url("ftp://127.0.0.1:1");
     assert_eq!(code_of(&refused), "invalid_address");
     assert!(!refused.unwrap_err().to_string().contains(MARKER));
-}
-
-#[test]
-fn a_relay_entry_is_not_bridged() {
-    let f = Fixture::direct(None, None);
-    let relay =
-        invoke(&f.window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "relay", "name": "R", "pairingLink": "pi://secret-link"}})).unwrap();
-    f.make_current(relay["id"].as_str().unwrap());
-    let refused = f.open_url("pi://secret-link");
-    assert_eq!(code_of(&refused), "not_bridged");
-    assert!(!refused.unwrap_err().to_string().contains("secret-link"));
-    // Back on the direct entry, the bridge works again: nothing was held.
-    f.make_current(&f.id);
-    assert!(f.open().is_ok());
 }
 
 #[test]
@@ -531,6 +517,7 @@ fn ui_inspect_shows_the_connection_connecting_then_open_with_counters_and_none_a
     let transports = open["transports"].as_array().unwrap();
     assert_eq!(transports.len(), 1, "{open}");
     assert_eq!(transports[0]["state"], "open", "{open}");
+    assert_eq!(transports[0]["via"], "direct", "{open}");
     for counter in ["framesIn", "framesOut", "bytesIn", "bytesOut"] {
         assert!(transports[0][counter].as_u64().unwrap() > 0, "{counter}: {open}");
     }

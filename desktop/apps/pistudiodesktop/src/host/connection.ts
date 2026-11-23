@@ -8,11 +8,10 @@ const RESUME_EVENT = "connection_resume";
 
 /**
  * The browser host's `connection`, whose `onResume` also hears the app's resume event and whose
- * `createTransport` goes through Rust for a local or direct current entry (decision T1). The choice
- * follows the kind of the current entry, never the shape of the target: a relay entry whose pairing
- * link carries a direct host hint stays on the webview's own socket. With no current entry, the
- * browser host decides. `options.password` is ignored for a proxied entry: Rust reads the password
- * itself, so it is sent to no command.
+ * `createTransport` goes through Rust for every kind of current entry (decisions D4, T1): the page
+ * opens no relay or daemon socket of its own, and a relay refusal comes back as a
+ * `RelayConnectError`. With no current entry, the browser host decides. `options.password` is
+ * ignored: Rust reads the secret itself, so it is sent to no command.
  */
 export function createDesktopConnection(
   base: HostConnection,
@@ -25,8 +24,8 @@ export function createDesktopConnection(
     createTransport(target, options) {
       const { currentId, entries } = daemons.snapshot();
       const kind = entries.find((entry) => entry.id === currentId)?.kind;
-      if (kind === "local" || kind === "direct") return createProxiedTransport(ipc);
-      return base.createTransport(target, options);
+      if (kind === undefined) return base.createTransport(target, options);
+      return createProxiedTransport(ipc, undefined, kind === "relay");
     },
     onResume(listener) {
       const call = (): void => {

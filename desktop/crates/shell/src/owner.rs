@@ -61,8 +61,11 @@ pub trait Notify {
     /// The registry, the local state or a setting changed: `view` is what the page now sees
     /// ([`crate::daemons::view`]). Called after the request that changed it was answered.
     fn changed(&mut self, view: &serde_json::Value);
-    /// A local daemon request is waiting: the background runner should take it.
+    /// A local or remote daemon request is waiting: the background runner should take it.
     fn local_work(&mut self);
+    /// The current SSH entry was edited or removed: its SSH session, if one is open, must end. The
+    /// default does nothing (a host with no SSH).
+    fn ssh_closed(&mut self, _entry: &pistudiodesktop_model::EntryId) {}
 }
 
 /// Tells nobody.
@@ -157,8 +160,11 @@ pub fn serve_notifying(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Du
         if let Some(view) = daemons::take_change(app) {
             notify.changed(&view);
         }
-        if answered && app.session.has_local_requests() {
+        if answered && (app.session.has_local_requests() || app.session.has_remote_requests()) {
             notify.local_work();
+        }
+        if let Some(entry) = app.session.take_ssh_closed() {
+            notify.ssh_closed(&entry);
         }
         if closed {
             break;
@@ -349,6 +355,7 @@ mod tests {
         struct Tell {
             views: Vec<Value>,
             work: usize,
+            closed: Vec<String>,
         }
 
         impl Notify for Tell {
@@ -357,6 +364,9 @@ mod tests {
             }
             fn local_work(&mut self) {
                 self.work += 1;
+            }
+            fn ssh_closed(&mut self, entry: &pistudiodesktop_model::EntryId) {
+                self.closed.push(entry.as_str().to_owned());
             }
         }
 
@@ -380,6 +390,37 @@ mod tests {
             assert_eq!(tell.views[0]["entries"].as_array().map(Vec::len), Some(2));
             assert!(!tell.views[0].to_string().contains("hunter2"));
             assert_eq!(tell.work, 1);
+        }
+
+        #[test]
+        fn queued_remote_work_is_announced_and_editing_the_current_ssh_entry_says_its_session_must_end() {
+            let mut session = Session::new();
+            let added = session.execute("daemon.add", json!({"kind": "ssh", "name": "S", "host": "h", "sshPassword": "hunter2"})).unwrap();
+            let id = added["id"].as_str().unwrap().to_owned();
+            session.execute("daemon.switch", json!({"id": id})).unwrap();
+            let mut app = AppShell::new(session, Services::default());
+            let (tx, rx) = channel();
+            tx.send(control("daemon.remote.start", Value::Null)).unwrap();
+            tx.send(control("daemon.list", Value::Null)).unwrap();
+            drop(tx);
+            let mut tell = Tell::default();
+            serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
+            assert_eq!((tell.work, tell.closed.len()), (2, 0), "work stays announced until the host takes it");
+            assert!(app.session.has_remote_requests());
+
+            let (tx, rx) = channel();
+            tx.send(control("daemon.update", json!({"id": id, "name": "Renamed"}))).unwrap();
+            tx.send(control("daemon.list", Value::Null)).unwrap();
+            drop(tx);
+            let mut tell = Tell::default();
+            serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
+            assert_eq!(tell.closed, vec![id.clone()], "told once");
+            let (tx, rx) = channel();
+            tx.send(control("daemon.list", Value::Null)).unwrap();
+            drop(tx);
+            let mut tell = Tell::default();
+            serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
+            assert!(tell.closed.is_empty());
         }
     }
 }

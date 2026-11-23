@@ -698,9 +698,26 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    Rust library (`russh`), not the machine's `ssh` program; the first version logs in with a key
    file (optional passphrase), an SSH agent or a password, and reads `~/.ssh/config`; when the
    daemon is not running on the host, a Start button runs `pi-studio daemon start` there over the
-   same SSH connection. Not specified yet: the record is the note at the top of
-   `swe/architecture/ssh-gateway-connections.md`. Check: a daemon bound to loopback on another
+   same SSH connection. Check: a daemon bound to loopback on another
    machine is used through SSH with the same behaviour as direct.
+   *State (2026-11-22): **built and checked on Linux (sprints 124–130)** (grill
+   `swe/grills/desktop-relay-ssh.md`, decisions D1–D23; spec `swe/features/desktop-relay-ssh.md`;
+   branch `feat/desktop-relay-ssh`, pull request #64). Two new crates beside `transfer` (`relay`, `ssh`); `net`
+   has a daemon socket that is a stream of WebSocket messages, so the proxy and the engine take a
+   relay channel or an SSH channel alike; the registry file is version 3. A relay entry runs in Rust:
+   the pairing link never reaches the page, and its transfers use the engine. An SSH entry logs in
+   with a key file, an encrypted key, an agent or a password, reads `~/.ssh/config` (jump hosts too),
+   asks about an unknown host key in a native dialog, and has Start on the row; a host without
+   `pi-studio` shows the install command with Copy. The Add form lists the hosts of `~/.ssh/config`.
+   The remote command runner is general, because installing the daemon over SSH and registering it
+   as a service comes with milestone 6. Seen live on Linux (relay L1–L7, SSH S1–S7, 1 GiB and 4 GiB
+   transfers: the app's Rust process grew at most 8.3 MiB more for 4 GiB than for 1 GiB; the SSH
+   channel window is 8 MiB). The macOS and Windows builds passed in the release workflow (manual
+   runs, nothing published) and were not run (owner's decision). Open: `"$SHELL" -lic` was seen on
+   bash only; a slow connect through a hop was not seen live (the page has no connect timer of its
+   own; Rust's 45 s limit is the only one). A page whose first connect fails
+   now connects again on the app's `connection_resume` (after Trust, after a remote Start); the
+   browser client is unchanged (its host has no registry; seen on 2026-11-23).*
 5. **Native shell features.** Menus, notifications, updates, signing.
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
    binary, downloaded on first use, plus app self-update through the Tauri updater
@@ -708,6 +725,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    Node-sidecar idea; not scheduled). Depends on milestone 5's signing and updater. A native
    Windows daemon (about 50 POSIX assumptions in the server, no Windows CI) only if Windows users
    need a local one.
+   **Added by the owner (2026-11-22):** with the single binary, the app installs and sets up the
+   daemon on an SSH entry's host through the SSH connection and registers it as a service that
+   starts with that machine where that is possible. First-use experience is a high priority.
+   Milestone 4 leaves room for it: a general remote command runner and a "not installed" state on
+   the entry's row (`swe/features/desktop-relay-ssh.md`, D21 and D22).
 
 **The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
 

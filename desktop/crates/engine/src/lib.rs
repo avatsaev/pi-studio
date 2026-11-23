@@ -12,6 +12,7 @@ mod error;
 mod local;
 pub mod params;
 mod query_cmds;
+mod remote;
 mod secret;
 mod secret_job;
 mod session;
@@ -22,7 +23,10 @@ mod test_store;
 
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
-pub use local::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest};
+pub use local::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, relay_address};
+#[cfg(not(target_arch = "wasm32"))]
+pub use remote::SshSecrets;
+pub use remote::{RemoteAction, RemoteRequest, SshPlan};
 pub use secret_job::{SecretJob, execute_unlocked};
 pub use session::Session;
 pub use storage::Notice;

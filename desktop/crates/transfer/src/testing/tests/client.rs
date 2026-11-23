@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use pistudiodesktop_net::{DialError, Socket, dial};
+use pistudiodesktop_net::{DaemonSocket, DialError, dial};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::limits::MAX_MESSAGE_BYTES;
@@ -74,7 +74,7 @@ impl Downloaded {
 }
 
 pub struct Client {
-    ws: Socket,
+    ws: DaemonSocket,
     next_id: u32,
     /// Skip binary frames while waiting for an answer: set when downloads run alongside requests.
     pub skip_binary: bool,

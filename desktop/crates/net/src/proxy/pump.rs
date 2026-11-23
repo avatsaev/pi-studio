@@ -14,9 +14,7 @@
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot;
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
@@ -24,6 +22,7 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 
 use super::conn::{Conn, Dir};
 use crate::limits::Limits;
+use crate::socket::Wire;
 
 /// How a leg ended without a close frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +54,8 @@ pub(super) enum Event {
 /// A direction that has ended, with its halves.
 pub(super) struct Pumped<A, B> {
     pub(super) event: Event,
-    pub(super) from: SplitStream<WebSocketStream<A>>,
-    pub(super) to: SplitSink<WebSocketStream<B>, Message>,
+    pub(super) from: SplitStream<A>,
+    pub(super) to: SplitSink<B, Message>,
 }
 
 /// What one read of the source turned into.
@@ -121,9 +120,9 @@ impl Batch {
 }
 
 /// Flushes `to` and, when it worked, counts the batch as delivered.
-async fn flush<B>(to: &mut SplitSink<WebSocketStream<B>, Message>, conn: &Conn, dir: Dir, batch: &mut Batch) -> Result<(), WsError>
+async fn flush<B>(to: &mut SplitSink<B, Message>, conn: &Conn, dir: Dir, batch: &mut Batch) -> Result<(), WsError>
 where
-    B: AsyncRead + AsyncWrite + Unpin,
+    B: Wire,
 {
     let flushed = to.flush().await;
     if flushed.is_ok() {
@@ -134,9 +133,9 @@ where
 }
 
 /// Writes what is held, then reports `event` (or the write's failure, which is the more urgent news).
-async fn finish<B>(to: &mut SplitSink<WebSocketStream<B>, Message>, conn: &Conn, dir: Dir, mut batch: Batch, event: Event) -> Event
+async fn finish<B>(to: &mut SplitSink<B, Message>, conn: &Conn, dir: Dir, mut batch: Batch, event: Event) -> Event
 where
-    B: AsyncRead + AsyncWrite + Unpin,
+    B: Wire,
 {
     match flush(to, conn, dir, &mut batch).await {
         Ok(()) => event,
@@ -145,16 +144,10 @@ where
 }
 
 /// Messages from `from` to `to` until something ends the direction.
-async fn forward<A, B>(
-    from: &mut SplitStream<WebSocketStream<A>>,
-    to: &mut SplitSink<WebSocketStream<B>, Message>,
-    dir: Dir,
-    conn: &Conn,
-    limits: &Limits,
-) -> Event
+async fn forward<A, B>(from: &mut SplitStream<A>, to: &mut SplitSink<B, Message>, dir: Dir, conn: &Conn, limits: &Limits) -> Event
 where
-    A: AsyncRead + AsyncWrite + Unpin,
-    B: AsyncRead + AsyncWrite + Unpin,
+    A: Wire,
+    B: Wire,
 {
     loop {
         let mut batch = Batch::default();
@@ -190,16 +183,16 @@ where
 
 /// One direction, until it ends or `stop` fires (or its sender is dropped).
 pub(super) async fn pump<A, B>(
-    mut from: SplitStream<WebSocketStream<A>>,
-    mut to: SplitSink<WebSocketStream<B>, Message>,
+    mut from: SplitStream<A>,
+    mut to: SplitSink<B, Message>,
     dir: Dir,
     conn: std::sync::Arc<Conn>,
     limits: Limits,
     stop: oneshot::Receiver<()>,
 ) -> Pumped<A, B>
 where
-    A: AsyncRead + AsyncWrite + Unpin,
-    B: AsyncRead + AsyncWrite + Unpin,
+    A: Wire,
+    B: Wire,
 {
     let event = tokio::select! {
         biased;
@@ -214,6 +207,7 @@ mod tests {
     use std::sync::Arc;
 
     use tokio::io::DuplexStream;
+    use tokio_tungstenite::WebSocketStream;
     use tokio_tungstenite::tungstenite::protocol::Role;
 
     use super::*;

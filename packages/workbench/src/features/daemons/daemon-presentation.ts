@@ -6,7 +6,11 @@
  * (`swe/features/desktop-daemon-registry.md` § Error handling & edge cases).
  */
 
-import { type DaemonErrorCode, type LocalDaemonState } from "../../host/types.js";
+import {
+  type DaemonErrorCode,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 
 /** What the user can ask of the local daemon. */
 export type LocalActionKind = "start" | "stop" | "restart" | "retry";
@@ -85,6 +89,84 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
   }
 }
 
+/** What the user can ask of the current SSH entry's daemon. */
+export interface RemoteAction {
+  kind: "start" | "retry";
+  label: string;
+  /** The `HostDaemons.remote` member to call: Retry probes the host again. */
+  call: "start" | "refresh";
+}
+
+export interface RemoteStateView {
+  label: string;
+  tone: LocalTone;
+  /** In display order. Empty while the state is transient or already running. */
+  actions: RemoteAction[];
+}
+
+const REMOTE_START: RemoteAction = { kind: "start", label: "Start", call: "start" };
+const REMOTE_RETRY: RemoteAction = { kind: "retry", label: "Retry", call: "refresh" };
+
+const REMOTE_FAILED_LABELS: Record<
+  Extract<RemoteDaemonState, { state: "failed" }>["reason"],
+  string
+> = {
+  not_healthy: "Started, but not answering",
+  timeout: "Did not start in time",
+  bad_output: "The pi-studio CLI printed something unexpected",
+  exec_failed: "Could not run a command on the host",
+  no_shell: "The host's login shell could not be used",
+};
+
+/** The oldest `pi-studio` the desktop app drives on an SSH host (the host's `MIN_CLI_VERSION`). */
+export const MIN_REMOTE_CLI_VERSION = "0.0.127";
+
+/** The command that installs (or updates) `pi-studio` on an SSH host. */
+export const REMOTE_INSTALL_COMMAND = "npm install -g @av-pi-studio/cli";
+
+export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
+  switch (state.state) {
+    case "unknown":
+      return { label: "Not checked yet", tone: "neutral", actions: [REMOTE_RETRY] };
+    case "checking":
+      return { label: "Checking…", tone: "busy", actions: [] };
+    case "running":
+      return { label: "Running", tone: "ok", actions: [] };
+    case "stopped":
+      return { label: "Stopped", tone: "neutral", actions: [REMOTE_START] };
+    case "starting":
+      return { label: "Starting…", tone: "busy", actions: [] };
+    case "not_installed":
+      return {
+        label: "pi-studio is not installed on this host",
+        tone: "error",
+        actions: [REMOTE_RETRY],
+      };
+    case "cli_outdated":
+      return {
+        label: `The pi-studio CLI ${state.version} on this host is too old`,
+        tone: "error",
+        actions: [REMOTE_RETRY],
+      };
+    case "failed":
+      return {
+        label: REMOTE_FAILED_LABELS[state.reason],
+        tone: "error",
+        actions: [REMOTE_START, REMOTE_RETRY],
+      };
+  }
+}
+
+/** The states in which the Daemons screen opens by itself (S8): the user has something to do. */
+export function remoteNeedsScreen(state: RemoteDaemonState["state"] | null): boolean {
+  return (
+    state === "stopped" ||
+    state === "not_installed" ||
+    state === "cli_outdated" ||
+    state === "failed"
+  );
+}
+
 /** A code the workbench could not map, e.g. a host that rejected with something else. */
 export type DaemonFailure = DaemonErrorCode | "unexpected";
 
@@ -148,6 +230,20 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
   secret_store_failed: {
     message: "The password or pairing link could not be saved.",
     detail: "Nothing was changed. Check that your keychain is unlocked, then try again.",
+  },
+  invalid_host: { message: "This is not a valid host name or address." },
+  invalid_user: { message: "This is not a valid user name." },
+  invalid_port: { message: "The port must be a number from 1 to 65535." },
+  invalid_path: { message: "This is not a valid file path." },
+  invalid_jump: { message: "This is not a valid jump host." },
+  not_installed: {
+    message: "pi-studio is not installed on this host.",
+    detail: "Install it there, then retry.",
+    command: INSTALL_CLI_COMMAND,
+  },
+  ssh_config: {
+    message: "~/.ssh/config could not be read.",
+    detail: "Fix the file (a ProxyCommand is not supported), then try again.",
   },
   unexpected: { message: "The daemon could not be opened." },
 };

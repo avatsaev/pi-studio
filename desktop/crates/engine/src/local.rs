@@ -5,7 +5,7 @@
 //! [`Session::take_local_requests`], does the work and applies the new state with
 //! [`Session::apply_local_outcome`].
 
-use pistudiodesktop_model::{EntryId, EntryV2, Kind, LocalState, Secret};
+use pistudiodesktop_model::{EntryId, EntryV3, Kind, LocalState, Secret};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always};
@@ -40,9 +40,10 @@ pub(crate) struct LocalQueue {
 /// What to do to open the current entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dial {
-    /// Connect to `url`: the address of a local or direct entry, or a relay entry's pairing link.
-    /// This is what the page is told, so it holds no password: the password of a local or direct
-    /// entry is read by the transport bridge ([`BridgePlan`]), in Rust, for its own dial.
+    /// Connect to `url`: the address of a local or direct entry, or a relay entry's host hint
+    /// (`ws(s)://<relay host>`, derived from its pairing link; [`relay_address`]). This is what the
+    /// page is told, so it holds no password and no link: both are read by the transport bridge
+    /// ([`BridgePlan`]), in Rust, for its own dial.
     Connect { url: String },
     /// The local daemon is stopped and the setting asks for it to be started first.
     StartNeeded,
@@ -61,15 +62,17 @@ pub enum DialPlan {
     /// address only ([`DialPlan::finish`] never reads the password); the transport bridge dials
     /// with it ([`Session::plan_bridge`]).
     Open(BridgePlan),
-    /// Connect to the pairing link of the relay entry `entry`, which the store holds.
+    /// The relay entry `entry`, whose pairing link the store holds: the page is told the relay's
+    /// address, which `finish` derives from the link without answering it.
     PairingLink { entry: EntryId },
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl DialPlan {
-    /// Read what the plan needs from `store`: only a relay entry's pairing link, which is the
-    /// address the page connects to. A local or direct entry's password is never read here. This
-    /// may block until the user answers a system prompt: never call it on the thread that owns
+    /// Read what the plan needs from `store`: only a relay entry's pairing link, of which the
+    /// page is told the relay's address and nothing else. A local or direct entry's password is
+    /// never read here. This may block until the user answers a system prompt: never call it on
+    /// the thread that owns
     /// the session. `Err` is the code `resolveCurrent` rejects with: `secret_missing` when the
     /// store has no such item (it was removed behind the app's back), `secret_unavailable` when
     /// it could not be read.
@@ -80,13 +83,25 @@ impl DialPlan {
             DialPlan::Open(plan) => Dial::Connect { url: plan.url },
             DialPlan::PairingLink { entry } => {
                 let link = read_code(store.get(&key(&entry, Slot::PairingLink)))?;
-                Dial::Connect { url: link.expose().to_owned() }
+                Dial::Connect { url: relay_address(link.expose())? }
             }
         })
     }
 }
 
-/// Where a bridged connection's password comes from.
+/// The address the page (and the bridge's address check) uses for a relay entry, from its pairing
+/// link: `wss://<relay>` or `ws://<relay>`, or `ws://<host>` for a link with a host hint. Never the
+/// link. `Err` is `invalid_link`.
+pub fn relay_address(link: &str) -> std::result::Result<String, &'static str> {
+    use pistudiodesktop_model::pairing::{Target, parse};
+    Ok(match parse(link).map_err(|_| "invalid_link")?.target {
+        Target::Relay { host, tls } => format!("{}://{host}", if tls { "wss" } else { "ws" }),
+        Target::Direct { host } => format!("ws://{host}"),
+    })
+}
+
+/// Where the secret a bridged connection needs comes from: a local or direct entry's password, a
+/// relay entry's pairing link.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BridgePassword {
     /// The entry has none.
@@ -97,28 +112,34 @@ pub enum BridgePassword {
     Stored,
 }
 
-/// What the transport bridge needs to know about the current entry before it dials: which entry,
-/// the address to dial (the running daemon's for the local entry, the stored one for a direct
-/// entry) and where its password is. Like [`DialPlan`], it never reads the store.
+/// What the transport bridge needs to know about the current entry before it dials: which entry
+/// and of what kind, the address to dial and where its secret is. For a local entry the address is
+/// the running daemon's, for a direct entry the stored one; for a relay entry it is the relay's
+/// ([`relay_address`]), known here only when the link is held in memory: with the link in the
+/// store `url` is empty and the caller derives it from the link it reads. Like [`DialPlan`], it
+/// never reads the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BridgePlan {
     pub entry: EntryId,
+    pub kind: Kind,
     pub url: String,
     pub password: BridgePassword,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BridgePlan {
-    /// The entry's password, read from `store` when it lives there. This may block until the user
-    /// answers a system prompt: never call it on the thread that owns the session. `Err` is
-    /// `secret_missing` (the registry says the entry has a password and the store has none) or
+    /// The entry's secret, read from `store` when it lives there: a local or direct entry's
+    /// password, a relay entry's pairing link. This may block until the user answers a system
+    /// prompt: never call it on the thread that owns the session. `Err` is
+    /// `secret_missing` (the registry says the entry has one and the store has none) or
     /// `secret_unavailable` (the store could not be read).
     pub fn read_password(&self, store: &dyn pistudiodesktop_secrets::SecretStore) -> std::result::Result<Option<Secret>, &'static str> {
         use crate::secret::{Slot, key, read_code};
+        let slot = if self.kind == Kind::Relay { Slot::PairingLink } else { Slot::Password };
         match &self.password {
             BridgePassword::None => Ok(None),
             BridgePassword::Held(password) => Ok(Some(password.clone())),
-            BridgePassword::Stored => Ok(Some(Secret::new(read_code(store.get(&key(&self.entry, Slot::Password)))?.expose()))),
+            BridgePassword::Stored => Ok(Some(Secret::new(read_code(store.get(&key(&self.entry, slot)))?.expose()))),
         }
     }
 }
@@ -185,10 +206,13 @@ impl Session {
         match entry.kind {
             Kind::Direct => Ok(self.plan_open(entry, entry.address.clone().ok_or("not_found")?)),
             Kind::Relay => Ok(match self.held_secret(&entry.id) {
-                // The pairing link is the address: with the link held in memory there is nothing to read.
-                Some(link) => DialPlan::Ready(Dial::Connect { url: link.expose().to_owned() }),
+                // With the link held in memory there is nothing to read: the page is told its address.
+                Some(link) => DialPlan::Ready(Dial::Connect { url: relay_address(link.expose())? }),
                 None => DialPlan::PairingLink { entry: entry.id.clone() },
             }),
+            // The page and the bridge's address check see the tunnel's far end: the daemon's own
+            // port on the host's loopback, as the host sees it (`ssh_plan` has the rest).
+            Kind::Ssh => Ok(self.plan_open(entry, crate::remote::ssh_address(entry.daemon_port.ok_or("not_found")?))),
             Kind::Local => match self.local_state() {
                 LocalState::Unsupported => Err("unsupported"),
                 LocalState::CliMissing { .. } => Err("cli_missing"),
@@ -203,27 +227,37 @@ impl Session {
     }
 
     /// What the transport bridge dials for the current entry, as far as the session can say without
-    /// touching the secret store. `Err` is a code of `transport_open`: `not_bridged` for a relay
-    /// entry (it keeps the page's own socket), `local_not_ready` while the local daemon is stopped
-    /// to be started or changing state, `no_current`, and the codes of [`Session::plan_dial`] for
-    /// a local daemon that cannot be reached at all.
+    /// touching the secret store. `Err` is a code of `transport_open`: `local_not_ready` while the
+    /// local daemon is stopped to be started or changing state, `no_current`, `invalid_link` for a
+    /// held link that does not parse, and the codes of [`Session::plan_dial`] for a local daemon
+    /// that cannot be reached at all.
     pub fn plan_bridge(&self, dial_address: impl Fn(&str, u16) -> String) -> std::result::Result<BridgePlan, &'static str> {
+        let id = self.current_entry_id().ok_or("no_current")?;
+        let entry = self.registry().get(id.as_str()).ok_or("no_current")?;
+        if entry.kind == Kind::Relay {
+            return Ok(match self.held_secret(&entry.id) {
+                Some(link) => {
+                    BridgePlan { entry: entry.id.clone(), kind: Kind::Relay, url: relay_address(link.expose())?, password: BridgePassword::Held(link.clone()) }
+                }
+                None => BridgePlan { entry: entry.id.clone(), kind: Kind::Relay, url: String::new(), password: BridgePassword::Stored },
+            });
+        }
         match self.plan_dial(dial_address)? {
             DialPlan::Open(plan) => Ok(plan),
             DialPlan::Ready(Dial::StartNeeded | Dial::Wait) => Err("local_not_ready"),
-            // A relay entry keeps the page's own socket: its plan is a link, never an address to bridge.
-            DialPlan::Ready(Dial::Connect { .. }) | DialPlan::PairingLink { .. } => Err("not_bridged"),
+            // Only a relay entry plans a link, and it returned above.
+            DialPlan::Ready(Dial::Connect { .. }) | DialPlan::PairingLink { .. } => Err("internal"),
         }
     }
 
     /// Open `entry` at `url`: where its password is, when the registry says it has one.
-    fn plan_open(&self, entry: &EntryV2, url: String) -> DialPlan {
+    fn plan_open(&self, entry: &EntryV3, url: String) -> DialPlan {
         let password = match (entry.has_password, self.held_secret(&entry.id)) {
             (false, _) => BridgePassword::None,
             (true, Some(held)) => BridgePassword::Held(held.clone()),
             (true, None) => BridgePassword::Stored,
         };
-        DialPlan::Open(BridgePlan { entry: entry.id.clone(), url, password })
+        DialPlan::Open(BridgePlan { entry: entry.id.clone(), kind: entry.kind, url, password })
     }
 }
 
@@ -375,11 +409,16 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::Ordering;
 
-        use pistudiodesktop_model::EntryId;
+        use pistudiodesktop_model::{EntryId, Kind};
 
         use super::*;
         use crate::DialPlan;
         use crate::test_store::FakeStore;
+
+        /// A pairing link `model::pairing` reads.
+        const LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&host=l";
+        const TLS_RELAY_LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&relay=https://relay.example:8443/&relayTls=1";
+        const PLAIN_RELAY_LINK: &str = "#offer=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&relay=relay.example";
 
         /// What a caller that may block gets: the plan, then the store read.
         fn resolve(s: &Session) -> std::result::Result<Dial, &'static str> {
@@ -414,8 +453,12 @@ mod tests {
             assert_eq!(expect_url(resolve(&s).unwrap()), "h:1");
             with_entry(&mut s, json!({"kind": "direct", "name": "N", "address": "h:2"}));
             assert_eq!(expect_url(resolve(&s).unwrap()), "h:2");
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "ws://l", "a link with a host hint is answered as that host");
+            with_entry(&mut s, json!({"kind": "relay", "name": "T", "pairingLink": TLS_RELAY_LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "wss://relay.example:8443");
+            with_entry(&mut s, json!({"kind": "relay", "name": "P", "pairingLink": PLAIN_RELAY_LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "ws://relay.example");
         }
 
         #[test]
@@ -423,17 +466,17 @@ mod tests {
             use super::super::{BridgePassword, BridgePlan};
             let (mut s, store) = session_with_store();
             let id = with_entry(&mut s, json!({"kind": "direct", "name": "D", "address": "h:1", "password": "pw"}));
-            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
             let calls = store.calls.load(Ordering::SeqCst);
             assert_eq!(s.plan_dial(url), Ok(DialPlan::PairingLink { entry: EntryId::parse(&rid).unwrap() }));
             s.execute("daemon.switch", json!({"id": id})).unwrap();
             let entry = EntryId::parse(&id).unwrap();
-            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, url: "h:1".into(), password: BridgePassword::Stored })));
+            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, kind: Kind::Direct, url: "h:1".into(), password: BridgePassword::Stored })));
             assert_eq!(store.calls.load(Ordering::SeqCst), calls, "planning never calls the store");
             // A direct entry without a password has nothing to read.
             let open = with_entry(&mut s, json!({"kind": "direct", "name": "O", "address": "h:3"}));
             let entry = EntryId::parse(&open).unwrap();
-            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, url: "h:3".into(), password: BridgePassword::None })));
+            assert_eq!(s.plan_dial(url), Ok(DialPlan::Open(BridgePlan { entry, kind: Kind::Direct, url: "h:3".into(), password: BridgePassword::None })));
         }
 
         #[test]
@@ -452,8 +495,8 @@ mod tests {
         #[test]
         fn a_relay_link_deleted_behind_the_apps_back_is_secret_missing() {
             let (mut s, store) = session_with_store();
-            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(expect_url(resolve(&s).unwrap()), "pi://l");
+            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
+            assert_eq!(expect_url(resolve(&s).unwrap()), "ws://l");
             store.take(&format!("{rid}/pairingLink"));
             assert_eq!(resolve(&s), Err("secret_missing"));
         }
@@ -461,7 +504,7 @@ mod tests {
         #[test]
         fn a_store_that_cannot_be_read_is_secret_unavailable() {
             let (mut s, store) = session_with_store();
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
+            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
             store.fail_get.store(true, Ordering::SeqCst);
             assert_eq!(resolve(&s), Err("secret_unavailable"));
             store.fail_get.store(false, Ordering::SeqCst);
@@ -484,7 +527,7 @@ mod tests {
             let entry = EntryId::parse(&id).unwrap();
             let calls = store.calls.load(Ordering::SeqCst);
             let plan = s.plan_bridge(url).unwrap();
-            assert_eq!(plan, BridgePlan { entry: entry.clone(), url: "h:1".into(), password: BridgePassword::Stored });
+            assert_eq!(plan, BridgePlan { entry: entry.clone(), kind: Kind::Direct, url: "h:1".into(), password: BridgePassword::Stored });
             assert_eq!(store.calls.load(Ordering::SeqCst), calls, "planning never calls the store");
             assert_eq!(plan.read_password(&*s.secret_store()).unwrap().map(|p| p.expose().to_owned()), Some("pw".to_owned()));
             store.take(&format!("{id}/password"));
@@ -499,10 +542,34 @@ mod tests {
         }
 
         #[test]
-        fn a_relay_entry_is_not_bridged_and_the_local_entry_is_planned_by_its_state() {
+        fn a_relay_entry_is_bridged_with_its_link_read_from_the_store() {
+            use super::super::{BridgePassword, BridgePlan};
+            let (mut s, store) = session_with_store();
+            let rid = with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": LINK}));
+            let entry = EntryId::parse(&rid).unwrap();
+            let calls = store.calls.load(Ordering::SeqCst);
+            let plan = s.plan_bridge(url).unwrap();
+            assert_eq!(plan, BridgePlan { entry, kind: Kind::Relay, url: String::new(), password: BridgePassword::Stored });
+            assert_eq!(store.calls.load(Ordering::SeqCst), calls, "planning never calls the store");
+            assert_eq!(plan.read_password(&*s.secret_store()).unwrap().map(|p| p.expose().to_owned()), Some(LINK.to_owned()));
+            store.take(&format!("{rid}/pairingLink"));
+            assert_eq!(plan.read_password(&*s.secret_store()), Err("secret_missing"));
+            store.fail_get.store(true, Ordering::SeqCst);
+            assert_eq!(plan.read_password(&*s.secret_store()), Err("secret_unavailable"));
+        }
+
+        #[test]
+        fn the_relay_address_is_derived_from_the_link_and_is_never_the_link() {
+            use super::super::relay_address;
+            assert_eq!(relay_address(LINK), Ok("ws://l".to_owned()));
+            assert_eq!(relay_address(TLS_RELAY_LINK), Ok("wss://relay.example:8443".to_owned()));
+            assert_eq!(relay_address(PLAIN_RELAY_LINK), Ok("ws://relay.example".to_owned()));
+            assert_eq!(relay_address("not a link"), Err("invalid_link"));
+        }
+
+        #[test]
+        fn the_local_entry_is_planned_by_its_state() {
             let mut s = Session::new();
-            with_entry(&mut s, json!({"kind": "relay", "name": "R", "pairingLink": "pi://l"}));
-            assert_eq!(s.plan_bridge(url), Err("not_bridged"));
             s.execute("daemon.switch", json!({"id": "local"})).unwrap();
             s.set_local_state(LocalState::Running { host: "127.0.0.1".into(), port: 9 });
             let plan = s.plan_bridge(url).unwrap();

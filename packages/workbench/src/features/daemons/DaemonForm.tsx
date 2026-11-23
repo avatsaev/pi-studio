@@ -7,22 +7,26 @@
  * "saved" marker instead, and the link field is a replacement that starts empty.
  */
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Button, Select, TextInput } from "@av-pi-studio/ui-library";
-import { type HostDaemons } from "../../host/types.js";
+import { type HostDaemons, type SshHostSuggestion } from "../../host/types.js";
 import { submitAdd, submitEdit } from "./daemon-form-actions.js";
 import {
+  DEFAULT_DAEMON_PORT,
   KIND_OPTIONS,
+  chooseSshHost,
   formView,
   initialAddFields,
   initialEditFields,
   linkReplaced,
+  sshPlaceholders,
   withoutError,
   type FormErrors,
   type FormField,
   type FormFields,
   type FormKind,
   type FormMode,
+  type PasswordFieldView,
 } from "./daemon-form.js";
 import { useDaemonsStore } from "./daemons-store.js";
 import styles from "./DaemonsScreen.module.css";
@@ -46,7 +50,26 @@ export function DaemonForm({
   );
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  const [suggestions, setSuggestions] = useState<SshHostSuggestion[]>([]);
   const view = formView(mode, fields);
+  const placeholders = sshPlaceholders(fields.host, suggestions);
+
+  // The config's hosts, once an SSH form is open. A config that does not parse gives no list.
+  useEffect(() => {
+    if (!view.showSsh) return;
+    let current = true;
+    daemons.sshHosts().then(
+      (hosts) => {
+        if (current) setSuggestions(hosts);
+      },
+      () => {
+        if (current) setSuggestions([]);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [daemons, view.showSsh]);
 
   /** Change a value; the message of that field (and the form's) no longer applies. */
   function change(field: FormField, patch: Partial<FormFields>): void {
@@ -111,6 +134,102 @@ export function DaemonForm({
           onChange={(event) => change("name", { name: event.target.value })}
         />
       </FormRow>
+      {view.showSsh && (
+        <>
+          {suggestions.length > 0 && (
+            <FormRow id={`${ID}-config-host`} label="Hosts in ~/.ssh/config">
+              <Select
+                id={`${ID}-config-host`}
+                value=""
+                options={[
+                  { value: "", label: "Choose a host…" },
+                  ...suggestions.map((s) => ({ value: s.alias, label: s.alias })),
+                ]}
+                onChange={(event) => {
+                  const alias = event.target.value;
+                  if (alias === "") return;
+                  setFields((current) => chooseSshHost(current, alias));
+                  setErrors({});
+                }}
+              />
+            </FormRow>
+          )}
+          <FormRow id={`${ID}-host`} label="Host" error={errors.host}>
+            <TextInput
+              id={`${ID}-host`}
+              value={fields.host}
+              spellCheck={false}
+              autoComplete="off"
+              aria-invalid={errors.host !== undefined || undefined}
+              aria-describedby={errors.host === undefined ? undefined : `${ID}-host-error`}
+              onChange={(event) => change("host", { host: event.target.value })}
+            />
+          </FormRow>
+          <TextRow
+            id="user"
+            label="User"
+            field="user"
+            fields={fields}
+            errors={errors}
+            placeholder={placeholders.user}
+            change={change}
+          />
+          <TextRow
+            id="port"
+            label="Port"
+            field="port"
+            fields={fields}
+            errors={errors}
+            placeholder={placeholders.port}
+            change={change}
+          />
+          <TextRow
+            id="key"
+            label="Key file"
+            field="identityFile"
+            fields={fields}
+            errors={errors}
+            placeholder={placeholders.identityFile}
+            change={change}
+          />
+          <TextRow
+            id="jump"
+            label="Jump host"
+            field="jump"
+            fields={fields}
+            errors={errors}
+            placeholder={placeholders.jump}
+            change={change}
+          />
+          <TextRow
+            id="daemon-port"
+            label="Daemon port"
+            field="daemonPort"
+            fields={fields}
+            errors={errors}
+            placeholder={String(DEFAULT_DAEMON_PORT)}
+            change={change}
+          />
+          <SecretRow
+            id="ssh-password"
+            label="SSH password"
+            view={view.sshPassword}
+            value={fields.sshPassword}
+            error={errors.sshPassword}
+            onType={(value) => change("sshPassword", { sshPassword: value })}
+            onClear={(clear) => change("sshPassword", { clearSshPassword: clear, sshPassword: "" })}
+          />
+          <SecretRow
+            id="passphrase"
+            label="Key passphrase"
+            view={view.passphrase}
+            value={fields.passphrase}
+            error={errors.passphrase}
+            onType={(value) => change("passphrase", { passphrase: value })}
+            onClear={(clear) => change("passphrase", { clearPassphrase: clear, passphrase: "" })}
+          />
+        </>
+      )}
       {view.showAddress && (
         <FormRow id={`${ID}-address`} label="Address" error={errors.address}>
           <TextInput
@@ -126,43 +245,15 @@ export function DaemonForm({
         </FormRow>
       )}
       {view.showPassword && (
-        <FormRow
-          id={`${ID}-password`}
-          label="Password"
-          marker={view.password.marker}
+        <SecretRow
+          id="password"
+          label={view.showSsh ? "Daemon password" : "Password"}
+          view={view.password}
+          value={fields.password}
           error={errors.password}
-        >
-          <div className={styles.pathRow}>
-            <TextInput
-              id={`${ID}-password`}
-              type="password"
-              value={fields.password}
-              placeholder={view.password.placeholder}
-              autoComplete="new-password"
-              onChange={(event) => change("password", { password: event.target.value })}
-            />
-            {view.password.canClear && (
-              <Button
-                size="sm"
-                variant="secondary"
-                type="button"
-                onClick={() => change("password", { clearPassword: true, password: "" })}
-              >
-                Clear
-              </Button>
-            )}
-            {view.password.canUndoClear && (
-              <Button
-                size="sm"
-                variant="secondary"
-                type="button"
-                onClick={() => change("password", { clearPassword: false })}
-              >
-                Keep
-              </Button>
-            )}
-          </div>
-        </FormRow>
+          onType={(value) => change("password", { password: value })}
+          onClear={(clear) => change("password", { clearPassword: clear, password: "" })}
+        />
       )}
       {view.showLink && (
         <FormRow id={`${ID}-link`} label={view.linkLabel} error={errors.link}>
@@ -188,6 +279,88 @@ export function DaemonForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+type TextKey = "user" | "port" | "identityFile" | "jump" | "daemonPort";
+
+function TextRow({
+  id,
+  label,
+  field,
+  fields,
+  errors,
+  placeholder,
+  change,
+}: {
+  id: string;
+  label: string;
+  field: TextKey;
+  fields: FormFields;
+  errors: FormErrors;
+  placeholder: string;
+  change: (field: FormField, patch: Partial<FormFields>) => void;
+}) {
+  const rowId = `${ID}-${id}`;
+  return (
+    <FormRow id={rowId} label={label} error={errors[field]}>
+      <TextInput
+        id={rowId}
+        value={fields[field]}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        aria-invalid={errors[field] !== undefined || undefined}
+        aria-describedby={errors[field] === undefined ? undefined : `${rowId}-error`}
+        onChange={(event) => change(field, { [field]: event.target.value })}
+      />
+    </FormRow>
+  );
+}
+
+/** A secret: never shown, a "saved" marker, Clear (and Keep while a clear is pending). */
+function SecretRow({
+  id,
+  label,
+  view,
+  value,
+  error,
+  onType,
+  onClear,
+}: {
+  id: string;
+  label: string;
+  view: PasswordFieldView;
+  value: string;
+  error?: string;
+  onType: (value: string) => void;
+  /** `true`: mark for removal; `false`: keep. */
+  onClear: (clear: boolean) => void;
+}) {
+  const rowId = `${ID}-${id}`;
+  return (
+    <FormRow id={rowId} label={label} marker={view.marker} error={error}>
+      <div className={styles.pathRow}>
+        <TextInput
+          id={rowId}
+          type="password"
+          value={value}
+          placeholder={view.placeholder}
+          autoComplete="new-password"
+          onChange={(event) => onType(event.target.value)}
+        />
+        {view.canClear && (
+          <Button size="sm" variant="secondary" type="button" onClick={() => onClear(true)}>
+            Clear
+          </Button>
+        )}
+        {view.canUndoClear && (
+          <Button size="sm" variant="secondary" type="button" onClick={() => onClear(false)}>
+            Keep
+          </Button>
+        )}
+      </div>
+    </FormRow>
   );
 }
 

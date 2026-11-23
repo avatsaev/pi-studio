@@ -15,6 +15,13 @@ permissive licence: `ISC`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0`, 
 | built frontend, `pdfjs/standard_fonts/LiberationSans*` | Liberation Sans | Red Hat | npm `pdfjs-dist`, with `LICENSE_LIBERATION` | GPL-2.0 with the Liberation font exception: **not on the list above; unresolved** |
 | built frontend, `pdfjs/iccs/` | CGATS001 compatible colour profile | See its `LICENSE` | npm `pdfjs-dist` | CC0-1.0 |
 | built frontend, `pdfjs/wasm/` | OpenJPEG, JBIG2 (PDFium) and qcms decoders | Their authors; see the `LICENSE_*` files beside them | npm `pdfjs-dist` | BSD-2-Clause, BSD-3-Clause, MIT |
+| Rust dependency `russh`, `russh-cryptovec`, `russh-util`, `pageant` (SSH client, milestone 4) | russh | Warp Technologies and contributors | crates.io, built with `ring`, not `aws-lc-rs` | Apache-2.0 |
+| Rust dependency `crypto_box`, `crypto_secretbox`, `salsa20`, `poly1305` (relay channel, milestone 4) | RustCrypto NaCl compatibility crates | RustCrypto developers | crates.io | Apache-2.0 OR MIT |
+| Rust dependencies of `russh`: `ssh-key`, `ssh-cipher`, `ssh-encoding`, `rsa`, `ecdsa`, `p256`, `p384`, `p521`, `ed25519`, `ml-kem`, `aes-gcm`, `scrypt`, `pbkdf2`, `argon2`, `blake2`, `sha3` and the RustCrypto traits and formats crates under them (`aead`, `cipher`, `der`, `pkcs1`, `pkcs5`, `pkcs8`, `spki`, `sec1`, `signature`, `elliptic-curve`, and others) | RustCrypto | RustCrypto developers | crates.io | Apache-2.0 OR MIT |
+| Rust dependencies `curve25519-dalek`, `ed25519-dalek` | dalek-cryptography | Isis Lovecruft, Henry de Valence and contributors | crates.io | BSD-3-Clause |
+| Rust dependency `fiat-crypto` | Fiat Cryptography | MIT PLV | crates.io | MIT OR Apache-2.0 OR BSD-1-Clause |
+| Rust dependency `ssh2-config`, `wildmatch` (`~/.ssh/config`, milestone 4) | ssh2-config, wildmatch | Christian Visintin, Ben Gerber | crates.io | MIT |
+| Rust dependencies `futures`, `nix`, `num-bigint`, `md5`, `delegate`, `enum_dispatch`, `cfg_aliases` (through `russh` and `ssh2-config`) | | Their authors | crates.io | MIT OR Apache-2.0, MIT, or Apache-2.0 OR MIT |
 
 The rows marked "built frontend" come with the workbench (`@av-pi-studio/workbench`), which the
 app bundles; the browser client ships the same files. The workbench and `@av-pi-studio/ui-library`

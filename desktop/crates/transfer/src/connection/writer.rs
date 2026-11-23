@@ -4,17 +4,16 @@ use std::sync::Arc;
 
 use futures_util::SinkExt;
 use futures_util::stream::SplitSink;
+use pistudiodesktop_net::DaemonSocket;
 use tokio::sync::watch;
 use tokio::time::timeout;
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::Transport;
 use super::failure;
 use super::shared::{Mailboxes, Outgoing, Shared, stopped};
 use crate::error::{Ended, Error};
 
-type Sink<S> = SplitSink<WebSocketStream<S>, Message>;
+type Sink = SplitSink<DaemonSocket, Message>;
 
 /// Writes what the callers and the reader queue, one frame at a time, until the connection ends.
 ///
@@ -24,7 +23,7 @@ type Sink<S> = SplitSink<WebSocketStream<S>, Message>;
 ///
 /// A write that does not finish within the dropped time ends the connection as [`Ended::Silent`]:
 /// nothing has moved for that long, which is how a stalled daemon is told from a slow one.
-pub(super) async fn run<S: Transport>(shared: Arc<Shared>, mut sink: Sink<S>, mut mail: Mailboxes, mut stop: watch::Receiver<bool>) {
+pub(super) async fn run(shared: Arc<Shared>, mut sink: Sink, mut mail: Mailboxes, mut stop: watch::Receiver<bool>) {
     let mut sound = true;
     loop {
         let item = tokio::select! {
@@ -45,7 +44,7 @@ pub(super) async fn run<S: Transport>(shared: Arc<Shared>, mut sink: Sink<S>, mu
 }
 
 /// Writes one frame; false when the socket failed, which ended the connection.
-async fn write<S: Transport>(shared: &Shared, sink: &mut Sink<S>, item: Outgoing) -> bool {
+async fn write(shared: &Shared, sink: &mut Sink, item: Outgoing) -> bool {
     let Outgoing { message, written } = item;
     match timeout(shared.limits.dropped_after, sink.send(message)).await {
         Ok(Ok(())) => {
@@ -68,7 +67,7 @@ async fn write<S: Transport>(shared: &Shared, sink: &mut Sink<S>, item: Outgoing
 /// After the end: what the control queue still holds (the close frame of a protocol error, the
 /// answer to the daemon's close), then the library's own close, so that the daemon sees a close
 /// frame and not a reset. Best effort and bounded by the close wait: the connection is over either way.
-async fn farewell<S: Transport>(shared: &Shared, sink: &mut Sink<S>, mail: &mut Mailboxes) {
+async fn farewell(shared: &Shared, sink: &mut Sink, mail: &mut Mailboxes) {
     let _ = timeout(shared.limits.close_wait, async {
         while let Ok(item) = mail.control.try_recv() {
             if sink.send(item.message).await.is_err() {
