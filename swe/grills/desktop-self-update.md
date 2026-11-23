@@ -1,6 +1,8 @@
 # Grill — Desktop app self-update
 
-> Status: grilling
+> Status: grilled
+> Confirmed: the engineer answered the readout with "let's scope it" (2026-11-23), changing none of
+> P1–P18. Spec: [../features/desktop-self-update.md](../features/desktop-self-update.md).
 > Started: 2026-11-23   Last updated: 2026-11-23   Rounds: 2
 > Engineer: avatsaev   Agent: Claude (omp)
 

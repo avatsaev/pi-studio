@@ -88,7 +88,7 @@ snapshot is fetched before rendering and not from an effect.
 | `dialogs.prompt` | Removed from the contract (§ 4) | |
 | `links.openExternal` | Opens the system's default application for the URL, after the scheme check (D26) | Rust |
 | `launch.initialConnect` | Always `null`: the registry decides what to connect to (`daemons.resolveCurrent`) | |
-| `launch.agentDeepLink` | No source: `current()` is `null`. Links into the app are milestone 5 | |
+| `launch.agentDeepLink` | No source: `current()` is `null`. Links into the app are not scheduled (owner, 2026-11-23) | |
 | `connection.createTransport`, `timers`, `onResume` | The browser host's: the webview opens the socket | Webview (milestone 2 replaces them) |
 | `files.upload` | The browser host's: the page reads the `File` and the SDK sends it | Webview (milestone 3) |
 | `files.saveToDisk` | § Save to disk | Rust writes the file |
@@ -180,7 +180,7 @@ is in the adversarial command test.
 | Navigation | The main frame may only load the app's own origin; any other navigation is refused in Rust |
 | Capabilities | The app's own commands only; no plug-in permission |
 | Content-Security-Policy | As today, plus the preview origin in `frame-src` when the preview is served from it |
-| Closing the window | Quits the app. A tray icon or running in the background is milestone 5 |
+| Closing the window | Quits the app. A tray icon or running in the background comes after the app's self-update and the single-binary daemon (owner, 2026-11-23) |
 
 ## Behavior & algorithms
 

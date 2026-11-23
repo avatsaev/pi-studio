@@ -718,20 +718,29 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    own; Rust's 45 s limit is the only one). A page whose first connect fails
    now connects again on the app's `connection_resume` (after Trust, after a remote Start); the
    browser client is unchanged (its host has no registry; seen on 2026-11-23).*
-5. **Native shell features.** Menus, notifications, updates, signing.
+5. **App self-update.** The app finds a newer build, shows it next to the version, installs it after
+   one click and restarts after a second; each release proves on GitHub's Linux, macOS and Windows
+   machines that it can update and be updated before it is offered. *State (2026-11-23): grilled and
+   specified (`swe/grills/desktop-self-update.md`, `swe/features/desktop-self-update.md`), not planned.*
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
-   binary, downloaded on first use, plus app self-update through the Tauri updater
-   (`swe/architecture/single-binary-daemon.md`, exploration of 2026-11-22; replaces the
-   Node-sidecar idea; not scheduled). Depends on milestone 5's signing and updater. A native
-   Windows daemon (about 50 POSIX assumptions in the server, no Windows CI) only if Windows users
-   need a local one.
+   binary, downloaded on first use (`swe/architecture/single-binary-daemon.md`, exploration of
+   2026-11-22; replaces the Node-sidecar idea; not scheduled). Uses milestone 5's updater to move the
+   daemon version the app pins. A native Windows daemon (about 50 POSIX assumptions in the server, no
+   Windows CI) only if Windows users need a local one.
    **Added by the owner (2026-11-22):** with the single binary, the app installs and sets up the
    daemon on an SSH entry's host through the SSH connection and registers it as a service that
    starts with that machine where that is possible. First-use experience is a high priority.
    Milestone 4 leaves room for it: a general remote command runner and a "not installed" state on
    the entry's row (`swe/features/desktop-relay-ssh.md`, D21 and D22).
+7. **Native shell features.** Menus, notifications, a tray icon or running in the background.
+8. **OS code signing.** Apple Developer ID with notarization, a Windows certificate. Last (owner,
+   2026-11-23): the app has two users, who accept the unsigned-build warnings. Until then macOS is
+   expected to ask for keychain access again after each update.
 
-**The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Nothing is reordered.
+Links into the app are not scheduled (owner, 2026-11-23).
+
+**The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Done 2026-11-23. **The
+order after it (owner, 2026-11-23):** 5, 6, 7, 8.
 
 ## Open questions
 
@@ -775,3 +784,5 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 | Current web UI invariants | `packages/web-client/AGENTS.md` |
 | Milestone 2 (transport bridge) | `swe/features/desktop-transport-bridge.md` |
 | Milestone 3 (transfer engine) | `swe/features/desktop-transfer-engine.md`, grill `swe/grills/desktop-transfer-engine.md` |
+| Milestone 4 (relay in Rust, SSH entries) | `swe/features/desktop-relay-ssh.md`, grill `swe/grills/desktop-relay-ssh.md` |
+| Milestone 5 (app self-update) | `swe/features/desktop-self-update.md`, grill `swe/grills/desktop-self-update.md` |
