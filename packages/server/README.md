@@ -113,14 +113,15 @@ By default the daemon:
 - writes logs to **`$PI_STUDIO_HOME/logs/`**
 - uses the **`pi`** provider
 
-It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown that closes the
-HTTP/WS servers and releases resources.
+It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown that closes every
+live agent session (each limited to 5 s; a `pi` child is killed with its process tree), kills the
+terminals, closes the HTTP/WS servers and removes `pi-studio.pid`.
 
 ### Verify it's up
 
 ```bash
 curl http://127.0.0.1:6767/api/health
-# → {"status":"ok"}
+# → {"status":"ok","version":"<daemon version>"}
 ```
 
 `/api/health` is exempt from Host-allowlist and auth checks, so it always answers.
@@ -289,7 +290,7 @@ is the **service proxy** (reverse proxy to localhost services started by agents)
 
 | Route | Auth | Purpose |
 |-------|------|---------|
-| `GET /api/health` | none | Liveness — `{ "status": "ok" }` |
+| `GET /api/health` | none | Liveness — `{ "status": "ok", "version": "<daemon version>" }` |
 | `OPTIONS *` | none | CORS preflight (`204`) |
 | _other paths_ | bearer | Delegated to the service proxy; `404` if unmatched |
 
@@ -345,7 +346,7 @@ All state lives under `$PI_STUDIO_HOME/`. Every write goes through `AtomicStore`
 
 ```
 config.json                      Daemon config (password hash, provider overrides, relay, service proxy, …)
-pi-studio.pid                    PID lock (prevents a second daemon owning this home)
+pi-studio.pid                    PID of the running daemon (removed on a clean shutdown when it still names that process)
 server-id                        Stable server identity (plain UUID via randomUUID())
 daemon-keypair.json              Persistent Curve25519 keypair (pairing / outbound relay E2EE)
 logs/                            Rotating NDJSON log files (pino)

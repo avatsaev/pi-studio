@@ -69,6 +69,11 @@ export const SERVER_FEATURES = {
    * other broadcast (`agent_update`, `agent_ui_*`, …) still reaches it.
    */
   agentStreamsMode: "agentStreamsMode",
+  /**
+   * The `daemon_update_*` family and the `daemon_update_status` broadcast are spoken. Says nothing
+   * about whether this install can update; `DaemonUpdateStatus.state` does.
+   */
+  daemonUpdate: "daemonUpdate",
 } as const;
 
 export type ServerFeatureKey = keyof typeof SERVER_FEATURES;
@@ -124,6 +129,8 @@ export const SERVER_FEATURE_COMPAT: Record<ServerFeatureKey, CompatTag> = {
   fileDownloadRanges: COMPAT({ name: "fileDownloadRanges", addedIn: "0.0.119", removeBy: "TBD" }),
   // COMPAT(agentStreamsMode): added 0.0.119, remove by TBD
   agentStreamsMode: COMPAT({ name: "agentStreamsMode", addedIn: "0.0.119", removeBy: "TBD" }),
+  // COMPAT(daemonUpdate): added 0.0.130, remove by TBD
+  daemonUpdate: COMPAT({ name: "daemonUpdate", addedIn: "0.0.130", removeBy: "TBD" }),
 };
 
 // ---------------------------------------------------------------------------

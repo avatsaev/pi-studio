@@ -1,7 +1,7 @@
 # Task 001 — Protocol: the `daemon_update_*` family and the `daemonUpdate` flag
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol
 - **Priority:** P1

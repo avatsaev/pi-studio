@@ -356,6 +356,7 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
 | `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`). `docker/daemon.Dockerfile` sets `docker` |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
@@ -693,7 +694,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 
 ```
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
-pi-studio.pid         PID lock (prevents duplicate daemons)
+pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
                        replace via `pi-studio daemon rotate-key` (revokes all pairing links)

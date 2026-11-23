@@ -19,6 +19,9 @@ import type { AgentSession } from "./provider-contract.js";
 
 export const PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id";
 
+/** Per-session limit for `closeAll()` at daemon shutdown. */
+export const AGENT_CLOSE_TIMEOUT_MS = 5_000;
+
 /** A managed agent: its persisted record, optional live session, and derived parent id. */
 export interface ManagedAgent {
   record: AgentRecord;
@@ -319,6 +322,40 @@ export class AgentManager {
     }
 
     return true;
+  }
+
+  /**
+   * Daemon shutdown: close every live session at once, each limited to `timeoutMs`. A session
+   * whose `close()` throws, rejects or never resolves is logged and does not hold the others (or
+   * the shutdown) back; a Pi session's own `close()` tree-kills its process before it resolves, so
+   * a provider that hangs afterwards cannot keep the daemon alive. Records stay on disk — an agent
+   * resumes its provider session at the next prompt — and each closed agent's `session` is cleared
+   * so a second call is a no-op.
+   */
+  async closeAll(timeoutMs: number = AGENT_CLOSE_TIMEOUT_MS): Promise<void> {
+    const live = this.listAll().filter((m) => m.session !== null);
+    await Promise.all(
+      live.map(async (managed) => {
+        const session = managed.session;
+        managed.session = null;
+        if (!session) return;
+        const { promise: timedOut, reject } = Promise.withResolvers<never>();
+        const timer = setTimeout(
+          () => reject(new Error(`session close timed out after ${timeoutMs} ms`)),
+          timeoutMs,
+        );
+        try {
+          await Promise.race([session.close(), timedOut]);
+        } catch (err) {
+          this.deps.logger?.warn(
+            { agentId: managed.record.id, err: err instanceof Error ? err.message : String(err) },
+            "agent-manager: closing agent session failed on shutdown",
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+    );
   }
 
   /**

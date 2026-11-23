@@ -1,7 +1,7 @@
 # Task 001 — Shutdown closes agent sessions and removes the PID file
 
 - **Sprint:** sprints/sprint-135-daemon-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (daemon/bootstrap)
 - **Priority:** P1

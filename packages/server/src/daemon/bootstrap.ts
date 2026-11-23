@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -217,6 +217,17 @@ function writePidLock(home: string): void {
     writeFileSync(join(home, "pi-studio.pid"), String(process.pid), "utf8");
   } catch {
     /* best-effort */
+  }
+}
+
+/** Remove the PID lock on shutdown, but only when it still names this process. Best-effort. */
+function removePidLock(home: string): void {
+  const path = join(home, "pi-studio.pid");
+  try {
+    if (readFileSync(path, "utf8").trim() !== String(process.pid)) return;
+    unlinkSync(path);
+  } catch {
+    /* missing or unreadable: nothing of ours to remove */
   }
 }
 
@@ -911,6 +922,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     );
   });
 
+  // One shutdown for every caller (signal handler, fatal error, tests): a second `close()` returns
+  // the first one's promise instead of re-running it.
+  let closing: Promise<void> | undefined;
+
   return {
     httpServer,
     serverId,
@@ -919,15 +934,20 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
     listen,
     exposedWithoutPassword,
-    close: async () => {
-      logger.info("daemon shutting down");
-      terminalManager.killAll();
-      fileWatchService.close();
-      daemonStatusService.dispose();
-      daemonLogsService.dispose();
-      relayHandle?.close();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    close: () => {
+      closing ??= (async () => {
+        logger.info("daemon shutting down");
+        await manager.closeAll();
+        terminalManager.killAll();
+        fileWatchService.close();
+        daemonStatusService.dispose();
+        daemonLogsService.dispose();
+        relayHandle?.close();
+        await wsHandle.close();
+        await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+        removePidLock(home);
+      })();
+      return closing;
     },
   };
 }

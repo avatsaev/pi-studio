@@ -4,6 +4,7 @@ import { type AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { SERVER_VERSION } from "../version.js";
 import { createHostChecker } from "./host-allowlist.js";
 import { createHttpServer } from "./http-server.js";
 
@@ -83,7 +84,7 @@ describe("HTTP server pipeline", () => {
     const port = await start({ hostnames: [], authenticate: () => false });
     const res = await call(port, { path: "/api/health", headers: { Host: "evil.example.com" } });
     expect(res.status).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ status: "ok" });
+    expect(JSON.parse(res.body)).toEqual({ status: "ok", version: SERVER_VERSION });
   });
 
   it("rejects a disallowed Host with 403", async () => {

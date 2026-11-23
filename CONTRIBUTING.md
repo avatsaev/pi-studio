@@ -63,7 +63,7 @@ lock is released and the HTTP/WS servers close).
 
 ```bash
 curl http://127.0.0.1:6767/api/health
-# → {"status":"ok"}
+# → {"status":"ok","version":"<daemon version>"}
 ```
 
 `GET /api/health` is exempt from the Host-header allowlist and password auth.

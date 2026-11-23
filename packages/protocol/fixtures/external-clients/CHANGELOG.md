@@ -106,3 +106,11 @@ fixed-key fixtures for relay protocol 2 — `keys.json` (test material), the six
 the legacy `relay_register` frame, `close-codes.json`, and the channel `hello`, `ready` and
 text/binary messages in both directions. New files only; no top-level or `binary/` fixture changed,
 no migration.
+
+## Additive — 2026-11-23 (formatVersion stays 2)
+
+`health.json` (daemon self-update, `swe/features/self-update.md`): the `GET /api/health` body gains
+`version`, the daemon's package version (a string; listed in `volatile` as `/body/version`, its
+presence and type are the contract). `status` is unchanged, so every existing reader (the Docker
+HEALTHCHECK, the CLI's probe, the desktop) keeps working. No existing leaf changed type or
+disappeared, no migration. A daemon built before this change answers only `{ "status": "ok" }`.

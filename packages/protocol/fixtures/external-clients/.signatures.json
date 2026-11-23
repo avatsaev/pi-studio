@@ -590,6 +590,7 @@
     },
     "health.json": {
       "/body/status": "string",
+      "/body/version": "string",
       "/contentType": "string",
       "/status": "number"
     },

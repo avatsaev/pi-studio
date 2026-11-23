@@ -71,6 +71,7 @@ function safeCtx(): CliContext {
       hash: (p) => p,
       kill: () => true,
       start: async () => 0,
+      waitForExit: async () => true,
     },
     connectOverrides: { home: "/nonexistent-pi-studio-home-for-tests" },
   };

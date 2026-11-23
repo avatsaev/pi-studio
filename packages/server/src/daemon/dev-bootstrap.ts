@@ -464,6 +464,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     manager,
     close: async () => {
       logger.info("dev daemon shutting down");
+      await manager.closeAll();
       daemonStatusService.dispose();
       terminalManager.killAll();
       daemonLogsService.dispose();

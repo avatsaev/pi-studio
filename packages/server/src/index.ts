@@ -51,3 +51,6 @@ export * from "./util/index.js";
 // Preinstalled-extensions sync engine: pure planning surface only (manifest, planner, state
 // reader) — see extensions/index.ts for why the orchestration/executor modules are excluded.
 export * from "./extensions/index.js";
+
+// Update engine (npm lookup/install, install kind) — pure/process-control surface only.
+export * from "./update/index.js";

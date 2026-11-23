@@ -22,6 +22,20 @@ src/
   index.ts                        Public barrel (re-exports for desktop embedding).
   version.ts                      SERVER_VERSION — single source (packages/server/package.json); used by
                                    every `server_info.version` handshake and the extensions sync.
+                                   Also `PACKAGE_NAME` (`@av-pi-studio/cli`, the package updates install).
+  update/                         Self-update engine (features/self-update.md); pure/process-control
+                                   surface re-exported from the package index for the CLI.
+    npm.ts                        npmLatestVersion (`npm view`, 15 s, null on failure), compareVersions,
+                                   npmGlobalInstall (`npm install -g`, ENOTEMPTY stale-staging retry via
+                                   installWithStaleStagingRetry/staleStagingDirFrom).
+    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?) → npm-global|docker|source|
+                                   unknown (`PI_STUDIO_INSTALL_KIND` wins); npmRootGlobal() (cached),
+                                   canWriteGlobalFolder(folder), npmOnPath(), updateBlocker(kind, platform)
+                                   → `cannot_update` reason or null.
+    process-wait.ts               waitForProcessExit(pid, {timeoutMs, pollMs, alive?, sleep?, now?}) —
+                                   polls signal 0 (`EPERM` = alive); true once gone, false at the limit
+                                   (`timeoutMs: 0` checks once); processAlive(pid). Used by the CLI's
+                                   `daemon stop|restart`.
   observability/
     daemon-status-service.ts      DaemonStatusService (sprint-084) — DaemonStatus snapshots (process facts,
                                    cpu %, event-loop lag, agentsByStatus, clients[]) + per-session push
@@ -46,11 +60,17 @@ src/
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
+                                   `close()` is memoized (a second call returns the first's
+                                   promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
+                                   file watchers, status/log services, relay, sockets, http server,
+                                   then `pi-studio.pid` is removed only when it still holds this
+                                   process's PID. shutdown.test.ts covers it.
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
                                    auth; a handler subset for local testing that includes file
                                    transfer (`FileTransferService` + upload binary handler) and
                                    terminals (`registerTerminalHandlers` + binary handler), wired as
-                                   in bootstrap.ts; `close()` kills every PTY.
+                                   in bootstrap.ts; `close()` closes every live agent session, then
+                                   kills every PTY.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
                                    wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
@@ -73,7 +93,9 @@ src/
                                    same disposal a direct close runs). Wired by bootstrap.ts.
 
   agent/                          Agent lifecycle, provider registry, session operations.
-    agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
+    agent-manager.ts              AgentManager — in-memory state + persistence + broadcast;
+                                   closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS) closes every live
+                                   session at shutdown (see Agent subsystem).
     agent-service.ts              AgentService — RPC handler wiring for agent operations;
                                    resetTimeline(agentId, rows) (sprint-071/task-002) —
                                    unconditionally replaces an agent's in-memory timeline (unlike
@@ -632,6 +654,15 @@ src/
   rename, fixed by routing both rename RPCs through `updateRecord`).
 - Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
+- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
+  session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
+  that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
+  shutdown") and never holds the others back. Each agent's `session` is cleared first, so a second
+  call is a no-op. Records are untouched (no status write, no broadcast): an agent resumes its
+  provider session at the next prompt, as after any restart. The manager holds no pid: the
+  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM before it
+  resolves); the limit only bounds a provider whose `close()` hangs. Called by
+  `startDaemon().close()` and `startDevDaemon().close()`.
 - On startup, `recover()` rehydrates every persisted record with no live session attached, and
   normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
   `idle` — both in memory and on disk — since neither status is a legal resting state without a
@@ -1415,8 +1446,8 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
   already send, rather than `kill_terminal_request` sending its own (which would now duplicate the
   one `manager.kill()` triggers through this listener).
 - `killAll()` — kill every live terminal and clear its pending flush timer; called from
-  `startDaemon(...).close()` so a stray PTY can't emit output after the transports it would
-  flush through (relay/WS) have already been torn down on shutdown.
+  `startDaemon(...).close()` (after `AgentManager.closeAll()`) so a stray PTY can't emit output
+  after the transports it would flush through (relay/WS) have already been torn down on shutdown.
 
 Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed:
 - `create_terminal_request` — spawn PTY, return slot + entry (echoing the size the PTY actually got).
@@ -1914,7 +1945,7 @@ kill switch every future viewer plugin reads. Invariants:
 
 ### HTTP server (`http/`)
 
-- `GET /api/health` → `{ status: "ok" }` (unauthenticated, exempt from Host + auth checks)
+- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from Host + auth checks; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
 - Host-header allowlist (403 on mismatch) → CORS headers (`daemon.cors.allowedOrigins`) → optional
   bearer auth → delegates to an injected `onRequest` handler else 404. The daemon wires `onRequest`
   to the service proxy (`proxy/service-proxy.ts`) only — there is no HTTP file-download route;

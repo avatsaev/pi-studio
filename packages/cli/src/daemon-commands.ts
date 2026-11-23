@@ -24,6 +24,8 @@ import { renderQrToTerminal } from "./qr.js";
  * § Behavior; architecture/daemon-bootstrap.md; architecture/relay-e2ee.md § Pairing).
  */
 
+const STILL_RUNNING_MESSAGE = "the daemon did not exit in time; it is still running.";
+
 /** Resolve the effective `$PI_STUDIO_HOME` for control operations. */
 function resolveCtxHome(ctx: CliContext, opts: GlobalOptions): string {
   return ctx.connectOverrides?.home ?? opts.home ?? resolveHome();
@@ -191,10 +193,11 @@ export function registerDaemonCommands(
 
   daemon
     .command("stop")
-    .description("stop the local daemon")
-    .action(() => {
-      const stopped = stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
-      if (g().json) ctx.sink.write(JSON.stringify({ stopped }));
+    .description("stop the local daemon and wait for it to exit")
+    .action(async () => {
+      const { stopped, error } = await stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
+      if (g().json) ctx.sink.write(JSON.stringify(error ? { stopped, error } : { stopped }));
+      else if (error) ctx.sink.error(STILL_RUNNING_MESSAGE);
       else ctx.sink.write(stopped ? "daemon stopped" : "no running daemon found");
       setExit(stopped ? EXIT_OK : EXIT_ERROR);
     });
@@ -203,7 +206,15 @@ export function registerDaemonCommands(
     .command("restart")
     .description("restart the local daemon")
     .action(async () => {
-      stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
+      const { error } = await stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
+      if (error) {
+        // Starting now would find the old daemon still answering and report it as running.
+        const { host, port } = parseHost(g().host);
+        if (g().json) ctx.sink.write(JSON.stringify({ up: false, host, port, error }));
+        else ctx.sink.error(STILL_RUNNING_MESSAGE);
+        setExit(EXIT_ERROR);
+        return;
+      }
       setExit(await ensureLocalDaemonAndPair(ctx, g(), { json: g().json }));
     });
 
@@ -230,7 +241,12 @@ export function registerDaemonCommands(
       const home = resolveCtxHome(ctx, g());
       // Stop first: a live daemon holds the old key in memory and keeps answering on the old relay
       // session id, so deleting the file under it would revoke nothing until it exited anyway.
-      stopDaemon(home, runtimeOf(ctx));
+      const { error } = await stopDaemon(home, runtimeOf(ctx));
+      if (error) {
+        ctx.sink.error(STILL_RUNNING_MESSAGE);
+        setExit(EXIT_ERROR);
+        return;
+      }
       const rotated = rotateDaemonKeypair(home);
       ctx.sink.write(
         rotated

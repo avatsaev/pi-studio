@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { waitForProcessExit } from "@av-pi-studio/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CliContext } from "./cli-core.js";
@@ -28,6 +29,7 @@ function fakeRuntime(overrides: Partial<DaemonRuntime> = {}): DaemonRuntime {
     hash: (p) => `hashed:${p}`,
     kill: () => true,
     start: async () => 4242,
+    waitForExit: async () => true,
     ...overrides,
   };
 }
@@ -168,18 +170,56 @@ describe("persistRelayEnvOverrides", () => {
 // ─── stop ───────────────────────────────────────────────────────────────────────
 
 describe("stopDaemon", () => {
-  it("returns false when there is no pid file", () => {
-    expect(stopDaemon(tmpHome(), fakeRuntime())).toBe(false);
+  it("returns not stopped when there is no pid file", async () => {
+    expect(await stopDaemon(tmpHome(), fakeRuntime())).toEqual({ stopped: false });
   });
-  it("signals the recorded pid", () => {
+  it("signals the recorded pid, waits for it, and removes a pid file the daemon left behind", async () => {
     const home = tmpHome();
     // Matches the real writer: `writeFileSync(pidPath, String(process.pid), "utf8")`
     // (packages/server/src/daemon/bootstrap.ts writePidLock) — plain text, not JSON.
     writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
     let killed: number | undefined;
-    const ok = stopDaemon(home, fakeRuntime({ kill: (pid) => ((killed = pid), true) }));
-    expect(ok).toBe(true);
+    let waited: [number, number] | undefined;
+    const result = await stopDaemon(
+      home,
+      fakeRuntime({
+        kill: (pid) => ((killed = pid), true),
+        waitForExit: async (pid, ms) => ((waited = [pid, ms]), true),
+      }),
+    );
+    expect(result).toEqual({ stopped: true });
     expect(killed).toBe(9999);
+    expect(waited).toEqual([9999, 10_000]);
+    expect(existsSync(join(home, "pi-studio.pid"))).toBe(false);
+  });
+  it("leaves a pid file that now names another process", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const result = await stopDaemon(
+      home,
+      fakeRuntime({
+        waitForExit: async () => (writeFileSync(join(home, "pi-studio.pid"), "8888", "utf8"), true),
+      }),
+    );
+    expect(result).toEqual({ stopped: true });
+    expect(readFileSync(join(home, "pi-studio.pid"), "utf8")).toBe("8888");
+  });
+  it("reports still_running when the process outlives the wait", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const result = await stopDaemon(home, fakeRuntime({ waitForExit: async () => false }));
+    expect(result).toEqual({ stopped: false, error: "still_running" });
+    expect(existsSync(join(home, "pi-studio.pid"))).toBe(true);
+  });
+  it("reports still_running when the signal fails but the process exists (EPERM)", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const result = await stopDaemon(
+      home,
+      fakeRuntime({ kill: () => false, waitForExit: async () => false }),
+    );
+    expect(result).toEqual({ stopped: false, error: "still_running" });
+    expect(existsSync(join(home, "pi-studio.pid"))).toBe(true);
   });
 });
 
@@ -625,6 +665,113 @@ describe("daemon --json", () => {
     expect(none.out).toEqual([JSON.stringify({ stopped: false })]);
   });
 
+  it("stop --json adds error:still_running and exits non-zero when the process does not exit", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const waits: Array<[number, number]> = [];
+    const { out, err, code } = await runCli(
+      home,
+      fakeRuntime({ waitForExit: async (pid, ms) => (waits.push([pid, ms]), false) }),
+      ["--json", "daemon", "stop"],
+    );
+    expect(code).toBe(1);
+    expect(err).toEqual([]);
+    expect(out).toEqual([JSON.stringify({ stopped: false, error: "still_running" })]);
+    expect(waits).toEqual([[9999, 10_000]]);
+    expect(existsSync(join(home, "pi-studio.pid"))).toBe(true);
+  });
+
+  it("stop without --json reports a daemon that did not exit on stderr and exits non-zero", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const { out, err, code } = await runCli(home, fakeRuntime({ waitForExit: async () => false }), [
+      "daemon",
+      "stop",
+    ]);
+    expect(code).toBe(1);
+    expect(out).toEqual([]);
+    expect(err).toEqual(["the daemon did not exit in time; it is still running."]);
+  });
+
+  it("stop on a pid file whose process is gone removes the file and reports not running", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const { out, code } = await runCli(
+      home,
+      // kill fails (ESRCH) and the single liveness check says gone.
+      fakeRuntime({ kill: () => false, waitForExit: async () => true }),
+      ["--json", "daemon", "stop"],
+    );
+    expect(code).toBe(1);
+    expect(out).toEqual([JSON.stringify({ stopped: false })]);
+    expect(existsSync(join(home, "pi-studio.pid"))).toBe(false);
+  });
+
+  it("restart waits for the old process to exit before it starts a new one", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    // The old daemon keeps answering health (and stays alive) for the first polls after SIGTERM.
+    let oldAliveChecks = 0;
+    let newStarted = false;
+    const events: string[] = [];
+    let clock = 0;
+    const runtime = fakeRuntime({
+      probe: async () => {
+        const oldUp = oldAliveChecks <= 3;
+        events.push(`probe:${oldUp ? "old" : newStarted ? "new" : "none"}`);
+        return oldUp || newStarted;
+      },
+      kill: () => (events.push("kill"), true),
+      waitForExit: (pid, timeoutMs) =>
+        waitForProcessExit(pid, {
+          timeoutMs,
+          pollMs: 100,
+          alive: () => ++oldAliveChecks <= 3,
+          sleep: async (ms) => {
+            clock += ms;
+          },
+          now: () => clock,
+        }),
+      start: async () => {
+        events.push("start");
+        expect(oldAliveChecks).toBeGreaterThan(3);
+        newStarted = true;
+        return 4243;
+      },
+    });
+    const { out, code } = await runCli(home, runtime, ["--json", "daemon", "restart"]);
+    expect(code).toBe(0);
+    expect(events.filter((e) => e === "start")).toHaveLength(1);
+    expect(events.indexOf("kill")).toBeLessThan(events.indexOf("start"));
+    // The first health probe happens after the old process is gone, so it never sees the old daemon.
+    expect(events.find((e) => e.startsWith("probe:"))).toBe("probe:none");
+    expect(clock).toBe(300);
+    expect(out).toHaveLength(1);
+    expect(JSON.parse(out[0] as string)).toMatchObject({ up: true, started: true });
+  });
+
+  it("restart starts nothing and reports still_running when the old process never exits", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    let started = false;
+    const { out, code } = await runCli(
+      home,
+      fakeRuntime({
+        probe: async () => true,
+        waitForExit: async () => false,
+        start: async () => ((started = true), 1),
+      }),
+      ["--json", "daemon", "restart"],
+    );
+    expect(started).toBe(false);
+    expect(code).toBe(1);
+    expect(out).toEqual([
+      JSON.stringify({ up: false, host: "127.0.0.1", port: 6767, error: "still_running" }),
+    ]);
+  });
+
   it("without --json, start and pair output is unchanged byte for byte", async () => {
     const home = tmpHome();
     writeKeypair(home);
@@ -794,6 +941,19 @@ describe("desktop app contract: CLI output read by the desktop app", () => {
     expect(typeof onlyJsonObject(yes.out).stopped).toBe("boolean");
     const no = await runCli(tmpHome(), fakeRuntime(), ["--json", "daemon", "stop"]);
     expect(typeof onlyJsonObject(no.out).stopped).toBe("boolean");
+    // The desktop reads `stopped` only; a still_running answer keeps it a boolean and adds a string.
+    const stuckHome = tmpHome();
+    writeFileSync(join(stuckHome, "pi-studio.pid"), "9999", "utf8");
+    const stuck = onlyJsonObject(
+      (
+        await runCli(stuckHome, fakeRuntime({ waitForExit: async () => false }), [
+          "--json",
+          "daemon",
+          "stop",
+        ])
+      ).out,
+    );
+    expect(stuck).toEqual({ stopped: false, error: "still_running" });
   });
 
   it("--version prints one line that is a semantic version and nothing else", async () => {

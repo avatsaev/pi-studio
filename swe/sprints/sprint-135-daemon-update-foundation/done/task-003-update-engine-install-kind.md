@@ -1,7 +1,7 @@
 # Task 003 — The update engine moves to the server; install kind
 
 - **Sprint:** sprints/sprint-135-daemon-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (update/), packages/cli (update-control)
 - **Priority:** P1

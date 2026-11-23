@@ -1,7 +1,7 @@
 # Task 002 — `/api/health` carries the version; the CLI's stop and restart wait for the exit
 
 - **Sprint:** sprints/sprint-135-daemon-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (http, update/process-wait), packages/cli (daemon-control, daemon-commands)
 - **Priority:** P1

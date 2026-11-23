@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { request } from "node:http";
 import { join } from "node:path";
 
+import { waitForProcessExit } from "@av-pi-studio/server";
 import bcrypt from "bcryptjs";
 
 import { parseHost } from "./connection.js";
@@ -19,6 +20,8 @@ import { parseHost } from "./connection.js";
 export const PID_FILE = "pi-studio.pid";
 export const CONFIG_FILE = "config.json";
 export const HEALTH_PATH = "/api/health";
+/** Delay between two liveness checks while waiting for a process to exit. */
+const EXIT_POLL_MS = 100;
 
 export interface DaemonPaths {
   config: string;
@@ -58,6 +61,9 @@ export type PasswordHasher = (plaintext: string) => string;
 /** Send a signal to a pid; returns true on success. */
 export type ProcessKiller = (pid: number, signal?: NodeJS.Signals) => boolean;
 
+/** Resolve `true` once the process is gone, `false` when it still exists after `timeoutMs`. */
+export type ProcessExitWaiter = (pid: number, timeoutMs: number) => Promise<boolean>;
+
 /** Start a detached daemon process; returns its pid. */
 export type DaemonStarter = (opts: {
   home: string;
@@ -71,6 +77,7 @@ export interface DaemonRuntime {
   hash: PasswordHasher;
   kill: ProcessKiller;
   start: DaemonStarter;
+  waitForExit: ProcessExitWaiter;
 }
 
 /** Default health probe via node:http GET /api/health (200 ⇒ up). */
@@ -89,6 +96,9 @@ export const httpHealthProbe: HealthProbe = (host, port) =>
   });
 
 export const bcryptHasher: PasswordHasher = (plaintext) => bcrypt.hashSync(plaintext, 10);
+
+export const processExitWaiter: ProcessExitWaiter = (pid, timeoutMs) =>
+  waitForProcessExit(pid, { timeoutMs, pollMs: EXIT_POLL_MS });
 
 export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
   try {
@@ -155,6 +165,7 @@ export function defaultDaemonRuntime(): DaemonRuntime {
     hash: bcryptHasher,
     kill: signalKiller,
     start: subprocessStarter,
+    waitForExit: processExitWaiter,
   };
 }
 
@@ -273,11 +284,37 @@ export function persistRelayEnvOverrides(
   writeConfigFile(home, path, config);
 }
 
-/** Stop the local daemon by signaling its recorded pid. Returns false when no daemon was found. */
-export function stopDaemon(home: string, runtime: DaemonRuntime): boolean {
+/** The `daemon stop` answer: `stopped` is true only once the process has exited. */
+export interface StopResult {
+  stopped: boolean;
+  /** `still_running`: the process was signalled (or could not be) and still exists. */
+  error?: "still_running";
+}
+
+/** How long `daemon stop` and `daemon restart` wait for the old process to exit. */
+export const STOP_TIMEOUT_MS = 10_000;
+
+/**
+ * Stop the local daemon: SIGTERM its recorded pid, then wait for the process to exit. No pid file,
+ * or one whose process is gone (it is removed), is `{ stopped: false }`; a process that survives the
+ * wait, or one that cannot be signalled but exists, is `{ stopped: false, error: "still_running" }`.
+ */
+export async function stopDaemon(home: string, runtime: DaemonRuntime): Promise<StopResult> {
   const pid = readDaemonPid(home);
-  if (pid === null) return false;
-  return runtime.kill(pid);
+  if (pid === null) return { stopped: false };
+  const pidFile = daemonPaths(home).pid;
+  if (!runtime.kill(pid)) {
+    // `waitForExit(pid, 0)` is a single liveness check.
+    if (!(await runtime.waitForExit(pid, 0))) return { stopped: false, error: "still_running" };
+    rmSync(pidFile, { force: true });
+    return { stopped: false };
+  }
+  if (!(await runtime.waitForExit(pid, STOP_TIMEOUT_MS))) {
+    return { stopped: false, error: "still_running" };
+  }
+  // A daemon that exited cleanly removed its own lock; an older one or a killed one did not.
+  if (readDaemonPid(home) === pid) rmSync(pidFile, { force: true });
+  return { stopped: true };
 }
 
 /**
