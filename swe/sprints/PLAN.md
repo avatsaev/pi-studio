@@ -3543,6 +3543,62 @@ component: one after the other); then t005.
 
 t001 and t002 are independent (changed 2026-11-22, during the run: the documents describe what the code does and need none of t001's measurements; t002 leaves the acceptance ticks to the end, after t001 and the live checks).
 
+> **Desktop app self-update** (`features/desktop-self-update.md`, grill `grills/desktop-self-update.md`).
+> Planned 2026-11-23. Milestone 5 of `docs/desktop-client-handoff.md`. The real key exists from
+> sprint-131/task-002; sprint 134's workflow is checked on a pull request with test builds, and its
+> real releases (134/t004) happen only after the owner merges.
+
+### sprint-131-desktop-update-foundation
+> **What it ships.** The plug-in in the app binary with its configuration, the real key in a `main`-only
+> GitHub environment, and the manifest script whose output the plug-in's own type reads.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The updater plug-in, its configuration, the test overlay and version 0.3.0 | chore | none | desktop-self-update § 1, U2, U5, P5, P15, TODO (licences) |
+| task-002 | The updater key: generated, kept in a GitHub environment, public half in the config | chore | task-001 | D9, U1 |
+| task-003 | The manifest script and its contract test against the plug-in's types | feature | task-001 | § 2, U3, U6, P3, P4, P7 |
+
+t001; then t002 and t003 in parallel (t002 edits `tauri.conf.json`'s `pubkey` only).
+
+### sprint-132-desktop-update-app
+> **What it ships.** The whole update inside the app, behind commands: checked, shown in `ui.inspect`,
+> installed and restarted, testable without the page.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The setting, the update state machine, the schedule and the `Services` hook | feature | none | § 4, § Behavior (The app), P9, P14, P16 |
+| task-002 | `update.*` commands, the menu item, and the `boot` and `ui.inspect` parts | feature | task-001 | § 3, § 4, U10, P1, P18 |
+| task-003 | App binary: the check through the plug-in, the install kind, `--update-manifest`, the event and the menu dialog | feature | task-002, sprint-131/task-001 | § 6, U4, U9, U11–U13, P12 |
+| task-004 | App binary: download, install (incl. `pkexec`), and restart | feature | task-003 | § Behavior (install, restart), D7, U7, U8, P10, P13 |
+
+In order. t001 may start beside sprint 131.
+
+### sprint-133-desktop-update-ui
+> **What it ships.** The indicator in the window, and the Linux half of the feature seen in the real
+> webview with test builds.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Workbench: the optional `updates` host member and the connection bar's indicator | feature | none | § 5, D5, U14, P8 |
+| task-002 | Desktop host: `updates` over `boot`, `update_changed` and `engine_command` | feature | task-001, sprint-132/task-002 | § 5, P1 |
+| task-003 | Linux live checks of the update in the real webview (test builds) | test | task-002, sprint-132/task-004, sprint-131/task-003 | § Acceptance criteria (Live, Linux) |
+
+t001 may start at once (beside sprints 131 and 132); then t002; then t003.
+
+### sprint-134-desktop-update-release
+> **What it ships.** Releases that sign their update files, prove on three systems that the build
+> updates and is updated, and only then offer it; the documents; after the merge, the first two real
+> releases.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The release check script: install, update, prove, per system | feature | sprint-132/task-004 | § Behavior (The release workflow), D8, U4, U6 |
+| task-002 | `desktop-release.yml`: signed update files, per-release manifests, the update check and promotion | feature | task-001, sprint-131/task-002, sprint-131/task-003 | § 1, § 2, D6, D8, U1–U3, U5, P2 |
+| task-003 | Documents and spec close for the app's self-update | docs | task-002, sprint-133/task-003 | § Dependencies on other specs |
+| task-004 | After the merge: the first two publishing runs | test | task-003 | § Acceptance criteria (Release) |
+
+t001 may run beside sprint 133; then t002, t003. t004 waits for the owner's merge.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -3716,6 +3772,8 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/desktop-transfer-engine.md | s118/t001-003 (daemon: temporary file and rename; pacing; live check), s119/t001-004 (`TransferOptions` and the browser host; activity store; explorer lines; live check), s120/t001-004 (crate + `net` limit; wire against the fixtures; stand-in daemon; bulk connection), s121/t001-005 (upload; save; queue + snapshot; recovery; hardening), s122/t001-007 (`--transfers` + `boot.transfers`; `upload_pick`; `Saves` sink; `ui.inspect`; the commands + wiring; desktop host; Linux live checks), s123/t001, t004 (5 GiB check + checklist; documents + `minDaemonVersion` + spec close). **Being built 2026-11-22.** Not turned into tasks, by decision: relay entries and dropped files (D2, D3, stay on the page's path), upload resume, a transfers list, HTTP transfer endpoints; dropped by the owner 2026-11-22: runner checks and manual checks on macOS and Windows (D17's macOS/Windows half) |
 | architecture/workbench-host-adapter.md § The 2026-11-22 amendment | s119/t001 (`TransferOptions`, `saveToDisk`'s options, the browser host; the rows move into the contract), s122/t006 (the desktop host's members) |
 | features/desktop-relay-ssh.md | s124/t001-004 (crates + dependencies + licences; macOS and Windows build; pairing-link parser; `DaemonSocket`), s125/t001-003 (channel against the fixtures; connect and reasons; the channel as a socket), s126/t001-004 (relay plan without the link; app dial; desktop host + CSP; live checks), s127/t001-004 (config; known hosts; connect and login; channels and commands), s128/t001-005 (registry v3 + secrets; engine commands; remote supervisor; shared session; host-key dialog + host list + `ui.inspect`), s129/t001-005 (contract; form; row; desktop host; live checks), s130/t001-002 (memory and rates; documents + close). **Planned 2026-11-22.** Not turned into tasks, by decision: Stop and Restart over SSH, a runtime secret prompt, `ProxyCommand`/`Match`, installing the daemon over SSH (milestone 6), macOS and Windows checks (owner) |
+| features/desktop-self-update.md | s131/t001-003 (plug-in + config + test overlay + 0.3.0; key in a `main`-only environment; manifest script + contract test), s132/t001-004 (setting, state, schedule, hook; commands, menu, `boot`/`ui.inspect`; check, kind, `--update-manifest`, event, dialog; download, install, `pkexec`, restart), s133/t001-003 (host member + indicator; desktop host; Linux live checks), s134/t001-004 (release check script; workflow with signing, manifests, check and promotion; documents; first two publishing runs after the merge). **Planned 2026-11-23.** Not turned into tasks, by decision: everything in the spec's Out of scope; macOS keychain prompts and the Downloads-folder case (no Mac) |
+| architecture/workbench-host-adapter.md § `updates` (2026-11-23) | s133/t001 (types and indicator), s133/t002 (desktop host) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
