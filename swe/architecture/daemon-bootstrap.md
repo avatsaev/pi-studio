@@ -80,6 +80,12 @@ function close():
     release pid lock
 ```
 
+> **State and amendment (2026-11-23, [../features/self-update.md](../features/self-update.md) § Shutdown).**
+> The code today does not close agent runtimes and never removes `pi-studio.pid` (plain text, the
+> PID only; no lock check at start). The daemon self-update makes both lines above true: `close()`
+> closes every live agent session (5 s each, then the process tree is killed), clears the update
+> check's timer, and removes the PID file when it still names this process.
+
 > **Critical operational rule:** the production daemon on port `6767` manages all running agents;
 > restarting it kills every agent process. Never restart without explicit user intent.
 

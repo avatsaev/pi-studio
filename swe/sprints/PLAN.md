@@ -160,9 +160,13 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 132 | `sprint-132-desktop-update-app` | desktop: **Desktop self-update, slice 2 — the app.** The setting, state machine and schedule in the shell; `update.*` commands, the menu item, `boot`/`ui.inspect`; the check, install kind and `--update-manifest`; download, install (`pkexec` for `.deb`/`.rpm`) and restart. | 4 |
 | 133 | `sprint-133-desktop-update-ui` | desktop + workbench: **Desktop self-update, slice 3 — the indicator.** The optional `updates` host member and the connection bar's indicator; the desktop host's member; Linux live checks with test builds. | 3 |
 | 134 | `sprint-134-desktop-update-release` | desktop + CI + docs: **Desktop self-update, slice 4 — releases.** The release check script; `desktop-release.yml` with signed update files, per-release manifests, the check on three systems and promotion; documents and close; after the owner's merge, the first two publishing runs. | 4 |
+| 135 | `sprint-135-daemon-update-foundation` | server + cli: **Daemon self-update, slice 1 — foundation.** Shutdown closes agent sessions and removes the PID file; `/api/health` carries the version; stop and restart wait for the exit; the update engine moves to the server with the install kind; `pi-studio update` restarts a running daemon. | 4 |
+| 136 | `sprint-136-daemon-update-service` | protocol + client + server: **Daemon self-update, slice 2 — the daemon.** The `daemon_update_*` family and SDK; the service (check, timer, setting, result); apply, the helper, restart and rollback; a live run with a real global npm install and a local registry; a scripted dev daemon. | 6 |
+| 137 | `sprint-137-daemon-update-ui` | workbench: **Daemon self-update, slice 3 — the UI.** The second pill, the dialog with counts, progress and result, Settings → Daemon; a browser check. | 4 |
+| 138 | `sprint-138-daemon-update-desktop` | desktop + workbench + docs: **Daemon self-update, slice 4 — the desktop and close.** `daemon.local.update` and `daemon.remote.update`; Update on the Daemons screen; the live desktop run; documents and close. | 5 |
 
-Total: **128 sprints, 655 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22) and by 131–134 (+4/+14, 2026-11-23; the table sums to 128/655). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **132 sprints, 674 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23) and by 135–138 (+4/+19, 2026-11-23; the table sums to 132/674). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3607,6 +3611,66 @@ t001 may run beside sprint 133; then t002, t003. t004 waits for the owner's merg
 > polkit Cancel. PR #65 merged 2026-11-23 (`98ae7e7`). t004 (the first two publishing runs) is closed as
 > **waived by the owner**: the releases are assumed to work and were not observed. Milestone 5 is closed.
 
+> **Daemon self-update** (`features/self-update.md`, rewritten 2026-11-23; grill `grills/daemon-self-update.md`).
+> Roadmap step 5b. Branch `feat/daemon-self-update`. Live runs use a local npm registry in a container:
+> nothing here publishes to the real registry, and no test restarts the developer's own daemon.
+
+### sprint-135-daemon-update-foundation
+> **What it ships.** A clean shutdown, a restart without a race, and the update engine where the
+> daemon can use it. Useful without the rest.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Shutdown closes agent sessions and removes the PID file | bugfix | none | § Shutdown, D5, P9 |
+| task-002 | `/api/health` carries the version; the CLI's stop and restart wait for the exit | bugfix | none | § CLI, § Other surfaces, D15, P13 |
+| task-003 | The update engine moves to the server; install kind | refactor | none | § Install kind, § Where the code lives, P3, P4, P6 |
+| task-004 | `pi-studio update` restarts a running local daemon | feature | task-002, task-003 | § CLI, P13 |
+
+t001, t002 and t003 run in parallel (different files); then t004.
+
+### sprint-136-daemon-update-service
+> **What it ships.** The daemon checks, offers, installs, restarts and rolls back; proven with a real
+> global npm install in a container.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: the `daemon_update_*` family and the `daemonUpdate` flag | feature | none | § Public contract, P1, P2 |
+| task-002 | Client SDK: daemon update methods and subscription | feature | task-001 | § Other surfaces |
+| task-003 | Daemon: the update service (state, check, timer, setting, result file) and its handlers | feature | task-001, sprint-135/task-001, sprint-135/task-003 | § Check, D3, D16, P4, P5, P8 |
+| task-004 | Daemon: apply, the helper, restart and rollback | feature | task-003, sprint-135/task-002 | § Apply, § The helper, D8, D11, D12, D14, P7, P8, P10, P14 |
+| task-005 | Live check: a real global npm install updates itself, and rolls back | test | task-004, sprint-135/task-004 | § Acceptance criteria, § TODO(verify) |
+| task-006 | Dev daemon: a scripted update for UI work | feature | task-003 | (enables sprint 137's browser check) |
+
+t001 may run beside sprint 135. t002 beside t003; t004 and t006 after t003 (t006 writes
+`dev-bootstrap.ts`, t004 `bootstrap.ts`); t005 last.
+
+### sprint-137-daemon-update-ui
+> **What it ships.** The pill, the dialog and Settings → Daemon in the workbench, seen in a browser
+> against the dev daemon's scripts.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Workbench: the daemon update store and the second pill | feature | sprint-136/task-002 | § Workbench (Pill), D6, P11 |
+| task-002 | Workbench: the update dialog (confirm with counts, progress, result) | feature | task-001 | § Workbench (Dialog, Reload note), D4, D7, D10, D14 |
+| task-003 | Workbench: Settings → Daemon | feature | task-002 | § Workbench (Settings), D7, D16 |
+| task-004 | Browser check of the update UI against the dev daemon's scripts | test | task-003, sprint-136/task-006 | § Acceptance criteria (UI) |
+
+In sequence. The sprint may run beside sprint 136's t004 and t005.
+
+### sprint-138-daemon-update-desktop
+> **What it ships.** The app's Update button for a local or SSH daemon that is stopped or too old;
+> the live desktop run; the documents.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Desktop: `daemon.local.update` | feature | sprint-135/task-004 | § Desktop, D9, P12 |
+| task-002 | Desktop: `daemon.remote.update` over SSH | feature | task-001 | § Desktop, D9, P12 |
+| task-003 | Workbench and desktop host: Update on the Daemons screen; the outdated toast opens it | feature | task-002, sprint-137/task-003 | § Desktop, § Workbench |
+| task-004 | Live check: the app updates an outdated local daemon and an SSH one | test | task-003, sprint-136/task-005 | § Acceptance criteria (Desktop) |
+| task-005 | Documents and spec close for the daemon self-update | docs | task-004, sprint-137/task-004 | § Dependencies on other specs, § TODO(verify) |
+
+t001 and t002 may run beside sprints 136 and 137 (Rust only).
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -3781,6 +3845,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | architecture/workbench-host-adapter.md § The 2026-11-22 amendment | s119/t001 (`TransferOptions`, `saveToDisk`'s options, the browser host; the rows move into the contract), s122/t006 (the desktop host's members) |
 | features/desktop-relay-ssh.md | s124/t001-004 (crates + dependencies + licences; macOS and Windows build; pairing-link parser; `DaemonSocket`), s125/t001-003 (channel against the fixtures; connect and reasons; the channel as a socket), s126/t001-004 (relay plan without the link; app dial; desktop host + CSP; live checks), s127/t001-004 (config; known hosts; connect and login; channels and commands), s128/t001-005 (registry v3 + secrets; engine commands; remote supervisor; shared session; host-key dialog + host list + `ui.inspect`), s129/t001-005 (contract; form; row; desktop host; live checks), s130/t001-002 (memory and rates; documents + close). **Planned 2026-11-22.** Not turned into tasks, by decision: Stop and Restart over SSH, a runtime secret prompt, `ProxyCommand`/`Match`, installing the daemon over SSH (milestone 6), macOS and Windows checks (owner) |
 | features/desktop-self-update.md | s131/t001-003 (plug-in + config + test overlay + 0.3.0; key in a `main`-only environment; manifest script + contract test), s132/t001-004 (setting, state, schedule, hook; commands, menu, `boot`/`ui.inspect`; check, kind, `--update-manifest`, event, dialog; download, install, `pkexec`, restart), s133/t001-003 (host member + indicator; desktop host; Linux live checks), s134/t001-004 (release check script; workflow with signing, manifests, check and promotion; documents; first two publishing runs after the merge). **Planned 2026-11-23.** Not turned into tasks, by decision: everything in the spec's Out of scope; macOS keychain prompts and the Downloads-folder case (no Mac) |
+| features/self-update.md | s135/t001-004 (shutdown closes agents and removes the PID file; health version and wait-for-exit; engine in the server and install kind; `update` restarts), s136/t001-006 (protocol family + flag; SDK; service, check, timer, setting; apply, helper, rollback; live npm run with a local registry; dev daemon scripts), s137/t001-004 (pill; dialog; Settings → Daemon; browser check), s138/t001-005 (desktop local and SSH Update; Daemons screen; live desktop run; documents and close). **Planned 2026-11-23.** Not turned into tasks, by decision: the spec's Non-goals; macOS and Windows live runs (no machine) |
 | architecture/workbench-host-adapter.md § `updates` (2026-11-23) | s133/t001 (types and indicator), s133/t002 (desktop host) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 

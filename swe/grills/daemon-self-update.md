@@ -1,6 +1,6 @@
 # Grill — Daemon self-update (roadmap 5b)
 
-> Status: grilling
+> Status: grilled
 > Started: 2026-11-23   Last updated: 2026-11-23   Rounds: 3 (themes 4–8 as agent proposals)
 > Engineer: avatsaev (owner)   Agent: Claude
 
@@ -187,4 +187,13 @@ updates itself too, starting with daemons installed through npm. Refresh `swe/fe
 | 4–8 | data, integration, edge cases, constraints, acceptance (merged) | Agent proposals P1–P15, presented at the readout |
 
 ## Handoff to scope
-_(written at grilled)_
+Readout confirmed by the owner on 2026-11-23 (D1–D16 decided, P1–P15 stand).
+
+| Spec file to produce | Fed by brief sections |
+|----------------------|-----------------------|
+| `swe/features/self-update.md` (rewritten; the 2026-08-26 text is replaced) | everything |
+| `swe/architecture/daemon-bootstrap.md` (amended) | D5, P9: shutdown closes agent sessions and removes the PID file |
+| `swe/features/cli.md` (amended) | D15, P13: stop and restart wait for the exit; `update` restarts |
+| `swe/architecture/websocket-protocol.md` (amended) | P1: the `daemon_update_*` family and the flag |
+| `swe/features/desktop-native-host.md` or the desktop daemon spec (amended) | D9, P12: `daemon.local.update`, `daemon.remote.update` |
+| `swe/architecture/single-binary-daemon.md` (amended) | D2: the `binary` install kind joins P3's list in milestone 6 |

@@ -725,10 +725,12 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    AppImage and `.deb` updates checked live and the three-system check run in a pull request with test builds
    (`swe/features/desktop-self-update.md`, grill `swe/grills/desktop-self-update.md`).*
 5b. **Daemon self-update, npm first** (owner, 2026-11-23). The daemon updates itself when a client
-   asks over its connection (`update_*` RPCs), so it works for local, direct, relay and SSH daemons
-   and in the browser client too; it installs through `npm install -g`. Based on
-   `swe/features/self-update.md` (2026-08, not built; to be refreshed by a grill). Milestone 6 adds a
-   `binary` install kind to the same mechanism.
+   asks over its connection (the `daemon_update_*` RPCs), so it works for local, direct, relay and SSH
+   daemons and in the browser client too; it installs through `npm install -g`, restarts through a
+   helper process and rolls back when the new version does not start. The app also gets an Update
+   button for a local or SSH daemon that is stopped or below its minimum. *State (2026-11-23):
+   grilled and scoped (`swe/grills/daemon-self-update.md`, `swe/features/self-update.md`), not built.*
+   Milestone 6 adds a `binary` install kind to the same mechanism.
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
    binary, downloaded on first use (`swe/architecture/single-binary-daemon.md`, exploration of
    2026-11-22; replaces the Node-sidecar idea; not scheduled). Uses milestone 5's updater to move the

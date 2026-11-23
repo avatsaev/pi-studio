@@ -194,6 +194,9 @@ other message; this is not a precedent. Detail:
 ## Dependencies
 - Internal: session, agent manager, all feature handlers, terminal/file routers.
 - External: `ws`, browser/RN WebSocket on the client side.
+- [../features/self-update.md](../features/self-update.md): the `daemon_update_*` family (four
+  request/response pairs and the `daemon_update_status` broadcast, all real schemas) and the
+  `daemonUpdate` feature flag; `/api/health` gains `version`.
 
 ## Acceptance Criteria
 - [ ] A client that sends `hello` receives a `status`/`server_info` with `serverId` and `features`.

@@ -138,8 +138,8 @@ The planned answer is to keep both modes: the binary by default, and Pi run thro
   bundle: the daemon outlives the app, and an AppImage's files disappear when the app exits.
 - **Remote host over SSH.** The app reads the host's OS and CPU, downloads the matching tar.gz,
   verifies it, uploads it over the SSH connection and runs `pi-studio --json daemon start`.
-- **Direct or relay connection.** The daemon updates itself through the `update_*` RPCs of
-  [../features/self-update.md](../features/self-update.md), with a new `binary` install kind:
+- **Direct or relay connection.** The daemon updates itself through the `daemon_update_*` RPCs of
+  [../features/self-update.md](../features/self-update.md) (scoped 2026-11-23 for npm installs), with a new `binary` install kind:
   download and verify into `versions/<new>/`, start a waiter from the new binary, shut down; the
   waiter flips `current`, starts the new daemon, checks health, and flips back on failure.
 - **A restart** kills open terminals and interrupts a running turn; history, todos and resume were
