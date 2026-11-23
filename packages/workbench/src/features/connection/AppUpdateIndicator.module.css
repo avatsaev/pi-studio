@@ -35,8 +35,8 @@
 }
 
 .attention {
-  color: var(--pi-color-surface0);
-  background: var(--pi-color-statusWarning);
+  color: var(--pi-color-statusWarning);
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 15%, var(--pi-color-surface1));
   border-color: var(--pi-color-statusWarning);
 }
 .muted {
@@ -46,8 +46,8 @@
 }
 .danger {
   color: var(--pi-color-statusDanger);
-  background: color-mix(in srgb, var(--pi-color-statusDanger) 12%, var(--pi-color-surface1));
-  border-color: color-mix(in srgb, var(--pi-color-statusDanger) 45%, transparent);
+  background: color-mix(in srgb, var(--pi-color-statusDanger) 15%, var(--pi-color-surface1));
+  border-color: var(--pi-color-statusDanger);
 }
 
 .actionable {
@@ -55,8 +55,7 @@
   cursor: pointer;
 }
 .attention.actionable:hover {
-  background: color-mix(in srgb, var(--pi-color-statusWarning) 85%, var(--pi-color-foreground));
-  border-color: color-mix(in srgb, var(--pi-color-statusWarning) 85%, var(--pi-color-foreground));
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 28%, var(--pi-color-surface1));
 }
 .muted.actionable:hover {
   border-color: var(--pi-color-foregroundMuted);
