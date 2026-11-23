@@ -586,6 +586,41 @@ jobs:
             echo "update check $kind: $((SECONDS - started)) s"
           done
           exit "$status"
+      # What a failed macOS check leaves behind: the installed app's signature and whether the
+      # installed build starts on its own (a restarted process that never shows up is invisible
+      # otherwise). Nothing here reads a secret.
+      - name: macOS diagnostics
+        if: failure() && runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          mkdir -p update-check-out
+          {
+            app="/Applications/Pi Studio.app"
+            echo "== installed app"; ls -l "$app/Contents/MacOS"; grep -A1 CFBundleShortVersionString "$app/Contents/Info.plist"
+            echo "== codesign -dv"; codesign -dv --verbose=2 "$app" 2>&1 | head -20
+            echo "== codesign --verify"; codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | head -20
+            echo "== xattr"; xattr -lr "$app" 2>&1 | head -20
+            echo "== processes"; ps aux | grep -i '[p]istudiodesktop' || true
+            echo "== crash reports"; ls -l ~/Library/Logs/DiagnosticReports 2> /dev/null | tail -10
+            echo "== start the installed binary by hand"
+            token="$RUNNER_TEMP/diag.token"
+            "$app/Contents/MacOS/pistudiodesktop" --secret-store=file --config-dir "$RUNNER_TEMP/diag-config" --control 49171 --control-token-file "$token" > "$RUNNER_TEMP/diag-app.log" 2>&1 &
+            pid=$!
+            sleep 10
+            if kill -0 "$pid" 2> /dev/null; then echo "still running after 10 s (pid $pid)"; else wait "$pid"; echo "exited with code $?"; fi
+            cat "$RUNNER_TEMP/diag-app.log"
+            kill "$pid" 2> /dev/null || true
+            echo "== relaunch through LaunchServices, as Tauri's restart does"
+            /usr/bin/open -n "$app" --args --secret-store=file --config-dir "$RUNNER_TEMP/diag-config2" --control 49172 --control-token-file "$RUNNER_TEMP/diag2.token"
+            echo "open exited with $?"
+            sleep 12
+            if nc -z 127.0.0.1 49172; then echo "the relaunched app listens on 49172"; else echo "nothing listens on 49172 after 12 s"; fi
+            ps -ax -o pid,ppid,lstart,command | grep -i '[p]istudiodesktop' || echo "no pistudiodesktop process"
+            pkill -f diag2.token || true
+            echo "== system log"
+            sudo -n log show --last 15m --style compact --predicate 'process == "pistudiodesktop" OR process == "amfid" OR process == "syspolicyd" OR process == "launchd" AND eventMessage CONTAINS "pistudiodesktop"' 2>&1 | tail -80
+          } > update-check-out/macos-diagnostics.txt 2>&1
+          cat update-check-out/macos-diagnostics.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
