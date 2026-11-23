@@ -1,7 +1,7 @@
 # Task 001 — The setting, the update state machine, the schedule and the `Services` hook
 
 - **Sprint:** sprints/sprint-132-desktop-update-app
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/model, desktop/crates/shell
 - **Priority:** P1

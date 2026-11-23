@@ -87,14 +87,24 @@ export function appUpdateView(update: AppUpdateState): AppUpdateView | null {
         tone: "muted",
         action: { kind: "open", url: update.releaseUrl },
       };
-    case "failed":
+    case "failed": {
+      // The system refused the install: another try would be refused too, so the click opens the
+      // download page. Any other failure of an install retries it; a failed check has no build to
+      // install, so it checks again.
+      if (update.code === "refused" && update.releaseUrl !== undefined) {
+        return {
+          text: "Update failed",
+          tooltip: `${FAILURE_TEXTS[update.code]}. Open the release page.`,
+          tone: "danger",
+          action: { kind: "open", url: update.releaseUrl },
+        };
+      }
       return {
         text: "Update failed",
         tooltip: `${FAILURE_TEXTS[update.code]}. Click to try again.`,
         tone: "danger",
-        // A failure of the install retries it; a failed check has no build to install, so it
-        // checks again.
         action: update.version === undefined ? { kind: "check" } : { kind: "install" },
       };
+    }
   }
 }

@@ -1,7 +1,7 @@
 # Task 001 — The updater plug-in, its configuration, the test overlay and version 0.3.0
 
 - **Sprint:** sprints/sprint-131-desktop-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** desktop/Cargo.toml, desktop/apps/pistudiodesktop/src-tauri (config), ATTRIBUTION.md
 - **Priority:** P1

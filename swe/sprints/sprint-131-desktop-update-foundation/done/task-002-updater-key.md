@@ -1,7 +1,7 @@
 # Task 002 — The updater key: generated, kept in a GitHub environment, public half in the config
 
 - **Sprint:** sprints/sprint-131-desktop-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** GitHub repository settings, tauri.conf.json, desktop/docs/development.md
 - **Priority:** P1

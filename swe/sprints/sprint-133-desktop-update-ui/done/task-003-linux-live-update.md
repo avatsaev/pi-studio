@@ -1,7 +1,7 @@
 # Task 003 — Linux live checks of the update in the real webview (test builds)
 
 - **Sprint:** sprints/sprint-133-desktop-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop/docs/platform-checks.md, desktop/docs/development.md
 - **Priority:** P1

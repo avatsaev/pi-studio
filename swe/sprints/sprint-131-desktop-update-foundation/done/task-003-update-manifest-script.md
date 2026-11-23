@@ -1,7 +1,7 @@
 # Task 003 — The manifest script and its contract test against the plug-in's types
 
 - **Sprint:** sprints/sprint-131-desktop-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/scripts/release, src-tauri tests
 - **Priority:** P1

@@ -8,14 +8,24 @@
 // than N, so that N can be offered an update to its own files (spec U6). The manifest is the plug-in's
 // static format; the plug-in's own `RemoteRelease` reads it (`src-tauri/tests/update_manifest.rs`).
 //
-// Each update file is found by its suffix and must have a `<name>.sig` next to it. The asset URL
-// is `<base-url>/<asset name>`, where the asset name is the file name as GitHub stores it: GitHub
-// replaces each space of an uploaded file's name with a dot (`Pi Studio.app.tar.gz` becomes
+// Each update file is found by its suffix and must have a `<name>.sig` next to it. The self check
+// reads `<name>.selfcheck.sig` instead: the plug-in compares the version in a signature's trusted
+// comment with the manifest's version, so the files are signed a second time for the self-check
+// version (`tauri signer sign --app-version <version> -f <key> <file>`; the publishing job keeps the
+// result as `<file>.selfcheck.sig`).
+//
+// The asset URL is `<base-url>/<asset name>`, where the asset name is the file name as GitHub stores
+// it: GitHub replaces each space of an uploaded file's name with a dot (`Pi Studio.app.tar.gz` becomes
 // `Pi.Studio.app.tar.gz`), and a name with any other character GitHub may rewrite is refused.
 
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+const SELF_CHECK_SIGNATURE_SUFFIX = ".selfcheck.sig";
+
+/** The command that makes a file's self-check signature, for the error message. */
+const signCommand = (version, file) => `tauri signer sign --app-version ${version} -f <key> ${file}, kept as ${file}${SELF_CHECK_SIGNATURE_SUFFIX}`;
 
 /**
  * The kinds of update file, in manifest order: the file's suffix and the updater targets it serves.
@@ -91,13 +101,14 @@ export function buildManifest({ dir, version, baseUrl, releaseUrl, selfCheck = f
       if (require.includes(kind)) missing.push(`${kind} update file (*${KINDS[kind].suffix})`);
       continue;
     }
-    if (!names.includes(file + SIGNATURE_SUFFIX)) {
-      missing.push(`signature ${file}${SIGNATURE_SUFFIX}`);
+    const signatureFile = file + (selfCheck ? SELF_CHECK_SIGNATURE_SUFFIX : SIGNATURE_SUFFIX);
+    if (!names.includes(signatureFile)) {
+      missing.push(`signature ${signatureFile}${selfCheck ? ` (made by: ${signCommand(manifestVersion, file)})` : ""}`);
       continue;
     }
-    const signature = readFileSync(join(dir, file + SIGNATURE_SUFFIX), "utf8").trim();
+    const signature = readFileSync(join(dir, signatureFile), "utf8").trim();
     if (signature === "") {
-      missing.push(`signature ${file}${SIGNATURE_SUFFIX} (empty)`);
+      missing.push(`signature ${signatureFile} (empty)`);
       continue;
     }
     const entry = { url: assetUrl(baseUrl, file), signature };

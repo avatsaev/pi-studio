@@ -110,6 +110,18 @@ describe("appUpdateView", () => {
     expect(view?.tooltip).toContain("Could not reach the update server");
   });
 
+  it("opens the release page after the system refused the install", () => {
+    const view = appUpdateView({
+      state: "failed",
+      code: "refused",
+      version: "0.3.1",
+      releaseUrl: "https://example.test/release",
+    });
+
+    expect(view?.action).toEqual({ kind: "open", url: "https://example.test/release" });
+    expect(view?.tooltip).toContain("Open the release page");
+  });
+
   it("has a distinct text for every failure code", () => {
     const codes: AppUpdateFailureCode[] = [
       "offline",

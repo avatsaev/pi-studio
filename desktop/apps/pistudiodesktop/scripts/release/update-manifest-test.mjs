@@ -31,20 +31,26 @@ const fileNames = (version) => ({
   msi: `Pi Studio_${version}_x64_en-US.msi`,
 });
 
-/** A stand-in for a `.sig`: the base64 text the signer writes, with a trailing newline. */
-const signatureOf = (name) => `${Buffer.from(`untrusted comment: signature of ${name}\nRUQ-not-a-real-signature`).toString("base64")}\n`;
+/** A stand-in for a `.sig`: the base64 text the signer writes, with a trailing newline; `version` is the one in its trusted comment. */
+const signatureOf = (name, version = VERSION) => `${Buffer.from(`untrusted comment: signature of ${name}\ntrusted comment: version:${version}\nRUQ-not-a-real-signature`).toString("base64")}\n`;
+/** The same for the self-check signature. */
+const selfCheckSignatureOf = (name) => signatureOf(name, selfCheckVersion(VERSION));
 
 const dirs = [];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-/** A directory of update files and signatures; `without`/`unsigned` drop a kind's file/signature. */
-function makeRelease({ version = VERSION, without = [], unsigned = [], extra = [] } = {}) {
+/**
+ * A directory of update files with their `.sig` and `.selfcheck.sig`; `without` drops a kind's file,
+ * `unsigned` its `.sig`, `noSelfCheckSig` its `.selfcheck.sig`.
+ */
+function makeRelease({ version = VERSION, without = [], unsigned = [], noSelfCheckSig = [], extra = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "update-manifest-"));
   dirs.push(dir);
   for (const [kind, name] of Object.entries(fileNames(version))) {
     if (without.includes(kind)) continue;
     writeFileSync(join(dir, name), `bytes of ${name}`);
     if (!unsigned.includes(kind)) writeFileSync(join(dir, `${name}.sig`), signatureOf(name));
+    if (!noSelfCheckSig.includes(kind)) writeFileSync(join(dir, `${name}.selfcheck.sig`), selfCheckSignatureOf(name));
   }
   for (const name of extra) writeFileSync(join(dir, name), "extra");
   return dir;
@@ -160,9 +166,43 @@ describe("the self check", () => {
     const latest = buildManifest(options(dir));
     const selfCheck = buildManifest(options(dir, { selfCheck: true }));
     assert.equal(selfCheck.version, "0.3.1-selfcheck");
-    assert.deepEqual(selfCheck.platforms, latest.platforms);
+    assert.deepEqual(Object.keys(selfCheck.platforms), Object.keys(latest.platforms));
+    for (const [target, { url }] of Object.entries(selfCheck.platforms)) assert.equal(url, latest.platforms[target].url, target);
     assert.equal(selfCheck.notes, latest.notes);
     assert.equal(compareSemver(selfCheck.version, VERSION), 1);
+  });
+
+  it("reads the .selfcheck.sig files, which differ from the .sig files", () => {
+    const dir = makeRelease();
+    const latest = buildManifest(options(dir));
+    const selfCheck = buildManifest(options(dir, { selfCheck: true }));
+    const names = fileNames(VERSION);
+    assert.equal(selfCheck.platforms["linux-x86_64-deb"].signature, selfCheckSignatureOf(names.deb).trim());
+    assert.equal(latest.platforms["linux-x86_64-deb"].signature, signatureOf(names.deb).trim());
+    for (const [target, { signature }] of Object.entries(selfCheck.platforms)) assert.notEqual(signature, latest.platforms[target].signature, target);
+  });
+
+  it("fails when only the .sig exists, naming the file and the command that makes the signature", () => {
+    const dir = makeRelease({ noSelfCheckSig: ["deb"] });
+    assert.throws(
+      () => buildManifest(options(dir, { selfCheck: true })),
+      (error) =>
+        error.message.includes("Pi Studio_0.3.0_amd64.deb.selfcheck.sig") && error.message.includes("tauri signer sign --app-version 0.3.1-selfcheck"),
+    );
+  });
+
+  it("fails on an empty .selfcheck.sig", () => {
+    const dir = makeRelease();
+    writeFileSync(join(dir, `${fileNames(VERSION).rpm}.selfcheck.sig`), "\n");
+    assert.throws(() => buildManifest(options(dir, { selfCheck: true })), /\.rpm\.selfcheck\.sig \(empty\)/);
+  });
+
+  it("needs no .sig files for a self check, and no .selfcheck.sig files for a plain run", () => {
+    const names = fileNames(VERSION);
+    assert.doesNotThrow(() => buildManifest(options(makeRelease({ unsigned: Object.keys(names) }), { selfCheck: true })));
+    assert.throws(() => buildManifest(options(makeRelease({ unsigned: ["deb"] }))), /deb\.sig/);
+    const plain = buildManifest(options(makeRelease({ noSelfCheckSig: Object.keys(names) })));
+    assert.equal(plain.platforms["linux-x86_64-deb"].signature, signatureOf(names.deb).trim());
   });
 
   it("orders after N for every N, comparing numbers as numbers", () => {

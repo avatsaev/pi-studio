@@ -75,12 +75,16 @@ fn a_target_the_manifest_lacks_does_not_resolve() {
 }
 
 #[test]
-fn self_check_manifest_offers_the_same_files_under_a_greater_version() {
+fn self_check_manifest_offers_the_same_files_under_a_greater_version_with_their_own_signatures() {
     let latest = load("latest.json");
     let self_check = load("self-check.json");
     assert_eq!(self_check.version.to_string(), "0.3.1-selfcheck");
     assert!(self_check.version > latest.version, "the plug-in only installs a version greater than the running one");
     for (os, arch, installer) in BUILDS {
-        assert_eq!(resolve(&self_check, os, arch, installer), resolve(&latest, os, arch, installer), "{os}-{arch}-{installer}");
+        let (url, signature) = resolve(&latest, os, arch, installer).unwrap_or_else(|| panic!("{os}-{arch}-{installer} does not resolve"));
+        let (check_url, check_signature) = resolve(&self_check, os, arch, installer).unwrap_or_else(|| panic!("{os}-{arch}-{installer} does not resolve"));
+        assert_eq!(check_url, url, "{os}-{arch}-{installer}");
+        // The plug-in compares the version in a signature's trusted comment with the manifest's, so each is signed for its own.
+        assert_ne!(check_signature, signature, "{os}-{arch}-{installer}");
     }
 }

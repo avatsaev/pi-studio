@@ -1,7 +1,7 @@
 # Task 002 — Desktop host: `updates` over `boot`, `update_changed` and `engine_command`
 
 - **Sprint:** sprints/sprint-133-desktop-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

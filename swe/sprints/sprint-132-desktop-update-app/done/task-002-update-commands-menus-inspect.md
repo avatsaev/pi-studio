@@ -1,7 +1,7 @@
 # Task 002 — `update.*` commands, the menu item, and the `boot` and `ui.inspect` parts
 
 - **Sprint:** sprints/sprint-132-desktop-update-app
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine, desktop/crates/shell (menus, page, control)
 - **Priority:** P1

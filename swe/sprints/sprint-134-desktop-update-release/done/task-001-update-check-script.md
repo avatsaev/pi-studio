@@ -1,7 +1,7 @@
 # Task 001 — The release check script: install, update, prove, per system
 
 - **Sprint:** sprints/sprint-134-desktop-update-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/scripts/platform-checks
 - **Priority:** P1

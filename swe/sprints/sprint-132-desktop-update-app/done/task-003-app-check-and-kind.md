@@ -1,7 +1,7 @@
 # Task 003 — App binary: the check through the plug-in, the install kind, `--update-manifest`, the event and the menu dialog
 
 - **Sprint:** sprints/sprint-132-desktop-update-app
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1

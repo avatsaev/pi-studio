@@ -5,31 +5,31 @@
   "platforms": {
     "linux-x86_64-appimage": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio_0.3.0_amd64.AppImage",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfYW1kNjQuQXBwSW1hZ2UKUlVRLW5vdC1hLXJlYWwtc2lnbmF0dXJl"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfYW1kNjQuQXBwSW1hZ2UKdHJ1c3RlZCBjb21tZW50OiB2ZXJzaW9uOjAuMy4wClJVUS1ub3QtYS1yZWFsLXNpZ25hdHVyZQ=="
     },
     "linux-x86_64-deb": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio_0.3.0_amd64.deb",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfYW1kNjQuZGViClJVUS1ub3QtYS1yZWFsLXNpZ25hdHVyZQ=="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfYW1kNjQuZGViCnRydXN0ZWQgY29tbWVudDogdmVyc2lvbjowLjMuMApSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
     },
     "linux-x86_64-rpm": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio-0.3.0-1.x86_64.rpm",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8tMC4zLjAtMS54ODZfNjQucnBtClJVUS1ub3QtYS1yZWFsLXNpZ25hdHVyZQ=="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8tMC4zLjAtMS54ODZfNjQucnBtCnRydXN0ZWQgY29tbWVudDogdmVyc2lvbjowLjMuMApSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
     },
     "darwin-aarch64": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8uYXBwLnRhci5negpSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8uYXBwLnRhci5negp0cnVzdGVkIGNvbW1lbnQ6IHZlcnNpb246MC4zLjAKUlVRLW5vdC1hLXJlYWwtc2lnbmF0dXJl"
     },
     "darwin-x86_64": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8uYXBwLnRhci5negpSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW8uYXBwLnRhci5negp0cnVzdGVkIGNvbW1lbnQ6IHZlcnNpb246MC4zLjAKUlVRLW5vdC1hLXJlYWwtc2lnbmF0dXJl"
     },
     "windows-x86_64-nsis": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio_0.3.0_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfeDY0LXNldHVwLmV4ZQpSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfeDY0LXNldHVwLmV4ZQp0cnVzdGVkIGNvbW1lbnQ6IHZlcnNpb246MC4zLjAKUlVRLW5vdC1hLXJlYWwtc2lnbmF0dXJl"
     },
     "windows-x86_64-msi": {
       "url": "https://github.com/avatsaev/pi-studio/releases/download/desktop-v0.3.0/Pi.Studio_0.3.0_x64_en-US.msi",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfeDY0X2VuLVVTLm1zaQpSVVEtbm90LWEtcmVhbC1zaWduYXR1cmU="
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBvZiBQaSBTdHVkaW9fMC4zLjBfeDY0X2VuLVVTLm1zaQp0cnVzdGVkIGNvbW1lbnQ6IHZlcnNpb246MC4zLjAKUlVRLW5vdC1hLXJlYWwtc2lnbmF0dXJl"
     }
   }
 }

@@ -239,6 +239,7 @@ Session.close()
 | Login | Agent identities, unless `IdentitiesOnly`; then the entry's `identityFile`, the config's, then `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`; then the stored password (final host only, S13). An encrypted key is opened with the stored passphrase; with none stored, that key gives `passphrase_needed` if nothing else logs in. At most 6 attempts per host |
 | Agent | `IdentityAgent`, else `SSH_AUTH_SOCK` from the login-shell environment (D18). Windows: `\\.\pipe\openssh-ssh-agent`, then Pageant. No agent, or an agent with no identity: skipped |
 | Keepalive | Every 15 s; three unanswered close the connection (D15) |
+| MACs | russh's SHA-2 MACs in its order, then `hmac-sha1-etm@openssh.com` and `hmac-sha1` last. The server takes the first it also offers, so SHA-1 is used only with a host that offers nothing else; the AEAD ciphers use no MAC at all |
 | `run` | One exec channel. `stdout` is kept up to 64 KiB, `stderr` is dropped, neither is logged. Killed at `limit` |
 
 The app holds at most one `Session` (with its hops): the current SSH entry's. It is opened by the

@@ -1,7 +1,7 @@
 # Task 001 — Workbench: the optional `updates` host member and the connection bar's indicator
 
 - **Sprint:** sprints/sprint-133-desktop-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (host types, connection bar)
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 004 — App binary: download, install (incl. `pkexec`), and restart
 
 - **Sprint:** sprints/sprint-132-desktop-update-app
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/src-tauri
 - **Priority:** P1
