@@ -583,8 +583,11 @@ src/
                             connection-presentation.ts (+ test — `connectionBarView`/
                             `connectionDot`/`shortConnectionReason`/`isDialableTarget`, the single
                             ConnectionState→bar-state module)
-                            AppUpdateIndicator.tsx + .module.css (U14's text beside the version:
-                            a button, a release-page `ExternalAnchor`, or plain progress; drawn only
+                            AppUpdateIndicator.tsx + .module.css (U14's text as a small pill beside the
+                            version, shaped like the daemon switcher: accent-filled for an offer or a
+                            restart, red for a failure, quiet for progress and "cannot install", with an
+                            icon for what a click does; a button, a release-page `ExternalAnchor`, or
+                            plain progress with a spinner; drawn only
                             when `host.updates` exists, so the browser bar is unchanged),
                             app-update-presentation.ts (+ test — `appUpdateView(state)` →
                             `{text, tooltip, tone, action}`, `null` for idle/checking/up_to_date;

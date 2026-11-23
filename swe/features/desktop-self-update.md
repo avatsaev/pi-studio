@@ -184,7 +184,9 @@ updates?: {
 
 The desktop host implements it over `boot`, the `update_changed` event and `engine_command`; the
 release link opens through `links.openExternal`. The browser host has no `updates`, so the browser
-client shows nothing (D5). The connection bar shows U14's indicator next to the version.
+client shows nothing (D5). The connection bar shows U14's indicator next to the version, as a small
+pill like the daemon switcher's: accent-filled for an offer or a restart, red for a failure, quiet
+for progress and for a build that cannot install, with an icon for what a click does.
 
 ### 6. Launch option
 
