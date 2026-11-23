@@ -720,8 +720,10 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    browser client is unchanged (its host has no registry; seen on 2026-11-23).*
 5. **App self-update.** The app finds a newer build, shows it next to the version, installs it after
    one click and restarts after a second; each release proves on GitHub's Linux, macOS and Windows
-   machines that it can update and be updated before it is offered. *State (2026-11-23): grilled and
-   specified (`swe/grills/desktop-self-update.md`, `swe/features/desktop-self-update.md`), not planned.*
+   machines that it can update and be updated before it is offered. *State (2026-11-23): built on the branch
+   `feat/desktop-self-update` (sprints 131–134; the first real releases follow the owner's merge), the Linux
+   AppImage and `.deb` updates checked live and the three-system check run in a pull request with test builds
+   (`swe/features/desktop-self-update.md`, grill `swe/grills/desktop-self-update.md`).*
 5b. **Daemon self-update, npm first** (owner, 2026-11-23). The daemon updates itself when a client
    asks over its connection (`update_*` RPCs), so it works for local, direct, relay and SSH daemons
    and in the browser client too; it installs through `npm install -g`. Based on

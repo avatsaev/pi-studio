@@ -1,7 +1,7 @@
 # Task 003 — Documents and spec close for the app's self-update
 
 - **Sprint:** sprints/sprint-134-desktop-update-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** desktop/docs, desktop/AGENTS.md, packages/workbench docs, swe
 - **Priority:** P1

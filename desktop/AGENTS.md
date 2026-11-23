@@ -56,6 +56,18 @@ pairing link never reaches the page), and an SSH entry (`ssh`: `~/.ssh/config`, 
 password, host keys in the app's own `known_hosts`) reaches a daemon that listens on the host's loopback only, with a Start
 button that runs `pi-studio daemon start` over the same connection. Every kind goes through the same proxy and the
 same transfer engine. macOS and Windows are not checked (owner's decision, 2026-11-22).
+Milestone 5 (the app's self-update, `swe/features/desktop-self-update.md`) is built: the app checks the release
+`desktop-updates` at launch and then at most once a day (setting `checkForUpdates`, default on), shows the
+offer next to the version, and installs it after one click and restarts after a second (`update.check`,
+`update.install`, `update.restart`; Help → Check for Updates…, in the application menu on macOS;
+`--update-manifest <url>` for a launch; the state in `boot.update` and `ui.inspect.update`). AppImage and macOS
+swap the file through the plug-in; `.deb` and `.rpm` through `pkexec dpkg -i` / `pkexec rpm -U`; Windows runs
+the installer at the restart. Every update file is signed with the key of the GitHub environment
+`desktop-release`; each release's `update-check` job proves the update on Linux, macOS and Windows before
+`promote` moves `latest.json`. Checked live on Linux (AppImage and `.deb`, 2026-11-23, `docs/platform-checks.md`
+§ Self-update rows) and in a pull request's run on all three systems with test builds; not seen live: a FUSE
+AppImage, `.rpm`, `.msi`, a graphical polkit Cancel, and the first publishing run (after the merge). Both
+users install 0.3.0 by hand once: earlier builds cannot update themselves.
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace

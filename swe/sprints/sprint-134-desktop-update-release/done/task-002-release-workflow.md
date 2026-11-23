@@ -1,7 +1,7 @@
 # Task 002 — `desktop-release.yml`: signed update files, per-release manifests, the update check and promotion
 
 - **Sprint:** sprints/sprint-134-desktop-update-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** .github/workflows/desktop-release.yml
 - **Priority:** P1

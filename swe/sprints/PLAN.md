@@ -3599,6 +3599,13 @@ t001 may start at once (beside sprints 131 and 132); then t002; then t003.
 
 t001 may run beside sprint 133; then t002, t003. t004 waits for the owner's merge.
 
+> **Close note (2026-11-23).** Sprints 131–134 t001–t003 are done on `feat/desktop-self-update` (PR #65,
+> draft). Found by running it: the self check needs its own signature (`--app-version
+> <next>-selfcheck`, kept as `<file>.selfcheck.sig`), and a restarted macOS app must wait for its
+> predecessor's `--control` port (`control_server::bind` retries 10 s); the plug-in's error line named the
+> manifest address, so that log target is silenced. Not seen: a FUSE AppImage, `.rpm`, `.msi`, a graphical
+> polkit Cancel. t004 (the first two publishing runs) waits for the owner's merge and stays in backlog.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
