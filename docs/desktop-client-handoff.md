@@ -714,7 +714,8 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    transfers: the app's Rust process grew at most 8.3 MiB more for 4 GiB than for 1 GiB; the SSH
    channel window is 8 MiB). The macOS and Windows builds passed in the release workflow (manual
    runs, nothing published) and were not run (owner's decision). Open: `"$SHELL" -lic` was seen on
-   bash only; the SDK's wait for a 45 s SSH connect is unchecked. A page whose first connect fails
+   bash only; a slow connect through a hop was not seen live (the page has no connect timer of its
+   own; Rust's 45 s limit is the only one). A page whose first connect fails
    now connects again on the app's `connection_resume` (after Trust, after a remote Start); the
    browser client is unchanged (its host has no registry; seen on 2026-11-23).*
 5. **Native shell features.** Menus, notifications, updates, signing.

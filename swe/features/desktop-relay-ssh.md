@@ -505,8 +505,10 @@ at a hop uses the same codes and names the hop.
   `~/.ssh/known_hosts`, but fail on one malformed line, ignore `@revoked` and wildcards and compare names
   case-sensitively: the lookup is written in the `ssh` crate.
 - [x] `ssh2-config` gives `IdentitiesOnly` and `IdentityAgent` (as untyped fields, `unsupported_fields`).
-- [ ] How long the SDK waits for `transport.connect`: an SSH connection through hops may take 45 s
-  (S9). Not checked.
+- [x] How long the SDK waits for `transport.connect`: an SSH connection through hops may take 45 s
+  (S9). Read in the code (2026-11-23): `DaemonClient.connect` awaits `transport.connect` with no
+  timer of its own, and the desktop host's `proxied-transport.ts` has none, so Rust's 45 s
+  `TOTAL_LIMIT` is the only limit. Not seen live with a slow hop.
 - [x] Nothing in the workbench stores or shows the connect URL in a way that the addresses of S3
   change (`connect-current.ts` needed no change).
 - [x] Nothing else in the page opens a WebSocket that S14 would block (the only `new WebSocket` is the browser connection, which the desktop host does not run).
