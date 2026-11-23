@@ -14,7 +14,8 @@
 // `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty) in the environment. It is never read or printed here.
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,9 +24,10 @@ import { assetName, findBySuffix, KINDS, selfCheckVersion } from "./update-manif
 
 const SELF_CHECK_SIGNATURE_SUFFIX = ".selfcheck.sig";
 
-/** The tauri CLI's signer, run through `npx` (a `.cmd` on Windows); throws with the signer's output on failure. */
+/** The tauri CLI's signer, run with this node: `npx` is a `.cmd` on Windows and needs a shell. Throws with the signer's output on failure. */
 export function tauriSign(version, file) {
-  const result = spawnSync("npx", ["tauri", "signer", "sign", "--app-version", version, file], { encoding: "utf8", shell: process.platform === "win32" });
+  const cli = createRequire(import.meta.url).resolve("@tauri-apps/cli/tauri.js");
+  const result = spawnSync(process.execPath, [cli, "signer", "sign", "--app-version", version, file], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`tauri signer sign failed for ${file} (${result.error?.message ?? `exit ${result.status}`}):\n${result.stdout}${result.stderr}`);
 }
 
@@ -46,7 +48,8 @@ export function selfCheckSignatures({ dir, version, sign = tauriSign }) {
       const copy = join(scratch, assetName(file));
       copyFileSync(join(dir, file), copy);
       sign(selfCheck, copy);
-      renameSync(`${copy}.sig`, join(dir, `${file}${SELF_CHECK_SIGNATURE_SUFFIX}`));
+      // Copied, not renamed: the scratch directory may be on another drive (Windows' temp is on C:, the runner's work on D:).
+      copyFileSync(`${copy}.sig`, join(dir, `${file}${SELF_CHECK_SIGNATURE_SUFFIX}`));
       made.push(`${file}${SELF_CHECK_SIGNATURE_SUFFIX}`);
     }
   } finally {
