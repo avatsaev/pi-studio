@@ -722,6 +722,11 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    one click and restarts after a second; each release proves on GitHub's Linux, macOS and Windows
    machines that it can update and be updated before it is offered. *State (2026-11-23): grilled and
    specified (`swe/grills/desktop-self-update.md`, `swe/features/desktop-self-update.md`), not planned.*
+5b. **Daemon self-update, npm first** (owner, 2026-11-23). The daemon updates itself when a client
+   asks over its connection (`update_*` RPCs), so it works for local, direct, relay and SSH daemons
+   and in the browser client too; it installs through `npm install -g`. Based on
+   `swe/features/self-update.md` (2026-08, not built; to be refreshed by a grill). Milestone 6 adds a
+   `binary` install kind to the same mechanism.
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
    binary, downloaded on first use (`swe/architecture/single-binary-daemon.md`, exploration of
    2026-11-22; replaces the Node-sidecar idea; not scheduled). Uses milestone 5's updater to move the
@@ -740,7 +745,7 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
 Links into the app are not scheduled (owner, 2026-11-23).
 
 **The owner's goal (2026-11-21):** milestones 2, 3 and 4, in this order. Done 2026-11-23. **The
-order after it (owner, 2026-11-23):** 5, 6, 7, 8.
+order after it (owner, 2026-11-23):** 5, 5b, 6, 7, 8.
 
 ## Open questions
 
