@@ -137,6 +137,10 @@ pub struct Settings {
     pub version: u32,
     #[serde(default = "default_true")]
     pub auto_start_local_daemon: bool,
+    /// Whether the app looks for a newer build by itself (at launch, daily, after a wake).
+    /// "Check for Updates…" works either way. Absent reads as `true`.
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
     #[serde(default)]
     pub cli_path: Option<String>,
     /// The workbench's global keys.
@@ -152,7 +156,7 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { version: VERSION, auto_start_local_daemon: true, cli_path: None, workbench: BTreeMap::new(), unknown: Map::new() }
+        Settings { version: VERSION, auto_start_local_daemon: true, check_for_updates: true, cli_path: None, workbench: BTreeMap::new(), unknown: Map::new() }
     }
 }
 
@@ -162,6 +166,9 @@ impl Settings {
         match name {
             "autoStartLocalDaemon" => {
                 self.auto_start_local_daemon = value.as_bool().ok_or_else(|| SettingError::WrongType(name.to_owned()))?;
+            }
+            "checkForUpdates" => {
+                self.check_for_updates = value.as_bool().ok_or_else(|| SettingError::WrongType(name.to_owned()))?;
             }
             "cliPath" => {
                 let path = match value {
@@ -293,6 +300,11 @@ mod tests {
     fn defaults_and_unknown_fields_round_trip() {
         let s = decode_settings(br#"{"version":1}"#).unwrap();
         assert_eq!(s, Settings::default());
+        assert!(s.check_for_updates, "absent reads as true");
+        let off = decode_settings(br#"{"version":1,"checkForUpdates":false,"future":1}"#).unwrap();
+        assert!(!off.check_for_updates);
+        let back: Value = serde_json::from_slice(&encode_settings(&off)).unwrap();
+        assert_eq!((&back["checkForUpdates"], &back["future"]), (&json!(false), &json!(1)));
         let src = br#"{"version":1,"future":{"a":[1]},"workbench":{"k":"v"}}"#;
         let s = decode_settings(src).unwrap();
         let back: Value = serde_json::from_slice(&encode_settings(&s)).unwrap();
@@ -353,6 +365,11 @@ mod tests {
     fn set_setting() {
         let mut s = Settings::default();
         assert_eq!(s.set("autoStartLocalDaemon", &json!(false)), Ok(()));
+        assert_eq!(s.set("checkForUpdates", &json!(false)), Ok(()));
+        assert!(!s.check_for_updates);
+        assert_eq!(s.set("checkForUpdates", &json!("no")), Err(SettingError::WrongType("checkForUpdates".into())));
+        assert!(!s.check_for_updates);
+        s.set("checkForUpdates", &json!(true)).unwrap();
         assert!(!s.auto_start_local_daemon);
         assert_eq!(s.set("cliPath", &json!("/bin/pi")), Ok(()));
         assert_eq!(s.set("cliPath", &json!(null)), Ok(()));

@@ -366,6 +366,60 @@ export interface HostFiles {
   pickUploads?(): Promise<UploadSource[]>;
 }
 
+/** Why an install the app cannot update in place still shows the newer build. */
+export type AppUpdateUnavailableReason =
+  | "development_build"
+  | "not_writable"
+  | "read_only_location"
+  | "no_pkexec";
+
+/** Why a check, download or install failed. */
+export type AppUpdateFailureCode =
+  | "offline"
+  | "manifest_invalid"
+  | "no_target"
+  | "signature"
+  | "download"
+  | "install"
+  | "refused";
+
+/**
+ * The app's own update, as the desktop shell reports it
+ * (`swe/features/desktop-self-update.md` § 4). `checkedAt` is the time of the check, in epoch
+ * milliseconds; `received`/`total` count bytes of the download.
+ */
+export type AppUpdateState =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "up_to_date"; checkedAt: number }
+  | { state: "available"; version: string; releaseUrl: string }
+  | { state: "downloading"; version: string; received: number; total?: number }
+  | { state: "restart_needed"; version: string }
+  | {
+      state: "cannot_install";
+      version: string;
+      releaseUrl: string;
+      reason: AppUpdateUnavailableReason;
+    }
+  | { state: "failed"; code: AppUpdateFailureCode; version?: string; releaseUrl?: string };
+
+/**
+ * Optional. The app's self-update, owned by a shell that can replace itself (the desktop app).
+ * Absent: the connection bar shows no update indicator.
+ */
+export interface HostUpdates {
+  /** Synchronous: the host keeps the latest state in memory. */
+  current(): AppUpdateState;
+  /** Fires after every change of the state. Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
+  /** Looks for a newer build. */
+  check(): Promise<void>;
+  /** Downloads and installs the offered build (also the retry after a failure). */
+  install(): Promise<void>;
+  /** Restarts into the installed build, after the shell's own close question. */
+  restart(): Promise<void>;
+}
+
 /**
  * pdf.js runtime pieces only an application bundle can provide: a worker built from the
  * application's own `pdfjs-dist` (same version as the workbench's), and the URL its data
@@ -422,4 +476,8 @@ export interface WorkbenchHost {
    * unchanged. Consumed from sprint-110.
    */
   daemons?: HostDaemons;
+  /**
+   * Optional. The app's self-update. Absent: no update indicator is drawn (the browser).
+   */
+  updates?: HostUpdates;
 }

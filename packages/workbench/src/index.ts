@@ -34,6 +34,9 @@ export { createBrowserHost, type BrowserHostOptions } from "./host/browser-host.
 export type {
   AgentDeepLinkSource,
   AppIdentity,
+  AppUpdateFailureCode,
+  AppUpdateState,
+  AppUpdateUnavailableReason,
   ConnectIntent,
   ConnectTarget,
   DaemonEntryView,
@@ -51,6 +54,7 @@ export type {
   HostPdf,
   HostPreview,
   HostTimers,
+  HostUpdates,
   LocalDaemonState,
   NewDaemon,
   RemoteDaemonState,

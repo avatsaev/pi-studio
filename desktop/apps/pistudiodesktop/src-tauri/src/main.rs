@@ -125,6 +125,8 @@ fn main() {
         .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .plugin(services::opener_plugin())
+        // Configured by `plugins.updater` in `tauri.conf.json`; Rust alone talks to it (no page permission).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(transfers::Transfers::default())
         // The launch's `--transfers`, for the commands that refuse to run under `page`.
         .manage(args.transfers)

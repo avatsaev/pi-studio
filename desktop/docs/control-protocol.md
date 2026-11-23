@@ -32,7 +32,7 @@ The wire format is JSON lines over TCP: one request per line, one reply per line
 {"id": 1, "method": "auth", "params": {"token": "<64 hex>"}}
 {"id": 1, "ok": true, "result": {"authenticated": true}}
 {"id": 2, "method": "engine.execute", "params": {"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}}
-{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "cliPath": null}}
+{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}
 ```
 
 - The first line on a connection must be `auth`. Anything else, or a wrong token, gets

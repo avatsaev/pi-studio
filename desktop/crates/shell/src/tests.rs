@@ -16,7 +16,7 @@ fn the_view_is_the_ui_state_the_settings_and_the_generated_menu_bar() {
     let mut app = app();
     let view = control::view(&mut app);
     assert_eq!(view["ui"], json!({"status": ""}));
-    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "cliPath": null}));
+    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
     assert_eq!(view["menus"][0]["label"], "Daemons");
     assert_eq!(view["menus"].as_array().unwrap().len(), 1);
     assert_eq!(view["daemons"]["currentId"], "local");
@@ -37,7 +37,7 @@ fn a_failed_command_reaches_the_status_bar_and_a_success_clears_it() {
 fn the_control_protocol_drives_and_inspects_the_app() {
     let mut app = app();
     let changed = call(&mut app, "engine.execute", json!({"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}));
-    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "cliPath": null}}));
+    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}));
     let seen = call(&mut app, "ui.inspect", Value::Null);
     assert_eq!(seen["result"]["settings"]["autoStartLocalDaemon"], false);
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");

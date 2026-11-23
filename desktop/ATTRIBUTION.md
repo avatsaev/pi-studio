@@ -22,6 +22,8 @@ permissive licence: `ISC`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0`, 
 | Rust dependency `fiat-crypto` | Fiat Cryptography | MIT PLV | crates.io | MIT OR Apache-2.0 OR BSD-1-Clause |
 | Rust dependency `ssh2-config`, `wildmatch` (`~/.ssh/config`, milestone 4) | ssh2-config, wildmatch | Christian Visintin, Ben Gerber | crates.io | MIT |
 | Rust dependencies `futures`, `nix`, `num-bigint`, `md5`, `delegate`, `enum_dispatch`, `cfg_aliases` (through `russh` and `ssh2-config`) | | Their authors | crates.io | MIT OR Apache-2.0, MIT, or Apache-2.0 OR MIT |
+| Rust dependencies `tauri-plugin-updater`, `minisign-verify`, `zip`, `tar`, `osakit`, `objc2-osa-kit` (self-update, milestone 5; TLS through `ring`, not `aws-lc-rs`) | Tauri updater plug-in and the readers of update files and signatures | Tauri contributors, and the crates' own authors | crates.io | Apache-2.0 OR MIT; MIT (`minisign-verify`, `zip`); Zlib OR Apache-2.0 OR MIT (`objc2-osa-kit`) |
+| Rust dependencies `hyper-rustls`, `constant_time_eq`, `filetime`, `xattr`, `typed-path`, `zeroize_derive`, `core-foundation` 0.9, `system-configuration`, `system-configuration-sys`, `windows-registry` (through the updater's HTTP client and archive readers) | | Their authors | crates.io | Apache-2.0 OR ISC OR MIT, CC0-1.0 OR MIT-0 OR Apache-2.0, or MIT OR Apache-2.0 |
 
 The rows marked "built frontend" come with the workbench (`@av-pi-studio/workbench`), which the
 app bundles; the browser client ships the same files. The workbench and `@av-pi-studio/ui-library`

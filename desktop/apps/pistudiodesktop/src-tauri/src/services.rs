@@ -175,6 +175,8 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         transports: None,
         transfers: None,
         remote_run: None,
+        // Filled by `main` with the updater plug-in's hook (`update.rs`).
+        updater: None,
     }
 }
 

@@ -14,7 +14,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Change Setting",
             menu: &[],
             shortcut: None,
-            params: r#"{"key": "autoStartLocalDaemon" | "cliPath", "value": boolean | string | null}"#,
+            params: r#"{"key": "autoStartLocalDaemon" | "checkForUpdates" | "cliPath", "value": boolean | string | null}"#,
             enabled: always,
             run: set,
         },
@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 fn current(s: &Session) -> Value {
     let settings = s.settings();
-    json!({"autoStartLocalDaemon": settings.auto_start_local_daemon, "cliPath": settings.cli_path})
+    json!({"autoStartLocalDaemon": settings.auto_start_local_daemon, "checkForUpdates": settings.check_for_updates, "cliPath": settings.cli_path})
 }
 
 fn get(s: &mut Session, _: &Value) -> Result<Value> {
@@ -48,7 +48,7 @@ mod tests {
         let mut s = Session::new();
         let long = "x".repeat(1 << 20);
         let values = [json!(null), json!(true), json!(0), json!(1e300), json!(""), json!([]), json!({"a": 1}), json!(long), json!("\u{0}\u{202e}")];
-        let keys = [json!("cliPath"), json!("autoStartLocalDaemon"), json!(""), json!(long), json!(7), json!(null), json!("\u{0}")];
+        let keys = [json!("cliPath"), json!("autoStartLocalDaemon"), json!("checkForUpdates"), json!(""), json!(long), json!(7), json!(null), json!("\u{0}")];
         for key in &keys {
             for value in &values {
                 let _ = s.execute("settings.set", json!({"key": key, "value": value}));
@@ -72,6 +72,16 @@ mod tests {
         let mut s = Session::new();
         s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})).unwrap();
         let answer = s.execute("settings.set", json!({"key": "cliPath", "value": null})).unwrap();
-        assert_eq!(answer, json!({"autoStartLocalDaemon": true, "cliPath": null}));
+        assert_eq!(answer, json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+    }
+
+    #[test]
+    fn check_for_updates_is_a_boolean_setting() {
+        let mut s = Session::new();
+        let answer = s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).unwrap();
+        assert_eq!(answer["checkForUpdates"], false);
+        assert!(!s.settings().check_for_updates);
+        assert!(matches!(s.execute("settings.set", json!({"key": "checkForUpdates", "value": "no"})), Err(EngineError::BadParams(_))));
+        assert!(!s.settings().check_for_updates);
     }
 }

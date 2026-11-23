@@ -38,9 +38,12 @@ import {
 import { useUiStore } from "../../stores/ui-store.js";
 import { useDaemonsStore } from "../daemons/daemons-store.js";
 import { useDaemons } from "../daemons/use-daemons.js";
+import { AppUpdateIndicator } from "./AppUpdateIndicator.js";
 import { DaemonSwitcher } from "./DaemonSwitcher.js";
 import { daemonSwitcherView } from "./daemon-switcher-presentation.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
+import { appUpdateView } from "./app-update-presentation.js";
+import { useAppUpdate } from "./use-app-update.js";
 import styles from "./ConnectionBar.module.css";
 
 // Lazy: the settings shell + Model Providers panel must not ship in the initial bundle chunk.
@@ -160,11 +163,14 @@ export function ConnectionBar() {
   }
 
   const app = getHost().app;
+  const update = useAppUpdate();
+  const updateView = update && appUpdateView(update);
   return (
     <div className={styles.bar}>
       <span className={styles.title}>
         <span className={styles.brand}>{app.title}</span>
         {app.version && <span className={styles.version}>v{app.version}</span>}
+        {updateView && <AppUpdateIndicator view={updateView} />}
       </span>
 
       {switcher ? (
