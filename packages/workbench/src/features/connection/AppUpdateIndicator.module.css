@@ -1,0 +1,40 @@
+/* The update indicator beside the version (swe/features/desktop-self-update.md U14). Text only, on
+   the version's own 2xs rung; it is a button, an anchor or a plain span, so the UA look of each is
+   reset explicitly. Long text (a long version) ellipsizes instead of widening the bar. */
+
+.indicator {
+  flex: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: var(--pi-font-size-2xs);
+  text-decoration: none;
+}
+
+.accent {
+  color: var(--pi-color-accentBright);
+}
+.muted {
+  color: var(--pi-color-foregroundMuted);
+}
+.danger {
+  color: var(--pi-color-statusDanger);
+}
+
+.actionable {
+  cursor: pointer;
+}
+.actionable:hover {
+  text-decoration: underline;
+}
+.actionable:focus-visible {
+  outline: var(--pi-border-width-1) solid var(--pi-color-accentBright);
+  outline-offset: 2px;
+  border-radius: var(--pi-radius-md);
+}
