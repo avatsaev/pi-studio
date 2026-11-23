@@ -21,9 +21,19 @@ pub const LOCAL_START: &str = "daemon.local.start";
 pub const LOCAL_STOP: &str = "daemon.local.stop";
 pub const LOCAL_RESTART: &str = "daemon.local.restart";
 
+/// The id of "Check for Updates…". The model puts it in the Help menu; on macOS the app draws it in
+/// the application menu, after About, instead ([`in_application_menu`]).
+pub const UPDATE_CHECK_ID: &str = "update.check";
+
 /// The id of the item that switches to the entry `entry_id`.
 pub fn entry_item_id(entry_id: &str) -> String {
     format!("{ENTRY_PREFIX}{entry_id}")
+}
+
+/// Whether the app draws the item `id` in the application menu instead of where the model puts
+/// it: macOS puts "Check for Updates…" there, after About. On Linux and Windows nothing moves.
+pub fn in_application_menu(id: &str) -> bool {
+    cfg!(target_os = "macos") && id == UPDATE_CHECK_ID
 }
 
 /// One entry of a menu, as the frontend draws it.
@@ -95,6 +105,7 @@ pub fn daemons_menu(view: &Value) -> Menu {
 /// The whole menu bar for the current state: the daemons menu, then one menu per first path
 /// element in the registry, in the order the registry first names them.
 pub fn model(app: &mut AppShell) -> Vec<Menu> {
+    app.sync_update_gate();
     let mut bar: Vec<Menu> = vec![daemons_menu(&daemons::view(app))];
     for spec in command_specs() {
         let Some(&top) = spec.menu.first() else { continue };

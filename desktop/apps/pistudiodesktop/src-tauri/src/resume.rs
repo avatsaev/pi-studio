@@ -111,6 +111,10 @@ pub fn start<R: Runtime>(handle: AppHandle<R>, signals: Arc<ResumeSignals>) -> T
         run_until_stopped(&stopped, Duration::from_millis(TICK_MS), || {
             tick(&mut detector, wall_ms(), steady_ms(), |reason, now| {
                 emit(&handle, &signals, reason, now);
+                // The update schedule's step for a wake (P16): a check when the last one is a day old.
+                if matches!(reason, Reason::Wake) {
+                    crate::update::on_wake(&handle);
+                }
             });
             flush(&handle, &signals, steady_ms());
         });

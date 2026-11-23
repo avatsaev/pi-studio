@@ -127,4 +127,7 @@ pub struct Services {
     pub transports: Option<TransportsHook>,
     pub transfers: Option<TransfersHook>,
     pub remote_run: Option<RemoteRunHook>,
+    /// The self-update: the plug-in behind [`crate::update::Updater`]. Missing in the browser
+    /// build and in tests that do not drive an update: every update action is then refused.
+    pub updater: Option<Arc<dyn crate::update::UpdaterHook>>,
 }

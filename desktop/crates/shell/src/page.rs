@@ -35,7 +35,10 @@ impl Default for AppInfo {
 ///   notices: [ { kind: "file_reset", file, keptAs: string | null } | { kind: "secrets_not_moved" }
 ///            | { kind: "secret_store_fallback", reason: "unavailable" | "denied" | "failed" } ],
 ///   preview: "origin" | "inert",                      whether a previewed document's scripts can run
-///   transfers: "engine" | "page" }                    the launch's `--transfers`
+///   transfers: "engine" | "page",                     the launch's `--transfers`
+///   update: { state: "idle" | "checking" | "up_to_date" | "available" | "downloading" | "restart_needed"
+///             | "cannot_install" | "failed", …camelCase fields }  the app's self-update ([`crate::update::UpdateState`]);
+///                                                     `idle` where the app has no updater
 /// ```
 ///
 /// The notices are handed out once: this call clears them, so a page reload does not show them
@@ -50,6 +53,7 @@ pub fn boot(app: &mut AppShell) -> Value {
         "notices": notices,
         "preview": preview::kind().as_str(),
         "transfers": app.transfers.as_str(),
+        "update": app.update.state_json(),
     })
 }
 

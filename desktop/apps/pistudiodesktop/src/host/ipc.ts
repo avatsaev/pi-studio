@@ -12,7 +12,7 @@ export interface Ipc {
   ): Promise<unknown>;
 }
 
-/** The events the app emits to the page (`daemons_changed`, `daemons_manage`). */
+/** The events the app emits to the page (`daemons_changed`, `daemons_manage`, `update_changed`). */
 export interface IpcEvents {
   /** Calls `handler` with each payload of `event`. Resolves, with the way to stop listening, once registered. */
   listen(event: string, handler: (payload: unknown) => void): Promise<() => void>;

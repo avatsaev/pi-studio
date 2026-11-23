@@ -25,7 +25,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{WebSocketStream, accept_hdr_async, client_async};
 
 use super::{built_app_stored, invoke};
-use crate::bridge::Launch;
+use crate::bridge::{Launch, idle_update};
 use crate::transport::{self, origin_of};
 
 /// A password nobody would pick: if it appears anywhere but the daemon's upgrade it leaked.
@@ -198,7 +198,14 @@ impl Fixture {
         capture_logs();
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(MemoryStore::new());
-        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
+        let launch = Launch {
+            notify: Box::new(Quiet),
+            local_supported: false,
+            notices: Vec::new(),
+            resume: Arc::default(),
+            transfers: TransfersMode::Engine,
+            update: idle_update(),
+        };
         let as_store: Arc<dyn SecretStore> = Arc::clone(&store) as Arc<dyn SecretStore>;
         let app = built_app_stored(dir.path(), Services::default(), launch, as_store);
         let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();
@@ -443,7 +450,14 @@ fn a_declined_switch_leaves_the_connections_open() {
 fn closing_the_last_window_closes_every_proxied_connection_with_1001_as_the_app_exits() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
-    let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
+    let launch = Launch {
+        notify: Box::new(Quiet),
+        local_supported: false,
+        notices: Vec::new(),
+        resume: Arc::default(),
+        transfers: TransfersMode::Engine,
+        update: idle_update(),
+    };
     let app = built_app_stored(dir.path(), Services::default(), launch, Arc::new(MemoryStore::new()));
     let daemon = Daemon::start(None);
     let running = daemon.clone();

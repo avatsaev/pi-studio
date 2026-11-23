@@ -20,6 +20,7 @@ mod settings_cmds;
 mod storage;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test_store;
+mod update_cmds;
 
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
@@ -30,3 +31,4 @@ pub use remote::{RemoteAction, RemoteRequest, SshPlan};
 pub use secret_job::{SecretJob, execute_unlocked};
 pub use session::Session;
 pub use storage::Notice;
+pub use update_cmds::{UNAVAILABLE as UPDATE_UNAVAILABLE, UpdateAction, UpdateGate};

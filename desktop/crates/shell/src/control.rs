@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }`, `transfers` and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }`, `transfers`, `update` (the self-update's state, this app's version, the install kind, the setting and the manifest, never a path, a key or an address but the release page's) and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -82,7 +82,9 @@ fn execute(app: &mut AppShell, params: &Value) -> Result<Value, String> {
 /// and the last connection error (`lastError: { code, atMs }` or null); and the counts of resume signals
 /// sent since launch (`resumeSignals: { wake, network }`). `transfers` is the transfer engine's view (the launch
 /// mode, the bulk connection, the active transfers, counts and the peak bytes held, from
-/// [`crate::Services::transfers`]; empty without a hook). No address, user name, fingerprint, token, path, handle or message is in it.
+/// [`crate::Services::transfers`]; empty without a hook). `update` is [`crate::update::Updater::inspect`]: the state's fields and
+/// `current` (this app's version), `kind`, `checksEnabled` (the `checkForUpdates` setting), `manifest`, `lastCheckAt?` and `lastError?`.
+/// No address, user name, fingerprint, token, path, handle or message is in it.
 pub fn view(app: &mut AppShell) -> Value {
     let proxied = app.services.transports.as_ref().map(|hook| hook()).unwrap_or_default();
     let transfers = crate::transfers_view::TransfersView::new(app.transfers, app.services.transfers.as_ref().map(|hook| hook()).unwrap_or_default());
@@ -98,6 +100,7 @@ pub fn view(app: &mut AppShell) -> Value {
             "resumeSignals": app.resume.counts(),
         },
         "transfers": transfers,
+        "update": app.update.inspect(&app.info.version, app.session.settings().check_for_updates),
         "menus": menus::model(app),
     })
 }

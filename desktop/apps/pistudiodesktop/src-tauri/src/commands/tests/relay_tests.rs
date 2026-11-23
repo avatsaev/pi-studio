@@ -26,7 +26,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 use super::transport_tests::{Daemon, Page, capture_logs, connect_page, logged, wait_until};
 use super::{built_app_stored, invoke};
-use crate::bridge::{Bridge, Launch};
+use crate::bridge::{Bridge, Launch, idle_update};
 use crate::transport::origin_of;
 
 /// The secret key of the daemon half of the stand-in, and another one: a link made of the other's
@@ -147,7 +147,14 @@ impl Fixture {
         let picks = Arc::new(Mutex::new(Vec::new()));
         let for_picks = Arc::clone(&picks);
         let services = Services { pick_files: Some(Arc::new(move |_| std::mem::take(&mut *for_picks.lock().unwrap()))), ..Services::default() };
-        let launch = Launch { notify: Box::new(Quiet), local_supported: false, notices: Vec::new(), resume: Arc::default(), transfers: TransfersMode::Engine };
+        let launch = Launch {
+            notify: Box::new(Quiet),
+            local_supported: false,
+            notices: Vec::new(),
+            resume: Arc::default(),
+            transfers: TransfersMode::Engine,
+            update: idle_update(),
+        };
         let store = Arc::new(MemoryStore::new());
         let as_store: Arc<dyn SecretStore> = Arc::clone(&store) as Arc<dyn SecretStore>;
         let app = built_app_stored(config.path(), services, launch, as_store);

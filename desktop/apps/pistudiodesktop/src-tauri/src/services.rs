@@ -24,6 +24,8 @@ use tauri::{AppHandle, Manager as _, Runtime};
 use tauri_plugin_dialog::{Dialog, MessageDialogButtons};
 use tauri_plugin_opener::Opener;
 
+use crate::update::Prompts;
+
 /// The label of the window every dialog belongs to.
 pub const MAIN_WINDOW: &str = "main";
 
@@ -45,8 +47,10 @@ pub fn bring_forward<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// What the native hooks share.
-struct Native<R: Runtime> {
+/// What the native hooks share: the app, the dialogs' title and the lock that lets one dialog be
+/// open at a time. [`native`] fills the shell's hooks from it; the self-update's dialogs
+/// ([`Prompts`]) ask through the same one, so no two dialogs ever stack.
+pub struct Native<R: Runtime> {
     app: AppHandle<R>,
     /// Titles every dialog: the product name.
     title: String,
@@ -56,6 +60,11 @@ struct Native<R: Runtime> {
 }
 
 impl<R: Runtime> Native<R> {
+    /// The hooks of `app`. `title` is the product name, shown as the title of every dialog.
+    pub fn new(app: &AppHandle<R>, title: String) -> Arc<Self> {
+        Arc::new(Self { app: app.clone(), title, one_at_a_time: Mutex::new(()) })
+    }
+
     /// Show a dialog with `buttons` on the main window, bringing the window forward first, and say
     /// whether the affirmative button was pressed. Closing the dialog, and a dialog that cannot be
     /// shown, answer `false`.
@@ -151,12 +160,27 @@ impl<R: Runtime> Native<R> {
     }
 }
 
-/// The hooks of the running app. `title` is the product name, shown as the title of every dialog.
-/// The dialog and opener plug-ins must be registered on `app`: without them a confirmation is
-/// declined, a message is dropped and a link is not opened, each with a log line.
-pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
-    let native = Arc::new(Native { app: app.clone(), title, one_at_a_time: Mutex::new(()) });
-    let (for_confirm, for_alert, for_open, for_save, for_pick) = (Arc::clone(&native), Arc::clone(&native), Arc::clone(&native), Arc::clone(&native), native);
+/// The self-update's dialogs ("Check for Updates…" answers) through the shared dialog lock.
+impl<R: Runtime> Prompts for Native<R> {
+    fn alert(&self, message: &str) {
+        self.ask(message, MessageDialogButtons::Ok);
+    }
+
+    fn offer(&self, message: &str) -> bool {
+        self.ask(message, MessageDialogButtons::OkCancelCustom("Install".into(), "Later".into()))
+    }
+
+    fn confirm(&self, question: &str) -> bool {
+        self.ask(question, MessageDialogButtons::OkCancel)
+    }
+}
+
+/// The hooks of the running app, over `native` (the product name titles every dialog). The dialog
+/// and opener plug-ins must be registered on the app: without them a confirmation is declined, a
+/// message is dropped and a link is not opened, each with a log line.
+pub fn native<R: Runtime>(native: &Arc<Native<R>>) -> Services {
+    let (for_confirm, for_alert, for_open, for_save, for_pick) =
+        (Arc::clone(native), Arc::clone(native), Arc::clone(native), Arc::clone(native), Arc::clone(native));
     Services {
         confirm: Some(Arc::new(move |message: &str| for_confirm.ask(message, MessageDialogButtons::OkCancel))),
         alert: Some(Arc::new(move |message: &str| {
@@ -175,6 +199,8 @@ pub fn native<R: Runtime>(app: &AppHandle<R>, title: String) -> Services {
         transports: None,
         transfers: None,
         remote_run: None,
+        // Filled by `main` with the updater plug-in's hook (`update.rs`).
+        updater: None,
     }
 }
 
@@ -187,7 +213,7 @@ mod tests {
     #[test]
     fn without_the_plug_ins_a_confirmation_is_declined_and_a_link_is_not_opened_and_nothing_panics() {
         let app = mock_builder().build(mock_context(noop_assets())).unwrap();
-        let services = native::<MockRuntime>(app.handle(), "Pi Studio".into());
+        let services = native::<MockRuntime>(&Native::new(app.handle(), "Pi Studio".into()));
         let (confirm, alert, open_url) = (services.confirm.unwrap(), services.alert.unwrap(), services.open_url.unwrap());
         let (pick_save_path, pick_files) = (services.pick_save_path.unwrap(), services.pick_files.unwrap());
         assert!(!confirm("Delete it?"));

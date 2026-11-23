@@ -1,0 +1,69 @@
+/* The update indicator at the bar's far right, after the panel toggles (swe/features/desktop-self-update.md U14): a small pill,
+   shaped like the daemon switcher's, coloured by its tone: an offer or a restart is filled orange,
+   a failure is red, progress and a build the app cannot install are quiet. It is a button, an
+   anchor or a plain span, so the UA look of each is reset explicitly. Long text (a long version)
+   ellipsizes instead of widening the bar. */
+
+.indicator {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+  max-width: 200px;
+  height: var(--pi-spacing-20);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 var(--pi-spacing-8);
+  border: var(--pi-border-width-1) solid transparent;
+  border-radius: var(--pi-radius-full);
+  background: none;
+  font-family: inherit;
+  font-size: var(--pi-font-size-2xs);
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.icon {
+  flex: none;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attention {
+  color: var(--pi-color-statusWarning);
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 15%, var(--pi-color-surface1));
+  border-color: var(--pi-color-statusWarning);
+}
+.muted {
+  color: var(--pi-color-foregroundMuted);
+  background: var(--pi-color-surface1);
+  border-color: var(--pi-color-border);
+}
+.danger {
+  color: var(--pi-color-statusDanger);
+  background: color-mix(in srgb, var(--pi-color-statusDanger) 15%, var(--pi-color-surface1));
+  border-color: var(--pi-color-statusDanger);
+}
+
+.actionable {
+  appearance: none;
+  cursor: pointer;
+}
+.attention.actionable:hover {
+  background: color-mix(in srgb, var(--pi-color-statusWarning) 28%, var(--pi-color-surface1));
+}
+.muted.actionable:hover {
+  border-color: var(--pi-color-foregroundMuted);
+}
+.danger.actionable:hover {
+  border-color: var(--pi-color-statusDanger);
+}
+.actionable:focus-visible {
+  outline: var(--pi-border-width-1) solid var(--pi-color-accentBright);
+  outline-offset: 2px;
+}

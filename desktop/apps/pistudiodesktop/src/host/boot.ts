@@ -1,4 +1,7 @@
+import { type AppUpdateState } from "@av-pi-studio/workbench";
+
 import { isRecord, parseDaemonsView, type DaemonsView } from "./daemons-view.js";
+import { parseUpdateState } from "./updates.js";
 
 /** One file the engine could not read at start, reset and kept under another name (`null`: it could not be renamed). */
 export interface FileResetNotice {
@@ -33,6 +36,8 @@ export interface BootSnapshot {
   transfers: "engine" | "page";
   /** The daemon registry at boot: entries, the current one, the local daemon's state, settings. */
   daemons: DaemonsView;
+  /** The app's own update at boot: `idle` when absent or malformed. */
+  update: AppUpdateState;
 }
 
 function isNotice(value: unknown): value is BootNotice {
@@ -75,6 +80,7 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
     preview,
     transfers,
     daemons,
+    update: parseUpdateState(value.update),
   };
 }
 

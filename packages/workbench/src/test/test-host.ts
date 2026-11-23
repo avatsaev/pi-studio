@@ -9,6 +9,7 @@ import {
   type HostConnection,
   type HostDaemons,
   type HostPreview,
+  type HostUpdates,
   type TransferOptions,
   type TransferState,
   type WorkbenchHost,
@@ -49,6 +50,8 @@ export interface TestHostOptions {
   daemons?: HostDaemons;
   /** The host's `app.minDaemonVersion`. */
   minDaemonVersion?: string;
+  /** The host's `updates`, e.g. from `createTestUpdates`. Absent by default. */
+  updates?: HostUpdates;
 }
 
 /** One `files.upload` or `files.saveToDisk` call, with the options it was given. */
@@ -228,5 +231,6 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
     },
     ...(preview ? { preview } : {}),
     ...(options.daemons ? { daemons: options.daemons } : {}),
+    ...(options.updates ? { updates: options.updates } : {}),
   };
 }

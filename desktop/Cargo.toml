@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "apps/pistudiodesktop/src-tauri", "apps/pistudiodesktop-cli", "apps/ipc-bench", "xtask"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -39,6 +39,8 @@ tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+# The self-update (`apps/pistudiodesktop/src-tauri` only): the plug-in's defaults, so `rustls` with `ring` (never `aws-lc-rs`), the system proxy and `zip`.
+tauri-plugin-updater = "2"
 # WebSocket server of the IPC benchmark (apps/ipc-bench); features are chosen by the member.
 tokio = "1"
 tokio-tungstenite = "0.30"

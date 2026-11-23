@@ -16,6 +16,7 @@ use pistudiodesktop_shell::owner::{self, Notify};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::resume::ResumeSignals;
 use pistudiodesktop_shell::transfer_mode::TransfersMode;
+use pistudiodesktop_shell::update::Updater;
 use pistudiodesktop_shell::{AppInfo, AppShell, Envelope, Request, Services};
 use serde_json::Value;
 use tauri::{AppHandle, Manager as _, RunEvent, Runtime};
@@ -76,13 +77,19 @@ impl Bridge {
     }
 }
 
+/// Have every unwritten stored key written, as the exit does. The Windows installer, which ends the
+/// process without the exit events, is the other caller ([`crate::update`]).
+pub fn flush_stored_keys<R: Runtime>(handle: &AppHandle<R>) {
+    if let Some(bridge) = handle.try_state::<Bridge>() {
+        bridge.flush_on_exit();
+    }
+}
+
 /// The callback of `App::run`. `Exit` comes after the last window has closed, whatever asked
 /// for the quit: the stored keys that are still unwritten are written before the process ends.
 pub fn on_run_event<R: Runtime>(handle: &AppHandle<R>, event: &RunEvent) {
-    if matches!(event, RunEvent::Exit)
-        && let Some(bridge) = handle.try_state::<Bridge>()
-    {
-        bridge.flush_on_exit();
+    if matches!(event, RunEvent::Exit) {
+        flush_stored_keys(handle);
     }
 }
 
@@ -99,6 +106,15 @@ pub struct Launch {
     pub resume: Arc<ResumeSignals>,
     /// Which path file transfers take (`--transfers`); `boot` reports it.
     pub transfers: TransfersMode,
+    /// The update's state and schedule, shared with the app's tickers and the update runner; the
+    /// shell uses it in place of the one it makes for itself (it reads `--update-manifest`).
+    pub update: Arc<Updater>,
+}
+
+/// An updater with no hook, for the tests that launch the owner thread without a self-update.
+#[cfg(test)]
+pub fn idle_update() -> Arc<Updater> {
+    Arc::new(Updater::new(None, pistudiodesktop_shell::update::Manifest::Default))
 }
 
 /// Start the thread that owns the shell. It opens the session on `config_dir`, answers requests
@@ -136,6 +152,7 @@ pub fn spawn_owner(
         let mut app = AppShell::new(session, services);
         app.info = info;
         app.transfers = launch.transfers;
+        app.update = Arc::clone(&launch.update);
         app.resume = Arc::clone(&launch.resume);
         // What the launch's store choice told (a keychain that was not used, an unreadable
         // `secrets.json`) comes before what the files said.

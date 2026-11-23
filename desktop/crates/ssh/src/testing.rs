@@ -12,6 +12,7 @@
 //! Keys are made from fixed seeds so a run is the same every time. Nothing here is for a shipped build: the module is
 //! compiled only for tests and with the feature.
 
+use std::borrow::Cow;
 use std::io;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -23,7 +24,7 @@ use russh::keys::ssh_key::LineEnding;
 use russh::keys::ssh_key::private::Ed25519Keypair;
 use russh::keys::{PrivateKey, PublicKey, decode_secret_key};
 use russh::server::{Auth, Handler, Msg, PublicKeyOffer, Session, VerifiedPublicKey, run_stream};
-use russh::{Channel, ChannelId, ChannelOpenFailure, Disconnect};
+use russh::{Channel, ChannelId, ChannelOpenFailure, Disconnect, Preferred, cipher, mac};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
@@ -138,13 +139,15 @@ pub struct Behavior {
     pub forwarding: bool,
     /// What `exec` does; `None` refuses it as an account that runs no command does.
     pub exec: Option<ExecScript>,
+    /// Offers only `aes256-ctr` with `hmac-sha1`, as an old device does; off keeps russh's defaults, which have no SHA-1.
+    pub sha1_only: bool,
 }
 
 impl Behavior {
     /// A server for `user` that accepts no login yet, allows forwarding and runs no command.
     #[must_use]
     pub fn new(host_key: PrivateKey, user: &str) -> Self {
-        Self { host_key, user: user.to_owned(), keys: Vec::new(), password: None, forwarding: true, exec: None }
+        Self { host_key, user: user.to_owned(), keys: Vec::new(), password: None, forwarding: true, exec: None, sha1_only: false }
     }
 }
 
@@ -299,12 +302,16 @@ impl Server {
     pub async fn start(behavior: Behavior) -> io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let addr = listener.local_addr()?;
-        let config = Arc::new(russh::server::Config {
+        let mut config = russh::server::Config {
             keys: vec![behavior.host_key.clone()],
             auth_rejection_time: REJECTION_TIME,
             auth_rejection_time_initial: Some(Duration::ZERO),
             ..russh::server::Config::default()
-        });
+        };
+        if behavior.sha1_only {
+            config.preferred = Preferred { cipher: Cow::Borrowed(&[cipher::AES_256_CTR]), mac: Cow::Borrowed(&[mac::HMAC_SHA1]), ..Preferred::DEFAULT };
+        }
+        let config = Arc::new(config);
         let shared = Arc::new(Shared { behavior, seen: Mutex::new(Seen::default()) });
         let (shutdown, mut stop) = watch::channel(false);
         let accepting = Arc::clone(&shared);

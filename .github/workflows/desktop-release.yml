@@ -1,11 +1,16 @@
 name: Desktop release
 
-# Builds the desktop client's installers (`desktop/`) on Linux, macOS and Windows.
+# Builds the desktop client's installers (`desktop/`) on Linux, macOS and Windows, publishes them with
+# the files the app updates itself from, and offers the new build to the installed apps only after it
+# has proved on all three systems that it can be updated to and can update itself.
 #
 #   Desktop CI passed on a push to main   builds, then PUBLISHES a GitHub Release holding the
-#   (workflow_run)                        installers (public at once: nobody reviews it first)
+#   (workflow_run)                        installers (public at once: nobody reviews it first), then
+#                                         checks the update on three systems, then promotes it
 #   a manual run (workflow_dispatch)      builds only; the installers are artifacts of the run
-#   a pull request changing this file     builds only: how a change to this workflow is tested
+#   a pull request changing this file,    builds TEST builds and runs the update check on the three
+#   the update scripts or their action    systems against a local HTTP server; publishes and
+#                                         promotes nothing
 #
 # Releases are automatic, like release.yml's npm release: every push to main that Desktop CI gates
 # (a change to desktop/ or to a package the app builds from) and that passes it becomes a release.
@@ -17,7 +22,30 @@ name: Desktop release
 # made: raise it in a pull request). The version is written into the runners' copy of Cargo.toml
 # before the build; nothing is committed back to main. The release creates the tag
 # `desktop-v<version>` on the commit. A commit that already has a `desktop-v*` tag (a re-run) is not
-# released again.
+# released again. The tag of the release `desktop-updates` (below) does not match `desktop-v*`.
+#
+# The jobs of a release (spec `swe/features/desktop-self-update.md` § The release workflow):
+#
+#   version       the version, as above
+#   bundle-release  per system: the installers and, with the overlay `createUpdaterArtifacts`, the
+#                 update files, each signed with the updater key (`TAURI_SIGNING_PRIVATE_KEY`, a secret
+#                 of the environment `desktop-release`, which only `main` may deploy to: only this
+#                 job names it). Each update file is signed a second time for the self check
+#   release       publishes `desktop-v<N>`: installers, update files, signatures, `latest.json` (the
+#                 manifest naming N) and `self-check.json` (N offered its own files, one patch higher)
+#   update-check  per system (Linux: AppImage and .deb; macOS; Windows), fail-fast off: installs the
+#                 build before (P, whatever `desktop-updates/latest.json` names; absent: none),
+#                 updates it to N through N's `latest.json`, then proves N can update itself through
+#                 `self-check.json` (scripts/platform-checks/update-check.mjs)
+#   promote       only when every update-check passed: puts N's `latest.json` into the release
+#                 `desktop-updates` (created the first time, never the repository's latest release),
+#                 the manifest installed apps read. A failed check leaves the installers published and
+#                 not offered; re-run the failed jobs and then this one runs
+#
+# A pull request's run has no key and no environment: `bundle` builds two TEST builds per system
+# (U5: a throwaway key generated in the job, the overlay `src-tauri/tauri.update-test.conf.json`, plain
+# HTTP allowed), P = 0.0.1 and N = the next version, and `update-check` runs on them against
+# `scripts/release/serve-directory.mjs`.
 #
 # The installers are not signed with a real identity: macOS gets an ad-hoc signature and Windows
 # none, so both systems warn before opening them. The desktop client has its own version and is not
@@ -31,12 +59,17 @@ on:
   pull_request:
     paths:
       - ".github/workflows/desktop-release.yml"
+      - ".github/actions/desktop-build-tools/**"
+      - "desktop/apps/pistudiodesktop/scripts/release/**"
+      - "desktop/apps/pistudiodesktop/scripts/platform-checks/**"
+      - "desktop/apps/pistudiodesktop/src-tauri/tauri.update-test.conf.json"
 
 permissions:
   contents: read
 
 # A newer push to a pull request cancels its older run. Releases run one at a time and always finish
 # (a newer one waits; GitHub keeps only the newest waiting run, which releases everything up to it).
+# The manifest `desktop-updates/latest.json` moves in release order for the same reason.
 concurrency:
   group: desktop-release-${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -44,6 +77,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  APP: desktop/apps/pistudiodesktop
 
 defaults:
   run:
@@ -71,23 +105,22 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      # The release scripts' tests (`-test.mjs`, which Desktop CI's vitest does not take): a release
+      # or a pull request's run does not start on scripts that fail them.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Test the release scripts
+        run: node --test "$APP"/scripts/release/*-test.mjs
+      # The tags are read by scripts/release/next-version.mjs (tested): only `desktop-v<M.m.p>` count.
       - name: Next version
         id: version
         env:
           RELEASE: ${{ github.event_name == 'workflow_run' }}
         run: |
           floor=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' desktop/Cargo.toml)
-          latest=$(git tag -l 'desktop-v*' | sed 's/^desktop-v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
-          if [ -z "$latest" ] || [ "$(printf '%s\n%s\n' "$latest" "$floor" | sort -V | tail -n 1)" != "$latest" ]; then
-            version=$floor
-          else
-            IFS=. read -r major minor patch <<< "$latest"
-            version="$major.$minor.$((patch + 1))"
-          fi
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::version '$version' is not MAJOR.MINOR.PATCH (desktop/Cargo.toml says '$floor')"
-            exit 1
-          fi
+          next=$(git tag -l | node "$APP/scripts/release/next-version.mjs" --floor "$floor")
+          read -r latest version <<< "$next"
           build=true
           publish=$RELEASE
           tagged=$(git tag --points-at HEAD -l 'desktop-v*')
@@ -96,7 +129,7 @@ jobs:
             build=false
             publish=false
           fi
-          echo "highest tag: ${latest:-none}, Cargo.toml: $floor -> $version (build $build, publish $publish)"
+          echo "highest tag: $latest, Cargo.toml: $floor -> $version (build $build, publish $publish)"
           {
             echo "version=$version"
             echo "sha=$(git rev-parse HEAD)"
@@ -104,10 +137,13 @@ jobs:
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
+  # A manual run builds the installers as they are released, without the updater's files. A pull
+  # request's run builds two test builds per system for `update-check`. Neither has the key nor
+  # the environment that holds it.
   bundle:
     name: Bundle (${{ matrix.name }})
     needs: version
-    if: needs.version.outputs.build == 'true'
+    if: needs.version.outputs.build == 'true' && needs.version.outputs.publish != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -133,44 +169,25 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.sha }}
           persist-credentials: false
-      # The installers are named after the Cargo version. Written into this runner's copy only;
-      # `tauri build` is not `--locked`, so Cargo updates its copy of Cargo.lock to match.
+      # The installers are named after the Cargo version. Written into this runner's copy only.
       - name: Set the version
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          # `-i.bak`: BSD sed (macOS) needs a suffix argument, GNU sed accepts this form too.
-          sed -i.bak '/^\[workspace\.package\]/,/^\[/s/^version = ".*"/version = "'"$VERSION"'"/' desktop/Cargo.toml
-          rm desktop/Cargo.toml.bak
-          grep -q "^version = \"$VERSION\"" desktop/Cargo.toml
-      # What Tauri builds against on Linux: WebKitGTK (the webview), librsvg, libxdo.
-      - name: System packages
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev
-      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        run: bash "$APP/scripts/release/set-version.sh" "$VERSION"
+      - uses: ./.github/actions/desktop-build-tools
         with:
-          toolchain: stable
-          targets: ${{ matrix.rust-targets }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
-      # Only the desktop frontend's dependencies: the daemon's (node-pty and other native add-ons)
-      # are not needed here and do not all build on Windows.
-      - name: Frontend dependencies
-        run: npm ci --workspace pistudiodesktop
+          rust-targets: ${{ matrix.rust-targets }}
       # `tauri build`: builds the frontend, compiles the app with the release profile, then
       # packages every format the host can make (deb, rpm, AppImage | dmg | msi, nsis).
       - name: Bundle
-        working-directory: desktop/apps/pistudiodesktop
+        if: github.event_name != 'pull_request'
+        working-directory: ${{ env.APP }}
         env:
           # Read by the macOS bundler only. Ad-hoc: Apple Silicon refuses to run unsigned code.
           APPLE_SIGNING_IDENTITY: "-"
         run: npm run bundle -- ${{ matrix.tauri-args }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name != 'pull_request'
         with:
           name: pi-studio-desktop-${{ matrix.name }}
           path: |
@@ -181,23 +198,191 @@ jobs:
             ${{ matrix.bundle-dir }}/msi/*.msi
             ${{ matrix.bundle-dir }}/nsis/*.exe
           if-no-files-found: error
+      # TEST builds of the same commit, built exactly as the release is (every format, the same
+      # target), with a key pair generated here and never stored, and the overlay of U5 (that key's
+      # public half, plain HTTP allowed, update files on). Two versions per system, so that the check
+      # has a build to update from: P, 0.0.1, and N, the version this release would have. The key
+      # never leaves the job: N's update files are signed, and signed again for the self check,
+      # here; `update-check` gets the files only.
+      - name: Test builds (P and N)
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ env.APP }}
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          N: ${{ needs.version.outputs.version }}
+          P: 0.0.1
+          BUNDLE_DIR: ${{ matrix.bundle-dir }}
+          TAURI_ARGS: ${{ matrix.tauri-args }}
+        run: |
+          # No `-u`: macOS's bash 3.2 fails on an empty array's expansion under it.
+          set -eo pipefail
+          # Mixed-style paths (C:/a/b) read the same in Git Bash and in node on Windows.
+          native() { if command -v cygpath > /dev/null; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+          temp=$(native "$RUNNER_TEMP")
+          bundle="$(native "$GITHUB_WORKSPACE")/$BUNDLE_DIR"
+          stage="$temp/update-test"
+          key="$temp/update-test.key"
+          overlay="$temp/update-test.conf.json"
+          mkdir -p "$stage/p" "$stage/n"
+
+          npx tauri signer generate --ci -w "$key" > /dev/null
+          OVERLAY_IN=src-tauri/tauri.update-test.conf.json OVERLAY_OUT="$overlay" PUBKEY="$(cat "$key.pub")" node -e '
+            const fs = require("node:fs");
+            const overlay = JSON.parse(fs.readFileSync(process.env.OVERLAY_IN, "utf8"));
+            overlay.plugins.updater.pubkey = process.env.PUBKEY.trim();
+            fs.writeFileSync(process.env.OVERLAY_OUT, JSON.stringify(overlay));'
+          TAURI_SIGNING_PRIVATE_KEY=$(cat "$key")
+          export TAURI_SIGNING_PRIVATE_KEY
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+
+          # Copies files to $1 named as GitHub names an uploaded asset (spaces become dots): the
+          # manifests name them so, and the local server serves them so.
+          copy_to() {
+            local dest=$1 file
+            shift
+            for file in "$@"; do cp "$file" "$dest/$(basename "$file" | tr ' ' .)"; done
+          }
+          build() {
+            bash scripts/release/set-version.sh "$1"
+            rm -rf "$bundle"
+            # shellcheck disable=SC2086 # TAURI_ARGS is a word list (or empty)
+            npm run bundle -- --config "$overlay" $TAURI_ARGS
+          }
+          shopt -s nullglob
+          # The installers, then the update files, of the build that was just made, in `files`.
+          installers() { files=("$bundle"/deb/*.deb "$bundle"/rpm/*.rpm "$bundle"/appimage/*.AppImage "$bundle"/dmg/*.dmg "$bundle"/msi/*.msi "$bundle"/nsis/*.exe); }
+          updates() { files=("$bundle"/macos/*.app.tar.gz "$bundle"/*/*.sig); }
+
+          build "$P"
+          installers
+          copy_to "$stage/p" "${files[@]}"
+          build "$N"
+          installers
+          copy_to "$stage/n" "${files[@]}"
+          updates
+          copy_to "$stage/n" "${files[@]}"
+          node scripts/release/self-check-signatures.mjs --dir "$stage/n" --version "$N"
+          echo "P ($P):"; ls -l "$stage/p"
+          echo "N ($N):"; ls -l "$stage/n"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'pull_request'
+        with:
+          name: pi-studio-desktop-test-${{ matrix.name }}
+          path: ${{ runner.temp }}/update-test
+          retention-days: 1
+          if-no-files-found: error
+
+  # The release run's bundle job: the only job (with the one that follows it) that names the
+  # environment, and the only one that can reach the key.
+  bundle-release:
+    name: Bundle for release (${{ matrix.name }})
+    needs: version
+    if: github.event_name == 'workflow_run' && needs.version.outputs.publish == 'true'
+    environment: desktop-release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            bundle-dir: desktop/target/release/bundle
+          - name: macos-universal
+            os: macos-15
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri-args: --target universal-apple-darwin
+            bundle-dir: desktop/target/universal-apple-darwin/release/bundle
+          - name: windows-x64
+            os: windows-2025
+            bundle-dir: desktop/target/release/bundle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          persist-credentials: false
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: bash "$APP/scripts/release/set-version.sh" "$VERSION"
+      - uses: ./.github/actions/desktop-build-tools
+        with:
+          rust-targets: ${{ matrix.rust-targets }}
+      # The update files are asked for by an overlay of this job, never by tauri.conf.json: the
+      # bundler fails when it has none of the key (spec U2). It signs every update file as it makes it.
+      - name: Bundle
+        working-directory: ${{ env.APP }}
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          overlay="$RUNNER_TEMP/update-files.conf.json"
+          printf '%s\n' '{"bundle":{"createUpdaterArtifacts":true}}' > "$overlay"
+          npm run bundle -- --config "$overlay" ${{ matrix.tauri-args }}
+      # The files of the release in one directory, and a second signature of each update file for the
+      # self check (U6): the plug-in compares a signature's version with the manifest's.
+      - name: Stage the files and sign for the self check
+        working-directory: ${{ env.APP }}
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          BUNDLE_DIR: ${{ matrix.bundle-dir }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          set -eo pipefail
+          native() { if command -v cygpath > /dev/null; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+          bundle="$(native "$GITHUB_WORKSPACE")/$BUNDLE_DIR"
+          stage="$(native "$RUNNER_TEMP")/staging"
+          mkdir -p "$stage"
+          shopt -s nullglob
+          files=(
+            "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm "$bundle"/appimage/*.AppImage "$bundle"/dmg/*.dmg
+            "$bundle"/msi/*.msi "$bundle"/nsis/*.exe "$bundle"/macos/*.app.tar.gz "$bundle"/*/*.sig
+          )
+          cp "${files[@]}" "$stage/"
+          node scripts/release/self-check-signatures.mjs --dir "$stage" --version "$VERSION"
+          ls -l "$stage"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pi-studio-desktop-${{ matrix.name }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: error
 
   release:
     name: Release
-    needs: [version, bundle]
+    needs: [version, bundle-release]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: bundles
           merge-multiple: true
-      # Published at once, not a draft, and only when every bundle job passed (`needs: bundle`).
+      # `latest.json` names N; `self-check.json` offers N its own files one patch higher (U3, U6).
+      # Both point at this release's assets, which exist once the release below is created.
+      - name: Manifests
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          base="https://github.com/$REPO/releases"
+          for flag in "" --self-check; do
+            # shellcheck disable=SC2086 # the flag is one word or none
+            node "$APP/scripts/release/update-manifest.mjs" --dir bundles --version "$VERSION" \
+              --base-url "$base/download/desktop-v$VERSION" --release-url "$base/tag/desktop-v$VERSION" $flag
+          done
+      # Published at once, not a draft, and only when every bundle job passed (`needs: bundle-release`).
       # Creates the tag on the commit Desktop CI checked. The notes are fixed: what a person
-      # downloading an unsigned build has to know.
+      # downloading an unsigned build has to know. The self check's signatures are not assets: only
+      # `self-check.json` carries them.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -214,10 +399,267 @@ jobs:
 
           To run a daemon on this machine the app uses an installed `pi-studio` CLI
           (`npm install -g @av-pi-studio/cli`). Windows has no local daemon: connect to a remote one.
+
+          Installed apps update themselves from the release `desktop-updates`, which names this build
+          only after it passed an update check on all three systems. The `.sig` files, `latest.json`
+          and `self-check.json` belong to that.
           EOF
-          mapfile -t files < <(find bundles -type f | sort)
+          mapfile -t files < <(find bundles -type f ! -name '*.selfcheck.sig' | sort)
           gh release create "desktop-v$VERSION" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$SHA" \
             --title "Pi Studio Desktop $VERSION" \
             --notes-file notes.md
+
+  # The check of D8: per system, and per installer kind the system runs. In a release run it reads
+  # the files from the release just published and P from the manifest apps are offered now; in a pull
+  # request's run it reads the test builds and serves them from this machine.
+  update-check:
+    name: Update check (${{ matrix.name }})
+    needs: [version, bundle, release]
+    # Not when a needed job failed or was cancelled: `release` ran (a release run) or `bundle` passed
+    # on a pull request. `always`-style, because the other of the two is skipped.
+    if: >-
+      ${{ !cancelled() && (needs.release.result == 'success' ||
+      (github.event_name == 'pull_request' && needs.bundle.result == 'success')) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # kinds: what is installed and updated (`update-check.mjs --kind`), with the globs that
+          # find each kind's installer; require: what the manifest of a test run must hold.
+          - name: linux-x64
+            os: ubuntu-24.04
+            bundle: linux-x64
+            kinds: appimage deb
+            globs: "*.AppImage *.deb"
+            require: appimage,deb,rpm
+          - name: macos-universal
+            os: macos-15
+            bundle: macos-universal
+            kinds: app
+            globs: "*.dmg"
+            require: app
+          - name: windows-x64
+            os: windows-2025
+            bundle: windows-x64
+            kinds: nsis
+            globs: "*-setup.exe"
+            require: nsis,msi
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # The AppImage needs FUSE; the app's `.deb` step needs `pkexec` and a polkit daemon on the
+      # system bus (the script puts in the rule that lets this user through without a password).
+      # A session bus and a display come from `dbus-run-session` and `xvfb-run` in the run step.
+      - name: Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            xvfb xauth dbus polkitd pkexec libfuse2t64 libwebkit2gtk-4.1-0
+          for tool in dbus-run-session xvfb-run pkexec; do command -v "$tool"; done
+          [ -S /run/dbus/system_bus_socket ] || { echo "starting the system bus"; sudo systemctl start dbus; }
+          # polkitd is started by the bus on demand; start it now so that a failure shows here.
+          sudo systemctl start polkit || echo "::warning::polkit.service did not start: $(systemctl status polkit 2>&1 | tail -n 5)"
+          systemctl is-active dbus polkit || true
+          pkexec --version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'pull_request'
+        with:
+          name: pi-studio-desktop-test-${{ matrix.bundle }}
+          path: update-files
+      # P: the build the manifest offers now; none when there is no manifest yet (the first release
+      # of the updater) or its release has no manifest of its own (a build without the updater).
+      - name: Fetch the installers
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          N: ${{ needs.version.outputs.version }}
+          GLOBS: ${{ matrix.globs }}
+        run: |
+          set -euo pipefail
+          native() { if command -v cygpath > /dev/null; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+          files="$(native "$GITHUB_WORKSPACE")/update-files"
+          mkdir -p "$files/n" "$files/p" "$RUNNER_TEMP/manifest"
+          set -f
+          patterns=()
+          for glob in $GLOBS; do patterns+=(--pattern "$glob"); done
+          set +f
+          gh release download "desktop-v$N" --repo "$REPO" --dir "$files/n" "${patterns[@]}"
+
+          # holds_manifest TAG: whether the release exists and has a `latest.json` asset. A release that
+          # does not exist is "no"; any other failure of `gh` ends the step (called outside `$(...)`, so
+          # that the `exit` does).
+          holds_manifest() {
+            local out
+            if out=$(gh release view "$1" --repo "$REPO" --json assets --jq '.assets[].name' 2>&1); then
+              grep -qx latest.json <<< "$out"
+            elif grep -qi 'not found' <<< "$out"; then
+              return 1
+            else
+              echo "::error::gh release view $1 failed: $out"
+              exit 1
+            fi
+          }
+          p=""
+          if holds_manifest desktop-updates; then
+            gh release download desktop-updates --repo "$REPO" --pattern latest.json --dir "$RUNNER_TEMP/manifest" --clobber
+            p=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$RUNNER_TEMP/manifest/latest.json")
+          fi
+          if [ -z "$p" ]; then
+            echo "::notice::desktop-updates holds no manifest: self check only"
+          elif ! [[ "$p" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$p" = "$N" ] || [ "$(printf '%s\n%s\n' "$p" "$N" | sort -V | head -n 1)" != "$p" ]; then
+            echo "::notice::the offered build is '$p', not older than $N: self check only"
+            p=""
+          elif ! holds_manifest "desktop-v$p"; then
+            echo "::notice::release desktop-v$p has no manifest of its own (a build without the updater): self check only"
+            p=""
+          fi
+          if [ -n "$p" ]; then
+            gh release download "desktop-v$p" --repo "$REPO" --dir "$files/p" "${patterns[@]}"
+          fi
+          echo "P: ${p:-none}, N: $N"
+          ls -l "$files/p" "$files/n"
+      - name: Update check
+        working-directory: ${{ env.APP }}
+        env:
+          REPO: ${{ github.repository }}
+          N: ${{ needs.version.outputs.version }}
+          KINDS: ${{ matrix.kinds }}
+          GLOBS: ${{ matrix.globs }}
+          REQUIRE: ${{ matrix.require }}
+          TEST_RUN: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -o pipefail
+          native() { if command -v cygpath > /dev/null; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+          files="$(native "$GITHUB_WORKSPACE")/update-files"
+          out="$(native "$GITHUB_WORKSPACE")/update-check-out"
+          mkdir -p "$out"
+          if [ "$TEST_RUN" = true ]; then
+            # The test builds' files, served over plain HTTP from this machine under the names GitHub
+            # gives them; the manifests are made as the release job makes them.
+            base=http://127.0.0.1:8791
+            node scripts/release/update-manifest.mjs --dir "$files/n" --version "$N" --base-url "$base" --release-url "$base/release" --require "$REQUIRE" || exit 1
+            node scripts/release/update-manifest.mjs --dir "$files/n" --version "$N" --base-url "$base" --release-url "$base/release" --require "$REQUIRE" --self-check || exit 1
+            node scripts/release/serve-directory.mjs "$files/n" 8791 > "$out/server.log" 2>&1 &
+            server=$!
+            trap 'kill "$server" 2> /dev/null' EXIT
+            for _ in $(seq 20); do curl -fs -o /dev/null "$base/latest.json" && break; sleep 0.5; done
+          else
+            base="https://github.com/$REPO/releases/download/desktop-v$N"
+          fi
+
+          wrap=()
+          if [ "$RUNNER_OS" = Linux ]; then wrap=(dbus-run-session -- xvfb-run -a); fi
+          set -f
+          read -ra kinds <<< "$KINDS"
+          read -ra globs <<< "$GLOBS"
+          set +f
+          status=0
+          for i in "${!kinds[@]}"; do
+            kind=${kinds[$i]}
+            glob=${globs[$i]}
+            from_n=$(find "$files/n" -maxdepth 1 -name "$glob" | head -n 1)
+            from_p=$(find "$files/p" -maxdepth 1 -name "$glob" 2> /dev/null | head -n 1)
+            if [ -z "$from_n" ]; then echo "::error::no installer $glob of N in $files/n"; status=1; continue; fi
+            if [ -z "$from_p" ] && [ -n "$(ls -A "$files/p")" ]; then echo "::error::no installer $glob of P in $files/p"; status=1; continue; fi
+            echo "::group::update check: $kind"
+            started=$SECONDS
+            if [ -n "$from_p" ]; then
+              # P -> N through latest.json, then N -> N through self-check.json on the same install.
+              "${wrap[@]}" node scripts/platform-checks/update-check.mjs --from "$from_p" --manifest "$base/latest.json" \
+                --expect-version "$N" --self-check-manifest "$base/self-check.json" --kind "$kind" --out "$out/$kind" || status=1
+            else
+              "${wrap[@]}" node scripts/platform-checks/update-check.mjs --self-check --from "$from_n" --manifest "$base/self-check.json" \
+                --expect-version "$N" --kind "$kind" --out "$out/$kind" || status=1
+            fi
+            echo "::endgroup::"
+            echo "update check $kind: $((SECONDS - started)) s"
+          done
+          exit "$status"
+      # What a failed macOS check leaves behind: the installed app's signature and whether the
+      # installed build starts on its own (a restarted process that never shows up is invisible
+      # otherwise). Nothing here reads a secret.
+      - name: macOS diagnostics
+        if: failure() && runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          mkdir -p update-check-out
+          {
+            app="/Applications/Pi Studio.app"
+            echo "== installed app"; ls -l "$app/Contents/MacOS"; grep -A1 CFBundleShortVersionString "$app/Contents/Info.plist"
+            echo "== codesign -dv"; codesign -dv --verbose=2 "$app" 2>&1 | head -20
+            echo "== codesign --verify"; codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | head -20
+            echo "== xattr"; xattr -lr "$app" 2>&1 | head -20
+            echo "== processes"; ps aux | grep -i '[p]istudiodesktop' || true
+            echo "== crash reports"; ls -l ~/Library/Logs/DiagnosticReports 2> /dev/null | tail -10
+            echo "== start the installed binary by hand"
+            token="$RUNNER_TEMP/diag.token"
+            "$app/Contents/MacOS/pistudiodesktop" --secret-store=file --config-dir "$RUNNER_TEMP/diag-config" --control 49171 --control-token-file "$token" > "$RUNNER_TEMP/diag-app.log" 2>&1 &
+            pid=$!
+            sleep 10
+            if kill -0 "$pid" 2> /dev/null; then echo "still running after 10 s (pid $pid)"; else wait "$pid"; echo "exited with code $?"; fi
+            cat "$RUNNER_TEMP/diag-app.log"
+            kill "$pid" 2> /dev/null || true
+            echo "== relaunch through LaunchServices, as Tauri's restart does"
+            /usr/bin/open -n "$app" --args --secret-store=file --config-dir "$RUNNER_TEMP/diag-config2" --control 49172 --control-token-file "$RUNNER_TEMP/diag2.token"
+            echo "open exited with $?"
+            sleep 12
+            if nc -z 127.0.0.1 49172; then echo "the relaunched app listens on 49172"; else echo "nothing listens on 49172 after 12 s"; fi
+            ps -ax -o pid,ppid,lstart,command | grep -i '[p]istudiodesktop' || echo "no pistudiodesktop process"
+            pkill -f diag2.token || true
+            echo "== system log"
+            sudo -n log show --last 15m --style compact --predicate 'process == "pistudiodesktop" OR process == "amfid" OR process == "syspolicyd" OR process == "launchd" AND eventMessage CONTAINS "pistudiodesktop"' 2>&1 | tail -80
+          } > update-check-out/macos-diagnostics.txt 2>&1
+          cat update-check-out/macos-diagnostics.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: update-check-${{ matrix.name }}
+          path: update-check-out
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Offers N to the installed apps. Only a release run gets here, and only when every update-check
+  # job passed (`needs` without an `always`-style `if` skips this job when one failed).
+  promote:
+    name: Promote
+    needs: [version, update-check]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Replace the manifest of desktop-updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir promote verify
+          gh release download "desktop-v$VERSION" --repo "$REPO" --pattern latest.json --dir promote
+          # The release exists after the first promotion. `--latest=false`: it is never the
+          # repository's latest release, and its tag does not match `desktop-v*`.
+          if ! out=$(gh release view desktop-updates --repo "$REPO" 2>&1); then
+            grep -qi 'not found' <<< "$out" || { echo "::error::gh release view failed: $out"; exit 1; }
+            gh release create desktop-updates --repo "$REPO" --target "$SHA" --latest=false \
+              --title "Pi Studio Desktop updates" \
+              --notes "Not a release of the app: it holds \`latest.json\`, the manifest the installed desktop apps read to find a newer build. It names a build only after the build passed the update check on Linux, macOS and Windows. Do not edit or delete it."
+          fi
+          gh release upload desktop-updates promote/latest.json --repo "$REPO" --clobber
+          gh release download desktop-updates --repo "$REPO" --pattern latest.json --dir verify
+          offered=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' verify/latest.json)
+          [ "$offered" = "$VERSION" ] || { echo "::error::desktop-updates/latest.json names $offered, expected $VERSION"; exit 1; }
+          echo "desktop-updates/latest.json now names $VERSION"

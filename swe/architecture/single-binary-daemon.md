@@ -145,13 +145,13 @@ The planned answer is to keep both modes: the binary by default, and Pi run thro
 - **A restart** kills open terminals and interrupts a running turn; history, todos and resume were
   seen to survive one in the spike.
 
-## Desktop app self-update (designed, not tried)
+## Desktop app self-update (designed, not tried; specified 2026-11-23)
 
-`tauri-plugin-updater`, used from Rust only: two commands in the registry and a native menu item; a
-Tauri signing key pair (public key in `tauri.conf.json`, private key as a repository secret);
-`createUpdaterArtifacts: true` and a generated `latest.json` in `desktop-release.yml`. macOS, Windows
-and the Linux AppImage update themselves; deb and rpm installs can only be told a new version exists.
-The app never restarts on its own, and updating it does not stop the daemon.
+Specified in [../features/desktop-self-update.md](../features/desktop-self-update.md), which
+supersedes this sketch. Two points of the sketch were wrong or changed: the plug-in 2.14.1 installs
+`.deb` and `.rpm` packages too (through `pkexec`; the app runs that step itself, D7), and the private
+key lives in a GitHub environment restricted to `main` rather than as a plain repository secret
+(U1). The app never restarts on its own, and updating it does not stop the daemon.
 
 ## Owner's decisions (2026-11-22)
 

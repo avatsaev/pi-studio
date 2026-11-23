@@ -39,6 +39,10 @@
 //!
 //! The transfer engine's state ([`transfers_view`]) is the same kind of plain data, answered by
 //! [`Services::transfers`] and shown as `transfers` in `ui.inspect`.
+//!
+//! The app's self-update ([`update`]) is the same kind of thing: the state and its transitions
+//! and the schedule of checks are plain data and decisions here, and the plug-in is behind
+//! [`Services::updater`]. The shared [`update::Updater`] is [`AppShell::update`].
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -80,8 +84,9 @@ pub mod switch;
 pub mod transfer_mode;
 pub mod transfers_view;
 pub mod transports;
+pub mod update;
 
-use pistudiodesktop_engine::{Notice, Session};
+use pistudiodesktop_engine::{Notice, Session, UPDATE_UNAVAILABLE, UpdateGate};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -107,6 +112,10 @@ pub struct AppShell {
     pub resume: Arc<resume::ResumeSignals>,
     /// Which path file transfers take in this launch (`--transfers`); fixed for the launch.
     pub transfers: transfer_mode::TransfersMode,
+    /// The update state, its transitions and its schedule, over [`Services::updater`] and the
+    /// default manifest. The app replaces it with one that reads `--update-manifest` and tells the
+    /// page of every change ([`update::Updater::set_notify`]).
+    pub update: Arc<update::Updater>,
     /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) deferred: deferred::Deferred,
@@ -114,6 +123,7 @@ pub struct AppShell {
 
 impl AppShell {
     pub fn new(session: Session, services: Services) -> Self {
+        let update = Arc::new(update::Updater::new(services.updater.clone(), update::Manifest::Default));
         Self {
             session,
             ui: UiState::default(),
@@ -123,14 +133,31 @@ impl AppShell {
             awaiting_boot: false,
             resume: Arc::default(),
             transfers: transfer_mode::TransfersMode::default(),
+            update,
             #[cfg(not(target_arch = "wasm32"))]
             deferred: deferred::Deferred::default(),
         }
     }
 
+    /// Tell the session which update actions the update's state allows now, and why not for the
+    /// others, so that `update.*` commands, `command.list` and the menus say what the state says.
+    /// The state changes off the owner thread (a check finishing), so this runs before every
+    /// request is answered and wherever the menu model is built.
+    pub fn sync_update_gate(&mut self) {
+        let gate = if self.services.updater.is_none() {
+            UpdateGate::refusing(UPDATE_UNAVAILABLE)
+        } else {
+            let state = self.update.state();
+            let reason = |refusal: Option<update::Refusal>| refusal.map(|r| r.to_string());
+            UpdateGate { check: reason(state.check_refusal()), install: reason(state.install_refusal()), restart: reason(state.restart_refusal()) }
+        };
+        self.session.set_update_gate(gate);
+    }
+
     /// Run a command by id. Every control request ends here. The outcome goes to the status bar as
     /// well as to the caller.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.sync_update_gate();
         let result = self.session.execute(id, params).map_err(|e| e.to_string());
         self.ui.status = result.as_ref().err().cloned().unwrap_or_default();
         result

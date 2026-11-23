@@ -63,7 +63,11 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     installed `pi-studio` CLI (or a remote SSH host's). Milestones 1 to 4 are built; milestones 1 to 3 were checked on Linux
                     (milestone 3 on 2026-11-22); on macOS and Windows only the automated
                     checks of milestones 1 and 2 have run, and milestones 3 and 4 are not checked there (desktop/docs/platform-checks.md). The app's
-                    `minDaemonVersion` is 0.0.127, the release that carries the daemon's upload changes.
+                    `minDaemonVersion` is 0.0.127, the release that carries the daemon's upload changes. Milestone 5, the
+                    app's own self-update (the Tauri updater plug-in; update files signed with the key of the GitHub
+                    environment `desktop-release`; the release's `update-check` job and `promote` in desktop-release.yml),
+                    is built and was checked live on Linux and in a pull request's run on all three systems; the first
+                    publishing run follows the merge.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
@@ -242,9 +246,15 @@ Windows (msi, nsis) from the commit Desktop CI checked and **publishes** a GitHu
 them, which creates the tag `desktop-v<version>` (public at once, fixed notes, no draft). The
 version is the patch after the highest `desktop-v*` tag, unless `[workspace.package] version` in
 `desktop/Cargo.toml` is higher (raise it in a pull request for a minor or major release); it is
-written into the runners' copy only, nothing is committed back. A manual run, or a pull request
-that changes that file, builds the installers as workflow artifacts only. The installers are not
-signed with a real identity. Runbook: `desktop/docs/development.md` § Releasing.
+written into the runners' copy only, nothing is committed back. The release also holds the app's
+signed update files (the key is the secret `TAURI_SIGNING_PRIVATE_KEY` of the environment
+`desktop-release`, `main` only) and the manifests `latest.json` / `self-check.json`; the build is
+offered to installed apps (the release `desktop-updates` and its `latest.json`) only after the job
+`update-check` proved on Linux, macOS and Windows that it can be updated to and can update itself.
+A manual run builds the installers as workflow artifacts only; a pull request that changes the
+workflow, its action or the update scripts builds test builds and runs the update check against a
+local server, and publishes nothing. The installers are not signed with a real identity. Runbook
+(including the updater key): `desktop/docs/development.md` § Releasing.
 
 ```bash
 npm run release                    # full pipeline: publish npm -> publish docker -> deploy

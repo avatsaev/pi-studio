@@ -31,6 +31,14 @@ describe("parseBootSnapshot", () => {
     expect(parseBootSnapshot(good)?.transfers).toBe("engine");
     expect(parseBootSnapshot({ ...good, transfers: "page" })?.transfers).toBe("page");
   });
+  it("carries the update state, idle when absent or malformed", () => {
+    expect(parseBootSnapshot(good)?.update).toEqual({ state: "idle" });
+    expect(parseBootSnapshot({ ...good, update: { state: "restart_needed", version: "2.0.0" } })?.update).toEqual({
+      state: "restart_needed",
+      version: "2.0.0",
+    });
+    expect(parseBootSnapshot({ ...good, update: { state: "bogus" } })?.update).toEqual({ state: "idle" });
+  });
   it("carries the daemon view and the minimum daemon version", () => {
     const parsed = parseBootSnapshot(good);
     expect(parsed?.daemons).toEqual(daemons);

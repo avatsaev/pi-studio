@@ -66,6 +66,10 @@ pub trait Notify {
     /// The current SSH entry was edited or removed: its SSH session, if one is open, must end. The
     /// default does nothing (a host with no SSH).
     fn ssh_closed(&mut self, _entry: &pistudiodesktop_model::EntryId) {}
+    /// An `update.*` command was accepted: the app begins and runs `action` off the owner thread
+    /// ([`crate::update::Updater`]'s `begin_*` / `run_*`). Called once per action, in the order the
+    /// commands were accepted, after the request that queued it was answered. The default drops it.
+    fn update(&mut self, _action: pistudiodesktop_engine::UpdateAction) {}
 }
 
 /// Tells nobody.
@@ -124,7 +128,7 @@ pub fn serve(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Duration) {
 /// Answer requests from `inbox` in order until every sender is gone, writing the stored keys
 /// [`FlushTimer`] says are due, and once more at the end. A write that fails is logged by the
 /// session and retried one `delay` later. After each request, `notify` hears of a change to the
-/// registry view and of local work waiting.
+/// registry view, of local work waiting and of each `update.*` action accepted.
 pub fn serve_notifying(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Duration, notify: &mut dyn Notify) {
     let mut timer = FlushTimer::new(delay);
     let mut closed = false;
@@ -162,6 +166,9 @@ pub fn serve_notifying(app: &mut AppShell, inbox: &Receiver<Envelope>, delay: Du
         }
         if answered && (app.session.has_local_requests() || app.session.has_remote_requests()) {
             notify.local_work();
+        }
+        for action in app.session.take_update_requests() {
+            notify.update(action);
         }
         if let Some(entry) = app.session.take_ssh_closed() {
             notify.ssh_closed(&entry);
@@ -356,6 +363,7 @@ mod tests {
             views: Vec<Value>,
             work: usize,
             closed: Vec<String>,
+            updates: Vec<pistudiodesktop_engine::UpdateAction>,
         }
 
         impl Notify for Tell {
@@ -367,6 +375,9 @@ mod tests {
             }
             fn ssh_closed(&mut self, entry: &pistudiodesktop_model::EntryId) {
                 self.closed.push(entry.as_str().to_owned());
+            }
+            fn update(&mut self, action: pistudiodesktop_engine::UpdateAction) {
+                self.updates.push(action);
             }
         }
 
@@ -421,6 +432,57 @@ mod tests {
             let mut tell = Tell::default();
             serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
             assert!(tell.closed.is_empty());
+        }
+
+        /// An updater that is there and does nothing: enough to make the update commands available.
+        struct Idle;
+
+        impl crate::update::UpdaterHook for Idle {
+            fn check(&self, _: &crate::update::Manifest) -> Result<crate::update::CheckOutcome, crate::update::UpdateCode> {
+                Ok(crate::update::CheckOutcome::UpToDate)
+            }
+            fn install_kind(&self) -> crate::update::InstallKind {
+                crate::update::InstallKind::Unknown
+            }
+            fn cannot_install(&self, _: crate::update::InstallKind, _: &str) -> Option<crate::update::Reason> {
+                None
+            }
+            fn download(&self, _: crate::update::Progress<'_>) -> Result<(), crate::update::UpdateCode> {
+                Ok(())
+            }
+            fn install(&self) -> Result<(), crate::update::UpdateCode> {
+                Ok(())
+            }
+            fn restart(&self) -> Result<(), crate::update::UpdateCode> {
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn an_accepted_update_command_is_handed_to_the_app_and_a_refused_one_is_not() {
+            use pistudiodesktop_engine::UpdateAction;
+
+            let mut app = AppShell::new(Session::new(), Services::default());
+            let (tx, rx) = channel();
+            let (refused, reply) = Envelope::new(Request::Control { method: "engine.execute".into(), params: json!({"command": "update.check"}) });
+            tx.send(refused).unwrap();
+            drop(tx);
+            let mut tell = Tell::default();
+            serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
+            assert!(tell.updates.is_empty(), "no updater in this app: the command is refused");
+            assert_eq!(reply.recv().unwrap()["ok"], false);
+
+            let mut app = AppShell::new(Session::new(), Services { updater: Some(std::sync::Arc::new(Idle)), ..Services::default() });
+            let (tx, rx) = channel();
+            let (check, reply) = Envelope::new(Request::Control { method: "engine.execute".into(), params: json!({"command": "update.check"}) });
+            tx.send(check).unwrap();
+            tx.send(control("update.restart", Value::Null)).unwrap();
+            drop(tx);
+            let mut tell = Tell::default();
+            serve_notifying(&mut app, &rx, Duration::from_secs(3600), &mut tell);
+            assert_eq!(reply.recv().unwrap(), json!({"ok": true, "result": {"accepted": true}}));
+            assert_eq!(tell.updates, [UpdateAction::Check], "handed over once; `update.restart` is refused in `idle`");
+            assert!(!app.session.has_update_requests());
         }
     }
 }

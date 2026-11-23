@@ -14,7 +14,10 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
 ```
 
 - `--control <PORT>` (or `PISTUDIODESKTOP_CONTROL_PORT`): serve on `127.0.0.1:<PORT>`; `0` picks any free
-  port. The server binds the loopback interface only.
+  port. The server binds the loopback interface only. A port in use is tried again every 50 ms for 10 s
+  before the launch fails with `cannot listen on 127.0.0.1:<PORT>: …`: an app restarted by an update
+  starts while the process it replaces, which holds the port, is still exiting (macOS `open -n` returns
+  only when the new instance is launched). Any other bind error fails at once.
 - `--control-token-file <FILE>` (or `PISTUDIODESKTOP_CONTROL_TOKEN_FILE`): the file holding the token, 64
   hexadecimal characters. It is created with a fresh token when missing, readable by its owner
   only. Without this option a token for the launch is printed on standard error.
@@ -25,6 +28,11 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
 - `--transfers <engine|page>`: which path file transfers take. `engine` (the default) is the app's own
   transfer engine; `page` is the page's own path. Any other value fails the launch with a message that
   names the option. The mode is fixed for the launch and is `transfers` in the `boot` answer.
+- `--update-manifest <URL>`: the address of the update manifest for this launch, in place of the one the
+  app was built with (`ui.inspect.update.manifest` then reads `"override"`). It must be `https`: the
+  updater refuses any other scheme except in a test build. It still verifies every file's signature
+  against the key built into the app and never installs a build that is not newer. A value that is
+  not an address fails the launch with a message that names the option.
 
 The wire format is JSON lines over TCP: one request per line, one reply per line.
 
@@ -32,7 +40,7 @@ The wire format is JSON lines over TCP: one request per line, one reply per line
 {"id": 1, "method": "auth", "params": {"token": "<64 hex>"}}
 {"id": 1, "ok": true, "result": {"authenticated": true}}
 {"id": 2, "method": "engine.execute", "params": {"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}}
-{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "cliPath": null}}
+{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}
 ```
 
 - The first line on a connection must be `auth`. Anything else, or a wrong token, gets
@@ -61,9 +69,9 @@ The webview does not use the control protocol: it has its own commands (`docs/ar
 
 | Method | Params | Does |
 |---|---|---|
-| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id: `command.list`, `settings.get`/`settings.set` or one of the `daemon.*` commands below. The result is the command's result |
+| `engine.execute` | `{"command": string, "params"?: object}` | Runs any command by id: `command.list`, `settings.get`/`settings.set`, one of the `daemon.*` commands or one of the `update.*` commands below. The result is the command's result |
 | `engine.commands` | none | Lists the registry, as `command.list` does: `id`, `label`, `menu`, `shortcut`, `params`, `enabled`, and `reason` when disabled |
-| `ui.inspect` | none | Returns the view: `{"ui": {"status": …}, "settings": {…}, "daemons": {"currentId", "entries", "local", "settings", "secretStore"}, "connection": {"secretStore", "transports": […], "ssh": {…}, "lastError", "resumeSignals": {"wake", "network"}}, "transfers": {…}, "menus": […]}`. `daemons` is the registry view the page boots with (no password or pairing link) and `menus` the generated menu model, which the native "Daemons" menu is drawn from: one `daemon.entry:<id>` item per entry (the current one `checked`), `daemons.manage`, then the local daemon's start, stop and restart. `connection` is what an agent reads about how the app reaches daemons; it holds `secretStore`, `transports`, `ssh`, `lastError` and `resumeSignals` (`transports`, `ssh` and `lastError` are described under **The connections** below). `resumeSignals` counts the `connection_resume` events sent to the page since launch, by reason: `wake` when a 2 s tick found 10 s or more unaccounted for (the machine slept, the process was stopped and continued, or the clock was set forward), `network` (always 0 until the network watcher exists). At most one is sent per 5 s for every reason together, and a dropped one is not counted |
+| `ui.inspect` | none | Returns the view: `{"ui": {"status": …}, "settings": {…}, "daemons": {"currentId", "entries", "local", "settings", "secretStore"}, "connection": {"secretStore", "transports": […], "ssh": {…}, "lastError", "resumeSignals": {"wake", "network"}}, "transfers": {…}, "update": {…}, "menus": […]}`. `daemons` is the registry view the page boots with (no password or pairing link) and `menus` the generated menu model, which the native "Daemons" menu is drawn from: one `daemon.entry:<id>` item per entry (the current one `checked`), `daemons.manage`, then the local daemon's start, stop and restart; after it comes the "Help" menu holding `update.check`, "Check for Updates…" (on macOS the app draws that item in the application menu, after About, instead). `update` is described under **The update commands** below. `connection` is what an agent reads about how the app reaches daemons; it holds `secretStore`, `transports`, `ssh`, `lastError` and `resumeSignals` (`transports`, `ssh` and `lastError` are described under **The connections** below). `resumeSignals` counts the `connection_resume` events sent to the page since launch, by reason: `wake` when a 2 s tick found 10 s or more unaccounted for (the machine slept, the process was stopped and continued, or the clock was set forward), `network` (always 0 until the network watcher exists). At most one is sent per 5 s for every reason together, and a dropped one is not counted |
 | `ui.set` | `{}` | Changes UI state. It has no field yet: `{}` succeeds with `null`, and any field is an error with nothing changed |
 
 An unknown method is an error that lists the methods.
@@ -100,6 +108,20 @@ Run against the real CLI (`cliPath` set, auto-start off), then `ui.inspect`:
 {"id":14,"ok":true,"result":{"accepted":true}}
 {"id":15,"ok":true,"result":{"daemons":{"currentId":"local","entries":[…],"local":{"host":"127.0.0.1","port":6767,"state":"running"},"settings":{"autoStartLocalDaemon":false,"cliPath":"/tmp/live/fake/realcli"}},"menus":[…]}}
 ```
+
+## Update commands
+
+The app's self-update (`swe/features/desktop-self-update.md`). All are run through `engine.execute` and take no params (any are ignored; no address, path or key is ever taken).
+
+| Command | Label | Enabled when | Answers |
+|---|---|---|---|
+| `update.check` | Check for Updates… (menu: Help) | the state is not `checking`, `downloading` or `restart_needed` | `{"accepted": true}` at once; the check runs in the background |
+| `update.install` | Install Update | `available`, or `failed` with an offered `version` | `{"accepted": true}` at once; the download (and, on Linux and macOS, the install: a `.deb`/`.rpm` through `pkexec`, which may wait for the user) runs in the background. Ends in `restart_needed` or `failed` (`signature`, `download`, `offline`, `install`, `refused`) |
+| `update.restart` | Restart to Update | `restart_needed` | `{"accepted": true}` at once; with file transfers running the app first asks the close question and stays as it is on Cancel; then the app restarts (on Windows the installer runs and ends the app; if it cannot start the state is `failed` with `install`) |
+
+A command that cannot run fails with ``"`update.x` is unavailable: <reason>"``, and `command.list` and the menu item give the same reason: `updates are not available in this app` (a build with no updater), `an update check is already running`, `an update is downloading`, `the update is installed: restart the app to finish it`, `there is no update to install`, `no update is waiting for a restart`, or `an update action is already starting` (between an accepted command and the app beginning it). Read the outcome in the state.
+
+The state is `update` in the `boot` answer and in `ui.inspect`: `{"state": "idle" | "checking" | "up_to_date" | "available" | "downloading" | "restart_needed" | "cannot_install" | "failed", …}` with the fields of the state in camelCase (`checkedAt`, `version`, `releaseUrl`, `received`, `total?`, `reason`, `code`). In `ui.inspect` it also has `current` (this app's version), `kind` (`appimage`, `deb`, `rpm`, `app`, `nsis`, `msi` or `unknown`), `checksEnabled` (the `checkForUpdates` setting), `manifest` (`"default"` or `"override"`), and, when there are any, `lastCheckAt` (milliseconds since the Unix epoch) and `lastError` (the code of the last failure). The release page's address is the only address in it; there is no file path and no key. The state is in memory only; a launch starts from `idle`.
 
 ## Keeping this page current
 

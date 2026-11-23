@@ -54,6 +54,10 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `remote.start/refresh`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
+  Optional `updates` (`HostUpdates`: `current()`, `subscribe`, `check`/`install`/`restart`; types
+  `AppUpdateState` — idle, checking, up_to_date, available, downloading, restart_needed,
+  cannot_install, failed — `AppUpdateUnavailableReason`, `AppUpdateFailureCode`): read only by the
+  connection bar's update indicator; absent in a browser, which then draws nothing.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
@@ -147,6 +151,7 @@ src/
                        The application (moved from web-client, layout unchanged).
   test/                Shared test helpers (`reset-stores.ts`, `test-host.ts`, `test-daemons.ts` — an
                        in-memory `HostDaemons` with the registry's rules, sprint-109); excluded from the build.
+                       `test-updates.ts` — a scripted `HostUpdates` (`createTestUpdates`).
   design-tokens.test.ts  Token guard over this package's sources.
   css-modules.d.ts     Ambient `*.module.css` / `*.css` typings.
 vite/index.ts          `pdfjsAssetsPlugin()` — Node-side Vite plugin serving/emitting pdf.js data
@@ -578,6 +583,18 @@ src/
                             connection-presentation.ts (+ test — `connectionBarView`/
                             `connectionDot`/`shortConnectionReason`/`isDialableTarget`, the single
                             ConnectionState→bar-state module)
+                            AppUpdateIndicator.tsx + .module.css (U14's text as a small pill at the bar's
+                            far right after the panel toggles, shaped like the daemon switcher: orange for an offer or a
+                            restart, red for a failure, quiet for progress and "cannot install", with an
+                            icon for what a click does; a button, a release-page `ExternalAnchor`, or
+                            plain progress with a spinner; drawn only
+                            when `host.updates` exists, so the browser bar is unchanged),
+                            app-update-presentation.ts (+ test — `appUpdateView(state)` →
+                            `{text, tooltip, tone, action}`, `null` for idle/checking/up_to_date;
+                            `failed` retries `install` when it has a version, else `check`),
+                            app-update-actions.ts (+ test — `runAppUpdateCommand`: install /
+                            restart / check on the host, a rejection dropped because the host shows
+                            it through its state), use-app-update.ts (`host.updates` as React state)
     sessions/               SessionList (handleDeleteWorkspace — loops `client.agent(id).delete()`
                             over a workspace's sessions, confirms conversations-only/files-
                             untouched, closes their tabs — file-explorer quick-wins-1; its rows are
