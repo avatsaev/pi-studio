@@ -58,7 +58,7 @@ button that runs `pi-studio daemon start` over the same connection. Every kind g
 same transfer engine. macOS and Windows are not checked (owner's decision, 2026-11-22).
 Milestone 5 (the app's self-update, `swe/features/desktop-self-update.md`) is built: the app checks the release
 `desktop-updates` at launch and then at most once a day (setting `checkForUpdates`, default on), shows the
-offer next to the version, and installs it after one click and restarts after a second (`update.check`,
+offer in a pill at the connection bar's far right, and installs it after one click and restarts after a second (`update.check`,
 `update.install`, `update.restart`; Help → Check for Updates…, in the application menu on macOS;
 `--update-manifest <url>` for a launch; the state in `boot.update` and `ui.inspect.update`). AppImage and macOS
 swap the file through the plug-in; `.deb` and `.rpm` through `pkexec dpkg -i` / `pkexec rpm -U`; Windows runs

@@ -1,4 +1,4 @@
-/* The update indicator beside the version (swe/features/desktop-self-update.md U14): a small pill,
+/* The update indicator at the bar's far right, after the panel toggles (swe/features/desktop-self-update.md U14): a small pill,
    shaped like the daemon switcher's, coloured by its tone: an offer or a restart is filled orange,
    a failure is red, progress and a build the app cannot install are quiet. It is a button, an
    anchor or a plain span, so the UA look of each is reset explicitly. Long text (a long version)
@@ -12,7 +12,7 @@
   max-width: 200px;
   height: var(--pi-spacing-20);
   box-sizing: border-box;
-  margin: 0 0 0 var(--pi-spacing-4);
+  margin: 0;
   padding: 0 var(--pi-spacing-8);
   border: var(--pi-border-width-1) solid transparent;
   border-radius: var(--pi-radius-full);

@@ -44,7 +44,7 @@ the grill's Deferred list).
 | D2 | OS code signing is not part of this; the updater's own key pair is |
 | D3 | Order: self-update, then the single-binary daemon, then menus, notifications and a tray icon, then OS signing |
 | D4 | Notify, then one click: the app checks by itself and shows that an update exists; one click downloads and installs; then "Restart to update". Nothing is downloaded and no password is asked before the first click |
-| D5 | Shown in the window (an indicator next to the version in the connection bar) and through a "Check for Updates…" menu item. The browser client shows nothing |
+| D5 | Shown in the window (a pill at the far right of the connection bar) and through a "Check for Updates…" menu item. The browser client shows nothing |
 | D6 | The release per merge stays. The app checks at launch and at most once a day |
 | D7 | `.deb` and `.rpm` update in place through `pkexec` only; the app never collects the system password. Without `pkexec`, or when its dialog is cancelled, the app says so and links to the download |
 | D8 | On every release a job per system proves the new build can update itself; the build is offered only when all three pass. A failed check leaves the installers published and not offered |
@@ -184,7 +184,7 @@ updates?: {
 
 The desktop host implements it over `boot`, the `update_changed` event and `engine_command`; the
 release link opens through `links.openExternal`. The browser host has no `updates`, so the browser
-client shows nothing (D5). The connection bar shows U14's indicator next to the version, as a small
+client shows nothing (D5). The connection bar shows U14's indicator at its far right, after the panel toggles, as a small
 pill like the daemon switcher's: orange for an offer or a restart, red for a failure, quiet
 for progress and for a build that cannot install, with an icon for what a click does.
 

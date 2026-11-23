@@ -583,8 +583,8 @@ src/
                             connection-presentation.ts (+ test — `connectionBarView`/
                             `connectionDot`/`shortConnectionReason`/`isDialableTarget`, the single
                             ConnectionState→bar-state module)
-                            AppUpdateIndicator.tsx + .module.css (U14's text as a small pill beside the
-                            version, shaped like the daemon switcher: orange for an offer or a
+                            AppUpdateIndicator.tsx + .module.css (U14's text as a small pill at the bar's
+                            far right after the panel toggles, shaped like the daemon switcher: orange for an offer or a
                             restart, red for a failure, quiet for progress and "cannot install", with an
                             icon for what a click does; a button, a release-page `ExternalAnchor`, or
                             plain progress with a spinner; drawn only

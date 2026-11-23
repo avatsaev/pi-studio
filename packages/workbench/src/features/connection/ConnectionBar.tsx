@@ -170,7 +170,6 @@ export function ConnectionBar() {
       <span className={styles.title}>
         <span className={styles.brand}>{app.title}</span>
         {app.version && <span className={styles.version}>v{app.version}</span>}
-        {updateView && <AppUpdateIndicator view={updateView} />}
       </span>
 
       {switcher ? (
@@ -291,6 +290,8 @@ export function ConnectionBar() {
           </Button>
         )}
       </div>
+
+      {updateView && <AppUpdateIndicator view={updateView} />}
 
       {settingsEverOpened && (
         <Suspense fallback={null}>
