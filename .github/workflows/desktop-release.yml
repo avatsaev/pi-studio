@@ -530,6 +530,9 @@ jobs:
           echo "P: ${p:-none}, N: $N"
           ls -l "$files/p" "$files/n"
       - name: Update check
+        # A hang (seen once on macOS: all checks passed, the step then never ended and the job's 45
+        # minutes ran out) must fail in minutes, with the diagnostics below and the artifact.
+        timeout-minutes: 10
         working-directory: ${{ env.APP }}
         env:
           REPO: ${{ github.repository }}
@@ -583,8 +586,9 @@ jobs:
                 --expect-version "$N" --kind "$kind" --out "$out/$kind" || status=1
             fi
             echo "::endgroup::"
-            echo "update check $kind: $((SECONDS - started)) s"
+            echo "update check $kind: $((SECONDS - started)) s (status $status)"
           done
+          echo "update check: every kind done (status $status)"
           exit "$status"
       # What a failed macOS check leaves behind: the installed app's signature and whether the
       # installed build starts on its own (a restarted process that never shows up is invisible
@@ -601,6 +605,7 @@ jobs:
             echo "== codesign --verify"; codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | head -20
             echo "== xattr"; xattr -lr "$app" 2>&1 | head -20
             echo "== processes"; ps aux | grep -i '[p]istudiodesktop' || true
+            echo "== node and app processes with age (a hung run shows what is still alive)"; ps -ax -o pid,ppid,etime,command | grep -E '[n]ode|[p]istudio' | cut -c1-200 || true
             echo "== crash reports"; ls -l ~/Library/Logs/DiagnosticReports 2> /dev/null | tail -10
             echo "== start the installed binary by hand"
             token="$RUNNER_TEMP/diag.token"
@@ -630,11 +635,15 @@ jobs:
           if-no-files-found: ignore
 
   # Offers N to the installed apps. Only a release run gets here, and only when every update-check
-  # job passed (`needs` without an `always`-style `if` skips this job when one failed).
+  # job passed. The `if` must name `update-check` itself: a bare `if` is wrapped in `success()`, which
+  # also looks at every ANCESTOR job, and `bundle` (skipped in a release run) is one, so the job was
+  # skipped in the first two publishing runs and no build was ever offered.
   promote:
     name: Promote
     needs: [version, update-check]
-    if: needs.version.outputs.publish == 'true'
+    if: >-
+      ${{ !cancelled() && needs.version.outputs.publish == 'true' &&
+      needs.update-check.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
