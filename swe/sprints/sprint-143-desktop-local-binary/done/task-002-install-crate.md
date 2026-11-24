@@ -1,7 +1,7 @@
 # Task 002 — Desktop crate `install`: download, verify, unpack, version layout
 
 - **Sprint:** sprints/sprint-143-desktop-local-binary
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (new crate `install`, L8, native only)
 - **Priority:** P1

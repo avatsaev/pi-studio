@@ -80,6 +80,7 @@ import { ServiceProxy, resolveServiceProxyConfig } from "../proxy/service-proxy.
 
 import { ScheduleService, type ScheduleExecutor } from "../orchestration/schedule-service.js";
 import { ChatService } from "../orchestration/chat-service.js";
+import { isBinary } from "../runtime/self.js";
 import {
   LoopService,
   type LoopExecutor,
@@ -103,6 +104,7 @@ import {
   npmRootGlobal,
 } from "../update/install-kind.js";
 import { npmGlobalInstall, npmLatestVersion } from "../update/npm.js";
+import { createBinaryUpdate } from "../update/binary-update.js";
 import { spawnUpdateHelper } from "../update/helper.js";
 import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
 import {
@@ -453,6 +455,30 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     const address = httpServer.address();
     return `${listen.host}:${typeof address === "object" && address ? address.port : listen.port}`;
   };
+  /** The compiled binary installs versions under `$PI_STUDIO_HOME/bin`; npm and the rest go through npm. */
+  const binaryUpdate = isBinary ? createBinaryUpdate({ home, listen: boundListen }) : undefined;
+  const updateSteps: Pick<UpdatePipelineDeps, "install" | "updateExtensions" | "spawnHelper"> =
+    binaryUpdate
+      ? {
+          install: (version) => binaryUpdate.install(version),
+          updateExtensions: () =>
+            binaryUpdate.updateExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+          spawnHelper: (target, previous) => binaryUpdate.spawnHelper(target, previous),
+        }
+      : {
+          install: (version) => npmGlobalInstall(PACKAGE_NAME, version),
+          updateExtensions: () =>
+            updateInstalledExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+          spawnHelper: (target, previous) =>
+            spawnUpdateHelper({
+              oldPid: process.pid,
+              target,
+              previous,
+              listen: boundListen(),
+              home,
+              packageName: PACKAGE_NAME,
+            }),
+        };
   const updateService = new UpdateService({
     currentVersion: SERVER_VERSION,
     detectInstallKind: () => detectInstallKind(process.env, import.meta.url, npmRootGlobal),
@@ -462,6 +488,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     canWriteGlobalFolder,
     platform: process.platform,
     autoCheck: config.daemon.update.autoCheck,
+    binary: binaryUpdate?.probes,
     takeLastResult: () => readAndRemoveUpdateResult(join(home, UPDATE_RESULT_FILE), logger),
     skipStore: createFileSkipStore(join(home, UPDATE_SKIP_FILE), logger),
     persistAutoCheck: async (enabled) => {
@@ -470,18 +497,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     },
     broadcast: (status) => broadcast(getActiveSessions(), { type: "daemon_update_status", status }),
     pipeline: createUpdatePipeline({
-      install: (version) => npmGlobalInstall(PACKAGE_NAME, version),
-      updateExtensions: () =>
-        updateInstalledExtensions({ config, spawn: opts.extensionsInstallSpawn }),
-      spawnHelper: (target, previous) =>
-        spawnUpdateHelper({
-          oldPid: process.pid,
-          target,
-          previous,
-          listen: boundListen(),
-          home,
-          packageName: PACKAGE_NAME,
-        }),
+      ...updateSteps,
       shutdown: closeDaemon,
       exit: opts.onUpdateRestart,
       logger,

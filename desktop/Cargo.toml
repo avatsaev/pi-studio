@@ -19,6 +19,7 @@ pistudiodesktop-net = { path = "crates/net" }
 pistudiodesktop-transfer = { path = "crates/transfer" }
 pistudiodesktop-relay = { path = "crates/relay" }
 pistudiodesktop-ssh = { path = "crates/ssh" }
+pistudiodesktop-install = { path = "crates/install" }
 pistudiodesktop-testkit = { path = "crates/testkit" }
 
 # external: versions live here only
@@ -68,6 +69,14 @@ form_urlencoded = "1"
 # and `ssh2-config` (MIT) to read `~/.ssh/config`.
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 ssh2-config = "0.9"
+# The daemon installer (`install`): `reqwest` (MIT OR Apache-2.0) streams the archive with the system's certificate verifier
+# (`rustls` with `ring` through a preconfigured client, `rustls-no-provider`: never `aws-lc-rs`, and no process-wide provider is
+# installed), `tar` and `flate2` (MIT OR Apache-2.0) unpack it, `sha2` (above) hashes it. The app already has reqwest through
+# the updater plug-in; features unify, this crate asks for no more than the TLS backend.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tar = "0.4"
+flate2 = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

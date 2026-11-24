@@ -9,10 +9,10 @@ import { createRelayLogger, startRelayServer } from "@av-pi-studio/relay/server"
 import {
   isBinary,
   prepareBinaryDaemon,
+  runBinaryHelperMain,
   runBundledPiCli,
   runBundledSkillsCli,
   runDaemon,
-  SUBCOMMAND,
   type RelayOpts,
 } from "@av-pi-studio/server";
 
@@ -55,11 +55,9 @@ async function main(args: readonly string[]): Promise<void> {
       await runBundledSkillsCli();
       return;
     case "update-helper":
-      // The helper is implemented with the binary's self-update (sprint-142); until then a
-      // binary daemon never starts it, so reaching this is a bug worth a loud, non-zero exit.
-      process.stderr.write(`${SUBCOMMAND.updateHelper}: not implemented in this version\n`);
-      process.exitCode = 1;
-      return;
+      // Detached from the old daemon: exit explicitly, the daemon it started is its own process
+      // and a kept-alive health connection must not hold the helper open.
+      process.exit(await runBinaryHelperMain(command.json));
     case "cli":
       process.exitCode = await run(command.args);
       return;

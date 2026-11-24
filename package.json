@@ -41,7 +41,8 @@
     "docker:deploy": "bash scripts/dokploy-deploy.sh",
     "release": "bash scripts/release.sh",
     "build:ui-gallery": "npm run build -w packages/ui-gallery",
-    "build:binary": "node scripts/build-binary.mjs"
+    "build:binary": "node scripts/build-binary.mjs",
+    "test:binary": "node scripts/binary-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

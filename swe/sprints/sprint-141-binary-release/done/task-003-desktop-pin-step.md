@@ -1,7 +1,7 @@
 # Task 003 — The desktop release pins the newest daemon binary
 
 - **Sprint:** sprints/sprint-141-binary-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/apps/pistudiodesktop/scripts/release, .github/workflows/desktop-release.yml
 - **Priority:** P1

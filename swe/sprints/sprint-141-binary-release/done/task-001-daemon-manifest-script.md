@@ -1,7 +1,7 @@
 # Task 001 — The daemon release files: `SHA256SUMS` and `latest.json`
 
 - **Sprint:** sprints/sprint-141-binary-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** scripts/release
 - **Priority:** P1

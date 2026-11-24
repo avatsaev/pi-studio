@@ -250,6 +250,14 @@ After a successful install, a local daemon that answers at `--host` is restarted
 address and `daemon restarted: <version>` is printed. No running daemon means nothing is started;
 a failed restart exits non-zero (the install stays).
 
+The single-binary `pi-studio` updates the same way without npm: it reads
+`https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json`, installs the newer
+version into `$PI_STUDIO_HOME/bin/versions/<version>`, points `bin/current` at it, restarts a running local
+daemon from it and then removes the older version folders (the new and the previous one stay). A binary that
+is not `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio`, or whose `bin` folder is not writable, does not
+update itself and prints the releases page instead. `PI_STUDIO_DAEMON_UPDATE_URL` replaces the manifest
+address; it is for tests and self-hosted mirrors and is never set by a release.
+
 A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
 installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
 screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that

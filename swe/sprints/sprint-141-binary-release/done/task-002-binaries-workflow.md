@@ -1,7 +1,7 @@
 # Task 002 — Binaries built, smoke-tested and published by every release
 
 - **Sprint:** sprints/sprint-141-binary-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** .github/workflows
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 004 — A binary daemon checks, installs, restarts and rolls back
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (update), packages/cli
 - **Priority:** P1

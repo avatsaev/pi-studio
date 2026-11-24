@@ -28,8 +28,8 @@ Or `npm link` inside `packages/cli` to expose `pi-studio` globally on `PATH`.
 pinned Bun into `dist-binary/pi-studio-<version>-<target>/` and a `.tar.gz`: `pi-studio` (the whole
 CLI plus daemon, relay, Pi and `skills`), the `bun` script, Pi's runtime assets and `web/`.
 `binary-main.ts` dispatches on the first argument (`binary-dispatch.ts` decides): `__daemon <json>`,
-`__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (a stub that exits 1 until
-sprint-142), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
+`__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (the server's `runBinaryHelperMain`,
+then `process.exit`), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
 seam (`SUBCOMMAND`, `DaemonOpts`, `RelayOpts`). `node-pty` is `--external` (never loaded under Bun).
 `scripts/binary-container-check.sh` runs the acceptance commands in a Node-less container.
 
@@ -95,10 +95,13 @@ src/
 
   update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
   update-commands.test.ts
-  update-control.ts      UpdateRuntime — getLatestVersion/installGlobal seam; defaultUpdateRuntime()
-                          wires `npmLatestVersion`/`npmGlobalInstall` from `@av-pi-studio/server`
-                          (`update/npm.ts`, where the ENOTEMPTY self-heal and compareVersions live);
-                          re-exports PACKAGE_NAME/compareVersions; CURRENT_VERSION.
+  update-control.ts      UpdateRuntime — getLatestVersion/installGlobal seam (+ `binary?: BinaryUpdateRuntime`,
+                          set only in the compiled binary: blocker/lookup/install/switchCurrent/prune/
+                          startDaemon); defaultUpdateRuntime() wires `npmLatestVersion`/`npmGlobalInstall`
+                          from `@av-pi-studio/server` (`update/npm.ts`, where the ENOTEMPTY self-heal and
+                          compareVersions live) and the binary's `update/binary-*` modules;
+                          currentBinaryDaemonStarter; re-exports PACKAGE_NAME/RELEASES_PAGE/compareVersions;
+                          CURRENT_VERSION.
   update-control.test.ts
 
   promise-with-resolvers.d.ts   Promise.withResolvers() ambient decl (lib predates ES2024;
@@ -502,6 +505,21 @@ then prints `daemon restarted: <version>` from `readVersion`. No daemon → noth
 restart prints the reason and exits `EXIT_ERROR` (the install is not undone); the exit order is
 install error, then extensions error, then restart error. Tests inject `ctx.daemon`.
 
+**On the compiled binary (sprint-142/task-004).** `defaultUpdateRuntime()` carries `binary:
+BinaryUpdateRuntime` only when `isBinary` (Node and every npm test see none, so the npm path above is
+unchanged). `runUpdate` then runs `runBinaryUpdate`: `lookup()` reads `daemon-updates/latest.json`
+(`PI_STUDIO_DAEMON_UPDATE_URL` overrides the address, for tests and self-hosting; offline /
+not-a-manifest → `EXIT_ERROR`); `--check` prints the same two lines as the npm path from the manifest's
+version and probes nothing else; an update first asks `blocker(home)` (`binaryBlocker`: the executable
+must be `$PI_STUDIO_HOME/bin/versions/<v>/pi-studio` with `bin` writable, else the error names the
+releases page) and needs an archive for this system, then `install(home, version)` into
+`bin/versions/<version>` and `switchCurrent`; `pi update --extensions` and the restart follow as above,
+except the new daemon is started by `binary.startDaemon` (`currentBinaryDaemonStarter`:
+`<home>/bin/current/pi-studio __daemon <json>`, i.e. the version just switched to, not the running
+process); once a restarted daemon answers, `prune(home, [new, CURRENT_VERSION])` removes the other
+version folders (nothing is removed when no daemon was restarted). Tests inject `ctx.update.binary`
+(`update-commands.test.ts`); `update-control.test.ts` runs the starter against a stub executable.
+
 ---
 
 ## `CliContext` and `withDaemon()`
@@ -636,8 +654,10 @@ branches to `createRelayTransport` when it carries a relay offer).
   specifically so this in-process read path never reaches `providers/pi/agent.js` or
   `providers/mock/mock-provider.js` either — see root `AGENTS.md`'s dependency-graph note.
 - **`update` (sprint-135/task-003) is a further narrow exception.** `update-control.ts` imports the
-  server's `update/` surface (`npm.ts`, `install-kind.ts`, `PACKAGE_NAME`): pure functions and `npm`
-  child processes, never the daemon's lifecycle, a WS server, or daemon state.
+  server's `update/` surface (`npm.ts`, `install-kind.ts`, `PACKAGE_NAME`, and since sprint-142 the
+  binary's `binary-update.ts`/`binary-layout.ts`/`binary-helper.ts`): pure functions, `npm` child
+  processes, the manifest download and the link switch, never the daemon's lifecycle, a WS server, or
+  daemon state.
 - **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
   import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
   `await import()` taken only when a prompt is about to render — verified with a `node:module`

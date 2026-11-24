@@ -58,8 +58,9 @@ src/
                                    npm-global|docker|source|binary|unknown (`PI_STUDIO_INSTALL_KIND`
                                    wins, then `binary` for the compiled binary without asking npm);
                                    npmRootGlobal() (cached), canWriteGlobalFolder(folder), npmOnPath(),
-                                   updateBlocker(kind, platform) → `cannot_update` reason or null (`binary`
-                                   → `unmanaged_binary` until the binary's own update path, sprint-142).
+                                   updateBlocker(kind, platform) → `cannot_update` reason or null (only
+                                   Windows blocks `npm-global` and `binary`), binaryBlocker(execPath, home) →
+                                   `unmanaged_binary|not_writable|null` (the binary's can-update rule).
     process-wait.ts               waitForProcessExit(pid, {timeoutMs, pollMs, alive?, sleep?, now?}) —
                                    polls signal 0 (`EPERM` = alive); true once gone, false at the limit
                                    (`timeoutMs: 0` checks once); processAlive(pid). Used by the CLI's
@@ -76,7 +77,21 @@ src/
                                    from the package index (daemon-only).
     helper.ts                     The restart helper: `HELPER_SCRIPT` (self-contained `node -e` text),
                                    `compileHelperLogic()` (test entry), `spawnUpdateHelper(params, env?,
-                                   spawn?)`, `HelperParams`/`HelperSeams`/`HelperResult`. Daemon-only.
+                                   spawn?, runtime?)` (`runtime` = the NEW binary for a binary update),
+                                   `HelperParams`/`HelperSeams`/`HelperResult`. Daemon-only.
+    binary-layout.ts              `$PI_STUDIO_HOME/bin` layout: paths, managedVersionOf, switchCurrent (symlink
+                                   `current.new` + rename), pruneVersions, installedVersions, resetTmpDir.
+    binary-manifest.ts            `daemon-updates/latest.json`: DAEMON_UPDATE_URL(+`_ENV` override),
+                                   daemonUpdateUrl, binaryTarget(platform, arch), parseBinaryManifest,
+                                   assetFor, fetchBinaryManifest (15 s; offline|bad_answer|ok), RELEASES_PAGE.
+    tar-extract.ts                extractTarGz(archive, dest, limits?) — streaming, refuses unsafe entries
+                                   (UnsafeArchiveError).
+    binary-install.ts             downloadAsset (60 s stall, size, SHA-256), installBinaryVersion (unpack,
+                                   `--version` check, move into `bin/versions/<v>`).
+    binary-update.ts              lookupBinaryRelease, installBinaryRelease (also the CLI's), createBinaryUpdate
+                                   (probes + pipeline steps for the daemon), redirectSpawn.
+    binary-helper.ts              The binary's update helper: runBinaryHelper, realBinaryHelperSeams,
+                                   runBinaryHelperMain, parseHelperParams, healthUrlOf.
     update-rpc.ts                 registerDaemonUpdateHandlers — `daemon_update_{status,check,apply,
                                    set_auto_check}_request`; thin adapter over UpdateService.
     dev-update-script.ts          DEV only: parseDevUpdateScript + DevUpdateScriptRuntime — scripted
@@ -1987,6 +2002,40 @@ timers.
   never ends its host. `server_info.features.daemonUpdate` is advertised on both handshakes (one
   `serverFeatures` map in `bootstrap.ts`, passed to the direct WS server and the relay's
   `buildServerInfo`).
+- **Binary install kind (milestone 6, features/self-update.md § Check/Apply/Helper Binary).**
+  `UpdateServiceDeps.binary` (`BinaryUpdateProbes`: `lookup()` → `{kind:"ok", version, hasAsset}` |
+  `offline` | `bad_answer`; `blocker()` → `unmanaged_binary|not_writable|null`) replaces
+  `fetchLatest`/npm probes when the kind is `binary` (`lookupLatest`); the rest of the check (skip
+  rules, `checkError`, single flight) is shared. `resolveState` for a binary: not newer → `idle`; Windows →
+  `unsupported_platform`; `blocker()` → `unmanaged_binary|not_writable`; no asset for this system →
+  `unsupported_platform`; else `available`. Every `cannot_update.command` of a binary is the releases page
+  (`RELEASES_PAGE`, `binary-manifest.ts`). Bootstrap picks the steps by `isBinary`: `createBinaryUpdate`
+  gives `probes`, `install(version)` (re-reads `latest.json`, which must still name `version`, then
+  `installBinaryVersion`: download into `bin/tmp` with a 60 s stall limit and a size cap, SHA-256 against the
+  manifest, `extractTarGz` into `bin/tmp/unpack-*` (refuses entries outside the folder, absolute names,
+  `..`, links leaving the folder — also through earlier links —, devices, writes through links), the unpacked
+  `pi-studio --version` must equal the target, then rename into `bin/versions/<v>`; any failure throws and
+  `bin/current` is never touched; `bin/tmp` is removed either way), `updateExtensions` (the NEW binary's
+  `__pi update --extensions` through `redirectSpawn` over the sync `InstallSpawn` seam) and `spawnHelper`
+  (`spawnUpdateHelper(params, env, spawn, {isBinary: true, execPath: versions/<target>/pi-studio})`, i.e.
+  `<new> __update-helper <json>`). `PI_STUDIO_DAEMON_UPDATE_URL` replaces the manifest address
+  (`DAEMON_UPDATE_URL`, `daemonUpdateUrl(env)`): for tests and self-hosting, never set by a release.
+  The can-update rule is `binaryBlocker(execPath, home)` in `install-kind.ts`: `realpath(execPath)` must be
+  `<realpath(home)>/bin/versions/<x.y.z>/pi-studio` (`managedVersionOf`) and `bin` writable.
+- **Binary helper (`update/binary-helper.ts`).** `runBinaryHelper(params, seams)`: wait ≤ 30 s for the old
+  pid, `switchCurrent(target)`, three tries of start (`bin/current/pi-studio __daemon {host, port, home}`
+  with the carried env) + health for `version == target` (6 s, an exited daemon ends the try), else
+  `switchCurrent(previous)` and the same tries → `rolled_back`, else `failed`; writes the same
+  `update-result.json` as the npm helper (so the skip logic applies) and logs to `logs/update-restart.log`;
+  after `updated` removes every version folder but target and previous (`pruneVersions`; a failure is only
+  logged). `switchCurrent` (`binary-layout.ts`) checks the executable, creates the symlink `current.new` →
+  `versions/<v>` and renames it over `current`. Seams: `BinaryHelperSeams`; real ones `realBinaryHelperSeams`;
+  `runBinaryHelperMain(json)` is `__update-helper`'s body (`cli/binary-main.ts`). Tests:
+  `binary-helper.test.ts` (logic with fakes; the real seams over a temp home with stub `pi-studio` scripts
+  and a stub daemon: update and switch-back), `binary-layout.test.ts`, `tar-extract.test.ts` (fixtures from
+  `test-support/tar-fixture.ts`), `binary-update.test.ts` (local `node:http` server from
+  `test-support/http-fixture.ts`: newer/same/malformed/missing asset/offline; apply failures: checksum,
+  path outside, bad `--version`, stall), `update-service-binary.test.ts`.
 - **Helper (`update/helper.ts`).** One self-contained script (`HELPER_SCRIPT` =
   `HELPER_LOGIC` + `HELPER_MAIN`, passed to `node -e` with the JSON `HelperParams` in `argv[1]`; only
   `node:` built-ins, never an import of this package: the package is replaced under it; the argv comes

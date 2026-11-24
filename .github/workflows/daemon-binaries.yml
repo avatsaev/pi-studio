@@ -1,0 +1,159 @@
+name: Daemon binaries
+
+# Builds the single-binary daemon (`pi-studio`, swe/features/single-binary-daemon.md) for the four
+# targets, each on its own system, smoke-tests it there, and — only when called with `publish: true`
+# and only when all four passed — publishes `daemon-v<version>` and updates `daemon-updates/latest.json`.
+#
+# Called by release.yml after the npm/Docker release (`publish: true`, the commit that release pushed).
+# On a pull request that changes what the binary is made of it builds and smoke-tests only: nothing
+# is published. npm and Docker never wait for these jobs and never fail because of them.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The release version (the archives are named after it)"
+        type: string
+        required: true
+      ref:
+        description: "The commit to build (the release's version-bump commit)"
+        type: string
+        required: true
+      publish:
+        description: "Publish the release and latest.json when all four targets pass"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "packages/**"
+      - "scripts/build-binary.mjs"
+      - "scripts/binary-smoke.mjs"
+      - "scripts/release/daemon-*"
+      - ".github/workflows/daemon-binaries.yml"
+      - "package.json"
+      - "package-lock.json"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: darwin-arm64
+            runner: macos-15
+          # Intel macOS. `macos-13` is retired; `macos-15-intel` is the Intel image that replaces it.
+          - target: darwin-x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the packages
+        run: npm run build
+
+      - name: Build the binary
+        run: npm run build:binary -- --target ${{ matrix.target }}
+
+      - name: Name the build folder
+        id: folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          folders=(dist-binary/pi-studio-*-"${{ matrix.target }}")
+          folder="${folders[0]}"
+          [[ -d "$folder" ]] || { echo "no build folder for ${{ matrix.target }}"; exit 1; }
+          echo "path=$folder" >> "$GITHUB_OUTPUT"
+          echo "archive=$folder.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        timeout-minutes: 10
+        run: npm run test:binary -- "${{ steps.folder.outputs.path }}"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-${{ matrix.target }}
+          path: ${{ steps.folder.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: build
+    # Explicit result check: a bare `if` is wrapped in success(), which a skipped ancestor breaks.
+    if: ${{ !cancelled() && inputs.publish && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      SHA: ${{ inputs.ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Download the four archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: daemon-*
+          path: archives
+          merge-multiple: true
+
+      - name: Write SHA256SUMS and latest.json
+        run: |
+          set -euo pipefail
+          node scripts/release/daemon-manifest.mjs \
+            --version "$VERSION" \
+            --dir archives \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/daemon-v${VERSION}"
+          ls -l archives
+
+      - name: Publish daemon-v${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "daemon-v${VERSION}" >/dev/null 2>&1; then
+            echo "daemon-v${VERSION} already exists: replacing its assets"
+            gh release upload "daemon-v${VERSION}" archives/*.tar.gz archives/SHA256SUMS --clobber
+          else
+            gh release create "daemon-v${VERSION}" archives/*.tar.gz archives/SHA256SUMS \
+              --target "$SHA" --latest=false \
+              --title "Daemon binaries ${VERSION}" \
+              --notes "The single-binary Pi Studio daemon ${VERSION}: one archive per system (linux-x64, linux-arm64, darwin-arm64, darwin-x64), checksums in SHA256SUMS. The macOS binaries are signed ad hoc only."
+          fi
+
+      - name: Point daemon-updates at it
+        run: |
+          set -euo pipefail
+          if ! gh release view daemon-updates >/dev/null 2>&1; then
+            gh release create daemon-updates \
+              --target "$SHA" --latest=false \
+              --title "Daemon updates" \
+              --notes "Holds latest.json, the manifest daemons and the desktop app read to find the newest binary. Not a download page: see the daemon-v<version> releases."
+          fi
+          gh release upload daemon-updates archives/latest.json --clobber

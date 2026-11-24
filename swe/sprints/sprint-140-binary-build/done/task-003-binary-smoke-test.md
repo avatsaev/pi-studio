@@ -1,7 +1,7 @@
 # Task 003 — The binary's smoke test (`npm run test:binary`)
 
 - **Sprint:** sprints/sprint-140-binary-build
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** scripts
 - **Priority:** P1

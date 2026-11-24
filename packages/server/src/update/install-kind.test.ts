@@ -5,9 +5,11 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  binaryBlocker,
   canWriteGlobalFolder,
   detectInstallKind,
   updateBlocker,
+  type BinaryBlockerSeams,
   type InstallKindFs,
 } from "./install-kind.js";
 
@@ -113,13 +115,64 @@ describe("updateBlocker", () => {
     expect(updateBlocker("docker", "linux")).toBe("docker");
     expect(updateBlocker("source", "linux")).toBe("source");
     expect(updateBlocker("unknown", "linux")).toBe("unknown_install");
-    expect(updateBlocker("binary", "linux")).toBe("unmanaged_binary");
   });
 
-  it("allows npm-global except on Windows", () => {
+  it("allows npm-global and binary except on Windows", () => {
     expect(updateBlocker("npm-global", "linux")).toBeNull();
     expect(updateBlocker("npm-global", "darwin")).toBeNull();
     expect(updateBlocker("npm-global", "win32")).toBe("unsupported_platform");
+    expect(updateBlocker("binary", "linux")).toBeNull();
+    expect(updateBlocker("binary", "darwin")).toBeNull();
+    expect(updateBlocker("binary", "win32")).toBe("unsupported_platform");
+  });
+});
+
+/** What `binaryBlocker` reads: symbolic links (path → target) and whether `bin` is writable. */
+const seams = (links: Record<string, string> = {}, writable = true): BinaryBlockerSeams => ({
+  realpath: (path) => links[path] ?? path,
+  checkAccess: async () => {
+    if (!writable) throw new Error("EACCES");
+  },
+});
+
+describe("binaryBlocker", () => {
+  const home = "/home/u/.pi-studio";
+
+  it("is null for $PI_STUDIO_HOME/bin/versions/<v>/pi-studio with bin writable", async () => {
+    const exec = `${home}/bin/versions/0.0.130/pi-studio`;
+    expect(await binaryBlocker(exec, home, seams())).toBeNull();
+  });
+
+  it("resolves symbolic links on the executable and on the home", async () => {
+    const exec = `${home}/bin/current/pi-studio`;
+    expect(
+      await binaryBlocker(exec, home, seams({ [exec]: `${home}/bin/versions/0.0.131/pi-studio` })),
+    ).toBeNull();
+    expect(
+      await binaryBlocker(
+        "/real/bin/versions/0.0.131/pi-studio",
+        home,
+        seams({ [`${home}/bin/versions`]: "/real/bin/versions" }),
+      ),
+    ).toBeNull();
+  });
+
+  it("is unmanaged_binary anywhere else", async () => {
+    for (const exec of [
+      "/usr/local/bin/pi-studio",
+      `${home}/bin/pi-studio`,
+      `${home}/bin/versions/latest/pi-studio`,
+      `${home}/bin/versions/0.0.130/other`,
+      `${home}/bin/versions/0.0.130/sub/pi-studio`,
+      `${home}/bin/versions/../pi-studio`,
+    ]) {
+      expect(await binaryBlocker(exec, home, seams())).toBe("unmanaged_binary");
+    }
+  });
+
+  it("is not_writable when bin cannot be written", async () => {
+    const exec = `${home}/bin/versions/0.0.130/pi-studio`;
+    expect(await binaryBlocker(exec, home, seams({}, false))).toBe("not_writable");
   });
 });
 

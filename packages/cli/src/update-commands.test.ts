@@ -9,7 +9,7 @@ import type { CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
 import type { DaemonRuntime } from "./daemon-control.js";
 import type { PiRuntime } from "./pi-commands.js";
-import type { UpdateRuntime } from "./update-control.js";
+import type { BinaryUpdateRuntime, UpdateRuntime } from "./update-control.js";
 import { CURRENT_VERSION } from "./update-control.js";
 import { registerUpdateCommands, runUpdate } from "./update-commands.js";
 
@@ -294,6 +294,170 @@ describe("`update` command", () => {
     await runArgs(program, ["update", "--check"]);
     expect(out).toEqual([`update available: ${CURRENT_VERSION} -> 99.0.0`]);
     expect(installCalls).toBe(0);
+    expect(exitCode.value).toBe(0);
+  });
+});
+
+// ── the compiled binary (milestone 6): `update` works on bin/versions, not on npm ───────────────
+
+const LATEST = "99.0.0";
+
+interface BinaryFake {
+  binary: BinaryUpdateRuntime;
+  calls: string[];
+}
+
+function fakeBinary(
+  overrides: Partial<BinaryUpdateRuntime> = {},
+  state: { up: boolean; version: string } = { up: false, version: LATEST },
+): BinaryFake {
+  const calls: string[] = [];
+  const binary: BinaryUpdateRuntime = {
+    blocker: async () => null,
+    lookup: async () => ({
+      kind: "ok",
+      version: LATEST,
+      asset: { url: "http://x/a.tar.gz", sha256: "0".repeat(64), size: 1 },
+    }),
+    install: async (_home, version) => void calls.push(`install:${version}`),
+    switchCurrent: async (_home, version) => void calls.push(`switch:${version}`),
+    prune: async (_home, keep) => void calls.push(`prune:${keep.join(",")}`),
+    startDaemon: async ({ listen }) => (calls.push(`start:${listen}`), (state.up = true), 4242),
+    ...overrides,
+  };
+  return { binary, calls };
+}
+
+function npmMustNotRun(): Promise<string | null> {
+  return Promise.reject(new Error("npm must not be asked"));
+}
+
+describe("runUpdate on a binary", () => {
+  it("installs the newer version, switches current, updates extensions, restarts and prunes", async () => {
+    writeFileSync(join(home, "pi-studio.pid"), "777", "utf8");
+    const state = { up: true, version: LATEST };
+    const { binary, calls } = fakeBinary({}, state);
+    const daemonLog: string[] = [];
+    const { ctx, out } = ctxWith(
+      fakeRuntime({ binary, getLatestVersion: npmMustNotRun }),
+      fakePiRuntime(),
+      fakeDaemon(state, daemonLog),
+    );
+    const code = await runUpdate(ctx, {});
+    expect(out).toEqual([
+      `updating pi-studio: ${CURRENT_VERSION} -> ${LATEST} ...`,
+      `updated to ${LATEST}`,
+      "updating pi extensions: pi update --extensions ...",
+      "restarting local daemon at 127.0.0.1:6767 ...",
+      `daemon restarted: ${LATEST}`,
+    ]);
+    expect(calls).toEqual([
+      `install:${LATEST}`,
+      `switch:${LATEST}`,
+      "start:127.0.0.1:6767",
+      `prune:${LATEST},${CURRENT_VERSION}`,
+    ]);
+    // The old daemon was stopped through the shared runtime; the new one started by the binary's starter.
+    expect(daemonLog).toEqual(["kill:777"]);
+    expect(code).toBe(0);
+  });
+
+  it("does not prune when no daemon was restarted", async () => {
+    const { binary, calls } = fakeBinary();
+    const { ctx } = ctxWith(fakeRuntime({ binary }));
+    expect(await runUpdate(ctx, {})).toBe(0);
+    expect(calls).toEqual([`install:${LATEST}`, `switch:${LATEST}`]);
+  });
+
+  it("reports up to date and still updates extensions", async () => {
+    const { binary, calls } = fakeBinary({
+      lookup: async () => ({ kind: "ok", version: CURRENT_VERSION, asset: null }),
+    });
+    const { ctx, out } = ctxWith(fakeRuntime({ binary }));
+    expect(await runUpdate(ctx, {})).toBe(0);
+    expect(out).toEqual([
+      `already up to date (${CURRENT_VERSION})`,
+      "updating pi extensions: pi update --extensions ...",
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it("--check reports the manifest's version and installs nothing", async () => {
+    const { binary, calls } = fakeBinary({
+      blocker: async () => {
+        throw new Error("--check must not probe the install");
+      },
+    });
+    const { ctx, out } = ctxWith(fakeRuntime({ binary }));
+    expect(await runUpdate(ctx, { check: true })).toBe(0);
+    expect(out).toEqual([`update available: ${CURRENT_VERSION} -> ${LATEST}`]);
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ["offline", /could not read latest.json/],
+    ["bad_answer", /not a valid release manifest/],
+  ] as const)("fails when the manifest is %s", async (kind, message) => {
+    const { binary, calls } = fakeBinary({ lookup: async () => ({ kind }) });
+    const { ctx, err } = ctxWith(fakeRuntime({ binary }));
+    expect(await runUpdate(ctx, {})).toBe(1);
+    expect(err.join("\n")).toMatch(message);
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ["unmanaged_binary", /not installed under .*bin.versions/],
+    ["not_writable", /bin is not writable/],
+  ] as const)(
+    "refuses to update a binary that is %s, pointing at the release page",
+    async (reason, message) => {
+      const { binary, calls } = fakeBinary({ blocker: async () => reason });
+      const { ctx, err } = ctxWith(fakeRuntime({ binary }));
+      expect(await runUpdate(ctx, {})).toBe(1);
+      expect(err.join("\n")).toMatch(message);
+      expect(err.join("\n")).toContain("https://github.com/avatsaev/pi-studio/releases");
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("fails when latest.json has no build for this system", async () => {
+    const { binary, calls } = fakeBinary({
+      lookup: async () => ({ kind: "ok", version: LATEST, asset: null }),
+    });
+    const { ctx, err } = ctxWith(fakeRuntime({ binary }));
+    expect(await runUpdate(ctx, {})).toBe(1);
+    expect(err.join("\n")).toContain("no pi-studio build for this system");
+    expect(calls).toEqual([]);
+  });
+
+  it("does not switch or restart when the install fails", async () => {
+    const state = { up: true, version: "1" };
+    const { binary, calls } = fakeBinary(
+      {
+        install: async () => {
+          throw new Error("checksum mismatch");
+        },
+      },
+      state,
+    );
+    const daemonLog: string[] = [];
+    const { ctx, err } = ctxWith(
+      fakeRuntime({ binary }),
+      fakePiRuntime(),
+      fakeDaemon(state, daemonLog),
+    );
+    expect(await runUpdate(ctx, {})).toBe(1);
+    expect(err).toContain("update failed: checksum mismatch");
+    expect(calls).toEqual([]);
+    expect(daemonLog).toEqual([]);
+  });
+
+  it("goes through the `update` command", async () => {
+    const { binary } = fakeBinary();
+    const { ctx, out } = ctxWith(fakeRuntime({ binary }));
+    const { program, exitCode } = buildUpdateProgram(ctx);
+    await runArgs(program, ["update", "--check"]);
+    expect(out).toEqual([`update available: ${CURRENT_VERSION} -> ${LATEST}`]);
     expect(exitCode.value).toBe(0);
   });
 });

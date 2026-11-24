@@ -9,6 +9,7 @@ import type {
 
 import type { Logger } from "../logging/logger.js";
 import { redactSource } from "../resources/spawn-runner.js";
+import { RELEASES_PAGE } from "./binary-manifest.js";
 import type { CannotUpdateReason } from "./install-kind.js";
 import { updateBlocker } from "./install-kind.js";
 import { compareVersions } from "./npm.js";
@@ -23,7 +24,6 @@ type InstallFailureCode = Extract<DaemonUpdateState, { kind: "failed" }>["code"]
  */
 
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const RELEASES_PAGE = "https://github.com/avatsaev/pi-studio/releases";
 
 export const UPDATE_RESULT_FILE = "update-result.json";
 export const UPDATE_SKIP_FILE = "update-skip.json";
@@ -120,6 +120,23 @@ export function classifyInstallFailure(message: string): InstallFailureCode {
   return "install";
 }
 
+/** What the release channel answered: the newest version, or why it could not be read. */
+type LatestLookup = { version: string; hasAsset: boolean } | { failure: "offline" | "bad_answer" };
+
+/** What reading `latest.json` found (the binary's `fetchLatest`). */
+export type BinaryManifestLookup =
+  | { kind: "ok"; version: string; hasAsset: boolean }
+  | { kind: "offline" }
+  | { kind: "bad_answer" };
+
+/** What the service asks of a binary install (`createBinaryUpdate`). */
+export interface BinaryUpdateProbes {
+  /** Reads `latest.json`: its version, and whether it has an archive for this system. */
+  lookup(): Promise<BinaryManifestLookup>;
+  /** The can-update rule: why this binary cannot replace itself, `null` when it can. */
+  blocker(): Promise<"unmanaged_binary" | "not_writable" | null>;
+}
+
 /** Everything the apply pipeline does to the outside world; each is a seam. */
 export interface UpdatePipelineDeps {
   /** `npm install -g <package>@<version>` (throws with npm's output on failure). */
@@ -202,6 +219,8 @@ export interface UpdateServiceDeps {
   detectInstallKind(): Promise<DaemonUpdateInstallKind>;
   /** `npm view`: the latest published version, `null` on any failure. */
   fetchLatest(): Promise<string | null>;
+  /** A binary's release channel (`latest.json`); read instead of `fetchLatest` for that kind. */
+  binary?: BinaryUpdateProbes;
   npmOnPath(): Promise<boolean>;
   /** `npm root -g`, `null` when unavailable. */
   globalFolder(): Promise<string | null>;
@@ -399,19 +418,17 @@ export class UpdateService {
       this.emitIfChanged();
     }
     try {
-      const latest = await this.deps.fetchLatest();
+      const found = await this.lookupLatest();
       if (isRunning(this.state)) return this.status();
-      const failure =
-        latest === null ? "offline" : PLAIN_VERSION.test(latest) ? null : "bad_answer";
-      if (latest === null || failure !== null) {
+      if ("failure" in found) {
         this.state = before;
         if (by === "manual") {
           this.checkedAt = this.now();
-          this.checkError = failure ?? "offline";
+          this.checkError = found.failure;
         }
       } else {
-        await this.dropOlderSkip(latest);
-        const next = await this.resolveState(latest, by);
+        await this.dropOlderSkip(found.version);
+        const next = await this.resolveState(found.version, by, found.hasAsset);
         // An apply may have started while the probes ran: it owns the state now.
         if (isRunning(this.state)) return this.status();
         this.checkedAt = this.now();
@@ -426,19 +443,48 @@ export class UpdateService {
     return this.status();
   }
 
+  /** The version the release channel offers: npm's `latest`, or `latest.json` for a binary. */
+  private async lookupLatest(): Promise<LatestLookup> {
+    if (this.installKind === "binary") {
+      const probes = this.deps.binary;
+      if (!probes) {
+        this.deps.logger?.warn("update: a binary install without manifest probes");
+        return { failure: "offline" };
+      }
+      const found = await probes.lookup();
+      return found.kind === "ok"
+        ? { version: found.version, hasAsset: found.hasAsset }
+        : { failure: found.kind };
+    }
+    const latest = await this.deps.fetchLatest();
+    if (latest === null) return { failure: "offline" };
+    return PLAIN_VERSION.test(latest)
+      ? { version: latest, hasAsset: true }
+      : { failure: "bad_answer" };
+  }
+
   private async resolveState(
     latest: string,
     by: "manual" | "automatic",
+    hasAsset: boolean,
   ): Promise<DaemonUpdateState> {
     if (compareVersions(latest, this.deps.currentVersion) <= 0) return { kind: "idle" };
     if (by === "automatic" && latest === this.skippedVersion) return { kind: "idle" };
+    const binary = this.installKind === "binary";
     const cannot = (reason: CannotUpdateReason): DaemonUpdateState => ({
       kind: "cannot_update",
       reason,
       version: latest,
-      command: MANUAL_UPDATE_COMMANDS[reason],
+      command: binary ? RELEASES_PAGE : MANUAL_UPDATE_COMMANDS[reason],
     });
     const blocker = updateBlocker(this.installKind, this.deps.platform);
+    if (binary) {
+      if (blocker !== null) return cannot(blocker);
+      const probes = this.deps.binary;
+      const unmanaged = probes ? await probes.blocker() : "unmanaged_binary";
+      if (unmanaged !== null) return cannot(unmanaged);
+      return hasAsset ? { kind: "available", version: latest } : cannot("unsupported_platform");
+    }
     if (blocker !== null && blocker !== "unsupported_platform") return cannot(blocker);
     if (!(await this.deps.npmOnPath())) return cannot("npm_missing");
     if (!(await this.deps.canWriteGlobalFolder(await this.deps.globalFolder()))) {

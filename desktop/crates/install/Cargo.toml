@@ -1,0 +1,25 @@
+[package]
+name = "pistudiodesktop-install"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Native only, like `net`: on wasm32 the crate is empty and takes no dependency. It uses no socket of `net`: the download is
+# `reqwest` over `rustls` with `ring` (never `aws-lc-rs`, which needs cmake or NASM on Windows; `xtask` fails on one).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+flate2 = { workspace = true }
+getrandom = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time", "fs", "io-util"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time", "fs", "io-util"] }

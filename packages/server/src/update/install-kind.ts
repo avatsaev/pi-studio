@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { DaemonUpdateInstallKind } from "@av-pi-studio/protocol";
 
 import { isBinary } from "../runtime/self.js";
+import { binDir, managedVersionOf, versionsDir } from "./binary-layout.js";
 
 /**
  * How this daemon was installed, and whether that install can update itself
@@ -20,9 +21,8 @@ export const INSTALL_KIND_ENV = "PI_STUDIO_INSTALL_KIND";
 const INSTALL_KINDS: readonly InstallKind[] = ["npm-global", "docker", "source", "unknown"];
 
 /**
- * Why an install cannot update (`cannot_update.reason`). `unmanaged_binary` is the compiled binary
- * until the binary's own update path lands (sprint-142/task-004 replaces the blocker below by the
- * `bin/versions` check).
+ * Why an install cannot update (`cannot_update.reason`). `unmanaged_binary` is a compiled binary
+ * outside `$PI_STUDIO_HOME/bin/versions/` (`binaryBlocker`).
  */
 export type CannotUpdateReason =
   | "docker"
@@ -156,8 +156,40 @@ export function updateBlocker(
     case "unknown":
       return "unknown_install";
     case "binary":
-      return "unmanaged_binary";
     case "npm-global":
       return platform === "win32" ? "unsupported_platform" : null;
+  }
+}
+
+/** What `binaryBlocker` reads from the machine. */
+export interface BinaryBlockerSeams {
+  /** Resolve symlinks; return the input unchanged when it cannot be resolved. */
+  realpath(path: string): string;
+  checkAccess(path: string, mode: number): Promise<void>;
+}
+
+const REAL_BLOCKER_SEAMS: BinaryBlockerSeams = {
+  realpath: REAL_FS.realpath,
+  checkAccess: access,
+};
+
+/**
+ * The can-update rule of a binary (features/self-update.md § Install kind): the executable, with
+ * symbolic links resolved, is `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio`, and `bin` is
+ * writable. `unmanaged_binary` otherwise (a binary run from anywhere else), `not_writable` when
+ * `bin` cannot be written, `null` when this binary can replace itself.
+ */
+export async function binaryBlocker(
+  execPath: string,
+  home: string,
+  seams: BinaryBlockerSeams = REAL_BLOCKER_SEAMS,
+): Promise<"unmanaged_binary" | "not_writable" | null> {
+  const versions = seams.realpath(versionsDir(home));
+  if (managedVersionOf(versions, seams.realpath(execPath)) === null) return "unmanaged_binary";
+  try {
+    await seams.checkAccess(binDir(home), constants.W_OK);
+    return null;
+  } catch {
+    return "not_writable";
   }
 }
