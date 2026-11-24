@@ -199,6 +199,8 @@ class PiAgentSession implements AgentSession {
   private model: string | undefined;
   private sessionFile?: string;
   private thinkingLevel?: string;
+  /** Why the Pi process is gone, once the transport reported it (see the `error` frame below). */
+  private processFailure?: string;
 
   constructor(
     private readonly transport: PiRpcTransport,
@@ -209,6 +211,12 @@ class PiAgentSession implements AgentSession {
     this.sessionFile = opts.sessionFile;
     transport.onEvent((raw) => {
       const rec = raw as Record<string, unknown>;
+      // Only the transport emits an `error` frame, and only once the process is gone (exit status
+      // and stderr, `rpc-transport.ts` `failAll`): nothing more will answer, so a turn waiting for
+      // its terminal event must end with it (`run`).
+      if (rec?.type === "error") {
+        this.processFailure = typeof rec.error === "string" ? rec.error : "pi process failed";
+      }
       if (rec?.type === "extension_ui_request") {
         // Forward to the daemon's UI channel — write no response here; the daemon answers, or
         // nobody does (features/extension-ui-rpc.md § Behavior & algorithms).
@@ -332,11 +340,20 @@ class PiAgentSession implements AgentSession {
     // it the agent's `running` status, forever. Those go through `runSlashPrompt`.
     if (prompt.startsWith("/")) return this.runSlashPrompt(prompt, opts);
     return new Promise<void>((resolve) => {
+      // The process died before this turn (start-up failure: Pi exits when an extension fails to
+      // load, stderr names it) and the `error` frame went out while nobody listened: a `prompt`
+      // would be written to nothing, so end the turn now, with the error on the timeline.
+      if (this.processFailure !== undefined) {
+        this.emit({ kind: "error", message: this.processFailure });
+        resolve();
+        return;
+      }
       const unsub = this.subscribe((event) => {
         if (
           event.kind === "turn_completed" ||
           event.kind === "turn_failed" ||
-          event.kind === "turn_canceled"
+          event.kind === "turn_canceled" ||
+          (event.kind === "error" && this.processFailure !== undefined)
         ) {
           unsub();
           resolve();

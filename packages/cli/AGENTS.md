@@ -31,6 +31,10 @@ CLI plus daemon, relay, Pi and `skills`), the `bun` script, Pi's runtime assets 
 `__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (the server's `runBinaryHelperMain`,
 then `process.exit`), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
 seam (`SUBCOMMAND`, `DaemonOpts`, `RelayOpts`). `node-pty` is `--external` (never loaded under Bun).
+`--version <x.y.z>` (the executable reports that version: the build rewrites the three packages'
+compiled `dist/version.generated.js` for the compile and puts them back) and `--out-dir <dir>` exist
+for `scripts/binary-update-check/`, never for a release. Darwin builds are ad-hoc signed with
+`codesign --force -s -` on a macOS host (Bun's compile already signs some darwin builds).
 `scripts/binary-container-check.sh` runs the acceptance commands in a Node-less container.
 
 ## Source layout
@@ -52,7 +56,9 @@ src/
   qr.ts                  renderQrToTerminal() — QR code string via the `qrcode` library.
 
   auth-runtime.ts        AuthRuntime seam — resolvePiAuthPaths() (daemon-parity `<piHome>/agent/auth.json`),
-                          lazy `ModelRuntime` construction, provider listing/checkAuth/login/logout.
+                          lazy `ModelRuntime` construction (`defaultAuthRuntime(paths, prepare?)`: `prepare`,
+                          `CliContext.prepareAuth`, runs once before Pi first loads; the binary sets Pi's Bun
+                          runtime setup so an OAuth login finds its flows), provider listing/checkAuth/login/logout.
   auth-runtime.test.ts
 
   auth-interaction.ts    Terminal `AuthInteraction`: `@inquirer/prompts` (masked secret / text /
@@ -639,7 +645,10 @@ branches to `createRelayTransport` when it carries a relay offer).
   as the detached child the starters spawn (`<binary> __daemon|__relay …`): it imports `runDaemon`
   and `startRelayServer` statically. The CLI program itself (`cli` kind) still only drives daemons
   over the WebSocket API. Pi's and `skills`' entries are imported dynamically (they run on import),
-  from the server's `daemon/binary-runtime.ts`.
+  from the server's `daemon/binary-runtime.ts`. The `cli` kind passes `prepareAuth: preparePiRuntime`
+  (`CliContext`), so `auth login` runs an OAuth flow in the binary; without it the login failed with
+  `Cannot find module './anthropic.js'`. It runs on first use of the auth engine, not for every command
+  (it renames the process to `pi` and silences warnings; measured cost about 8 ms on `auth status`).
 - **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
   auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
   `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public

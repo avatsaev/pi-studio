@@ -34,7 +34,7 @@ import { renderTable } from "./output.js";
 export const CHECK_AUTH_TIMEOUT_MS = 3000;
 
 function runtimeOf(ctx: CliContext, opts: GlobalOptions): AuthRuntime {
-  return ctx.auth ?? defaultAuthRuntime(resolvePiAuthPaths(opts));
+  return ctx.auth ?? defaultAuthRuntime(resolvePiAuthPaths(opts), ctx.prepareAuth);
 }
 
 /**

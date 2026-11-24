@@ -138,9 +138,10 @@ export interface AuthRuntime {
 /**
  * Default production `AuthRuntime`. Creates Pi's `ModelRuntime` once, lazily, on the first method
  * call — never at module load or construction time — and caches the promise so repeated calls
- * reuse the same instance.
+ * reuse the same instance. `prepare` (the compiled binary's Pi runtime setup) runs once, before Pi
+ * is first loaded.
  */
-export function defaultAuthRuntime(paths: PiAuthPaths): AuthRuntime {
+export function defaultAuthRuntime(paths: PiAuthPaths, prepare?: () => Promise<void>): AuthRuntime {
   let runtimePromise: Promise<ModelRuntime> | null = null;
 
   // Deliberate `await import()`, not a static import: `@earendil-works/pi-coding-agent`'s main
@@ -150,6 +151,7 @@ export function defaultAuthRuntime(paths: PiAuthPaths): AuthRuntime {
   async function getRuntime(): Promise<ModelRuntime> {
     if (!runtimePromise) {
       runtimePromise = (async () => {
+        await prepare?.();
         const { ModelRuntime: ModelRuntimeCtor } = await import("@earendil-works/pi-coding-agent");
         return ModelRuntimeCtor.create({
           authPath: paths.authPath,

@@ -739,6 +739,49 @@ describe("skipped version (D14)", () => {
     expect(service.status().skippedVersion).toBe("0.0.11");
   });
 
+  it("a rollback result that arrives after the start's automatic check takes that check's offer of the version back", async () => {
+    let written: UpdateLastResult | undefined;
+    const skipStore = memorySkipStore();
+    const { service, resultTimer, broadcasts } = setup({
+      skipStore,
+      takeLastResult: async () => {
+        const taken = written;
+        written = undefined;
+        return taken;
+      },
+    });
+    await service.start();
+    expect(service.status().state).toEqual({ kind: "available", version: "0.0.11" });
+
+    written = rolledBack; // the helper writes it once the rolled-back daemon answers: after that check
+    resultTimer.sets[0]?.fn();
+    await flush();
+    const status = service.status();
+    expect(status.lastResult).toEqual(rolledBack);
+    expect(status.skippedVersion).toBe("0.0.11");
+    expect(skipStore.value).toBe("0.0.11");
+    expect(status.state).toEqual({ kind: "idle" });
+    expect(broadcasts.at(-1)?.state).toEqual({ kind: "idle" });
+  });
+
+  it("a late rollback result leaves a manual offer, and an offer of another version, alone", async () => {
+    const manual = setup({ autoCheck: false, skipStore: memorySkipStore() });
+    await manual.service.start();
+    await manual.service.check("manual");
+    manual.deps.takeLastResult = async () => rolledBack;
+    manual.resultTimer.sets[0]?.fn();
+    await flush();
+    expect(manual.service.status().state).toEqual({ kind: "available", version: "0.0.11" });
+
+    const newer = setup({ fetchLatest: async () => "0.0.12", skipStore: memorySkipStore() });
+    await newer.service.start();
+    newer.deps.takeLastResult = async () => rolledBack;
+    newer.resultTimer.sets[0]?.fn();
+    await flush();
+    expect(newer.service.status().state).toEqual({ kind: "available", version: "0.0.12" });
+    expect(newer.service.status().skippedVersion).toBe("0.0.11");
+  });
+
   it("a newer version is offered and clears the skip", async () => {
     const skipStore = memorySkipStore("0.0.11");
     const { service } = setup({ skipStore, fetchLatest: async () => "0.0.12" });

@@ -1,8 +1,126 @@
 # Daemon self-update — live results
 
-What the live check (`scripts/daemon-update-check/`, recipe and flags in its README) proved against a
-real global npm install. Spec: `swe/features/self-update.md` § Acceptance criteria and § TODO(verify).
+What the live checks proved: `scripts/daemon-update-check/` (a real global npm install, recipe and flags
+in its README) and `scripts/binary-update-check/` (the single binary in a Node-less container, README
+there). Spec: `swe/features/self-update.md` § Acceptance criteria and § TODO(verify).
 Each run is dated; the newest is first.
+
+## 2026-11-24 — single binary: all eight scenarios pass
+
+**Setup.** Host: Node 24.22.2 (drives the SDK clients and the release channel only), Docker 29.10.0, Bun
+1.4.5 (the repository's pinned compiler). Daemon host: `debian:bookworm-slim` (Debian 12.15, no Node, no
+npm: asserted on its PATH), run as the host's uid 1000 with `--init --network host`, ports 19767 (the
+daemon, bound `127.0.0.1`), 19768 (a second daemon), 19800 (the release channel). Sources: HEAD `d90c8705`
+plus the working tree of that day (uncommitted changes of two other agents in the Pi agent transport and
+`binary-runtime.ts` were in it; none touches the update path) plus the fixes below. Four `linux-x64`
+binaries built with `node scripts/build-binary.mjs --target linux-x64 --version <v> --out-dir <scratch>`
+at `0.0.9001` (N), `0.0.9002` (N+1), `0.0.9003` (N+2) and `0.0.9004` (N+3): 4 s each, 64.8 MiB archive,
+151.2 MiB unpacked. N+2 is the real build of `0.0.9003` whose `pi-studio` is a three-line shell wrapper
+that execs the real executable (`pi-studio.real`) for everything but `__daemon`, which prints a line and
+exits 3: `--version` and `__pi` work, the daemon cannot start (what a release with a broken daemon looks
+like to the helper; it is not a real crash of the compiled daemon). The release channel is a Node HTTP
+server on the host; each version's `latest.json` is written by `scripts/release/daemon-manifest.mjs` (the
+three other targets are links to the linux archive), `PI_STUDIO_DAEMON_UPDATE_URL` points at it. N is
+installed as `$PI_STUDIO_HOME/bin/versions/0.0.9001/` with `bin/current → versions/0.0.9001`, the daemon
+started with `bin/current/pi-studio -H 127.0.0.1:19767 daemon start`. Two direct SDK clients (A, B, with
+the password) reconnect by themselves. Command (a throwaway password is derived from the prefix):
+
+```bash
+node scripts/binary-update-check/run.mjs --prefix live142 --daemon-port 19767 --other-port 19768 \
+  --http-port 19800 --ui-port 19173 --pause offer,skipped --out results.json
+```
+
+The first run (no pause) found defect 1 below; this table is the second run, after the fix: 8 scenarios,
+92 expectations, exit 0, 38 s without the two browser pauses. The container, the scratch folder
+and the HTTP server were removed afterwards.
+
+| # | Scenario | Result | Evidence |
+|---|---|---|---|
+| 1 | Setup | pass | four binaries built; no `node`/`npm` on the PATH; `bin/current/pi-studio --version` = `0.0.9001` |
+| 2 | N runs managed | pass | `/api/health` `0.0.9001`; `pi-studio.pid` names a process whose `/proc/<pid>/exe` is `/work/psh/bin/versions/0.0.9001/pi-studio`; bound `127.0.0.1`; `installKind: binary`; the start's automatic check made exactly 1 GET of `latest.json` and found `idle`; `autoCheck: true`, no `skippedVersion` |
+| 3 | (d) corrupted asset | pass | `latest.json` names `0.0.9002`, its archive has one byte flipped (the manifest keeps the genuine SHA-256): check → `available 0.0.9002` (client B got the broadcast); apply → `["installing","failed"]`, `failed{code: install, message: "checksum mismatch: expected 1896…7fae, got c72c…a280"}`; no extensions step, no `restarting`; the archive was fetched once; the same daemon pid (71), `/api/health` still `0.0.9001`, client A's socket never dropped; `bin/current` still `versions/0.0.9001`; `bin/versions` = `0.0.9001`; `bin/tmp` empty; no `update-result.json`; the next check replaced `failed` with `available 0.0.9002` |
+| 4 | (a) N → N+1 | pass | genuine archive restored, check → `available`; a Pi agent (`__pi --mode rpc`) and a terminal (`/bin/sh`) running under the old daemon (pid 71; 3 processes in its tree); client B's apply during the update refused `{ok:false,error:"in_progress"}`; both clients saw `installing → updating_extensions → restarting` (download + unpack + `--version` 0.7 s, extensions step 0.2 s) and reconnected 2 s after the apply; `/api/health` `0.0.9002` on `127.0.0.1:19767`; `pi-studio.pid` → pid 366 (was 71) running `bin/versions/0.0.9002/pi-studio`; none of the old tree left, no `--mode rpc` process; `lastResult = {from 0.0.9001, to 0.0.9002, outcome updated}` on both clients, `installKind binary`, state `idle`; `update-result.json` consumed; `bin/current → versions/0.0.9002`; `bin/versions` = `0.0.9001, 0.0.9002`; `bin/tmp` empty |
+| 5 | (b) rollback N+2 → N+1 | pass | the daemon the helper started is offered `0.0.9003` (so it counts as managed: it runs `bin/current/pi-studio`, realpath `…/versions/0.0.9002/pi-studio`); apply; helper log: old daemon exited 0.2 s later, `current → versions/0.0.9003`, three starts each `the daemon exited; stopping it` (0.25 s apart), `going back to 0.0.9002`, `current → versions/0.0.9002`, `answers with version 0.0.9002`, `update rolled_back` (1 s in all); both clients reconnected 3 s after the apply (`["installing","updating_extensions","restarting","idle"]`); `lastResult = {from 0.0.9002, to 0.0.9003, outcome rolled_back, message "0.0.9003 did not start on 127.0.0.1:19767; back on 0.0.9002."}`; `skippedVersion: 0.0.9003`; `update-skip.json` = `{"version":"0.0.9003"}`; state `idle` (defect 1: it was `available` in the first run); `bin/versions` = `0.0.9001, 0.0.9002, 0.0.9003` (the broken folder stays until the next successful update), `bin/tmp` empty |
+| 6 | (b) skip, "Check now", a newer release | pass | `pi-studio daemon restart` (a start's automatic check): 1 more GET of `latest.json`, state `idle` although the manifest names `0.0.9003`, `skippedVersion` still `0.0.9003`; "Check now" (client A) → `available 0.0.9003`, client B got the broadcast, the file stays; with `0.0.9004` as the latest, the next restart's automatic check → `available 0.0.9004`, `skippedVersion` undefined, `update-skip.json` gone |
+| 7 | (e) command line | pass | `pi-studio update --check` → `update available: 0.0.9002 -> 0.0.9004` (exit 0). `pi-studio update` (exit 0, 2 s): `updating pi-studio: 0.0.9002 -> 0.0.9004 …`, `updated to 0.0.9004`, `updating pi extensions: pi update --extensions …`, `restarting local daemon at 127.0.0.1:19767 …`, `daemon restarted: 0.0.9004`; new pid (956, was 851) running `bin/versions/0.0.9004/pi-studio`; `bin/current → versions/0.0.9004`; `bin/versions` = `0.0.9002, 0.0.9004` (the older ones pruned); `bin/tmp` empty; both clients reconnected to `0.0.9004`; a second `pi-studio update` → `already up to date (0.0.9004)`, same pid |
+| 8 | (c) another folder | pass | the `0.0.9001` folder copied to `/work/elsewhere/pi-studio-0.0.9001/`, run with another `PI_STUDIO_HOME` (`/work/psh-other`) and port 19768 while the channel names `0.0.9004`: `installKind binary`, `state = {cannot_update, reason unmanaged_binary, version 0.0.9004, command https://github.com/avatsaev/pi-studio/releases}`; a forged apply → `{ok:false,error:"cannot_update"}`; `pi-studio update --check` → `update available: 0.0.9001 -> 0.0.9004`; `pi-studio update` exits 1: `update failed: this pi-studio is not installed under /work/psh-other/bin/versions, so it cannot update itself; download 0.0.9004 from https://github.com/avatsaev/pi-studio/releases`; no `bin/` was created, the daemon's pid and version untouched |
+
+Release channel traffic of the run: 21 GETs of `latest.json`, 2 of the `0.0.9002` archive (the corrupted
+one, then the genuine one), 1 each of the `0.0.9003` and `0.0.9004` archives.
+
+### The workbench, in a browser
+
+Looked at with `--pause offer,skipped`: the SPA served from the container (`pi-studio ui --ui-port 19173
+--daemon-host 127.0.0.1:19767`, built before fix 3), connected with the throwaway password, headless
+Chromium. Nothing was changed on the page; the update itself was applied by the SDK client, not by a click.
+
+- At `offer` (state `available 0.0.9002`): the orange pill `Daemon 0.0.9002` in the connection bar; its
+  dialog read `Update the daemon`, `0.0.9001 → 0.0.9002`, `1 agent running, 1 terminal open will stop.`,
+  Cancel, `Update and restart` (Cancel pressed).
+- After the update and the rollback, in the same tab (which reconnected twice without a reload): the dialog
+  `The update failed; the daemon is back on 0.0.9002` with the message `0.0.9003 did not start on
+  127.0.0.1:19767; back on 0.0.9002.`; the terminal showed `Terminal exited` and the agent session
+  `no messages` (both stopped by the restart, as the dialog warned).
+- At `skipped` (after "Check now" by a client): pill `Daemon 0.0.9003`; Settings → Daemon: `Version 0.0.9002`,
+  `Installed as Single binary`, `Last checked`, the line `0.0.9003 was rolled back and is not offered;
+  Check now to try it again.`, the automatic-check switch on, `Daemon 0.0.9003 is available.` with
+  `Update…`.
+
+## Defects found and fixed (binary run)
+
+1. **The rolled-back daemon's own start check offered the version that had just been rolled back**
+   (`packages/server/src/update/update-service.ts`). The helper writes `update-result.json` once the
+   rolled-back daemon answers health, so the daemon reads it from its 500 ms watch, after its start-up
+   automatic check; that check had no skip to honour and set `available 0.0.9003`, and the late result then
+   set `skippedVersion` without touching the state. First run: the status right after the rollback was
+   `{state: available 0.0.9003, skippedVersion: "0.0.9003", lastResult: rolled_back}` and both clients'
+   broadcasts ended `[…,"restarting","available"]`: the pill offered the broken version again at once,
+   while the spec says an automatic check does not offer a rolled-back version (D14). Every install
+   kind had it (npm daemons too: same service). Fix: `withdrawSkippedOffer()` — when the watch takes a
+   result whose version the *automatic* check just offered (`automaticOffer`), the state goes back to
+   `idle`; a manual offer stays; `lastResult`, the skip and the state change in one step (a status request
+   could otherwise see the result with the old offer). After the fix: `["installing","updating_extensions",
+   "restarting","idle"]`, state `idle`. Regression tests in `update-service.test.ts` (the late result
+   takes the automatic offer back; a manual offer and an offer of another version stay); the first fails
+   without the fix.
+2. **`codesign -s -` failed with "is already signed"** on the darwin-x64 build of the PR run (macos-15-intel:
+   Bun's compile already signs that binary; darwin-arm64 passed) — found by CI, not here. Fix in
+   `scripts/build-binary.mjs`: `codesignArgs()` = `codesign --force -s - <executable>`, still on a macOS
+   host only; `build-binary.test.mjs` pins the arguments.
+3. **Settings → Daemon told a binary to "Ask npm for a newer daemon…"** (`DaemonSettingsPanel.tsx`).
+   `autoCheckHelpText(kind)` in `daemon-settings-view.ts` says `Look for a newer release at start and every
+   six hours.` for the `binary` kind; test in `daemon-settings-view.test.ts`. Not rebuilt into the binaries
+   of this run (their SPA still shows the old line, as the screenshot of Settings did).
+
+Test-only additions to `scripts/build-binary.mjs` (no change for a release build): `--version <x.y.z>`
+(rewrites the compiled `dist/version.generated.js` of `server`, `cli` and `relay` for the compile and puts
+them back byte for byte, also on failure; `parseArgs` rejects a malformed version) and `--out-dir <dir>`.
+
+## Spec acceptance criteria covered (milestone 6)
+
+| Criterion | Status |
+|---|---|
+| A binary daemon in the layout reports `binary`; with a newer `latest.json` every client shows the pill; Update downloads, checks, restarts on the new version on the same address, clients reconnect | covered: scenarios 2 and 4, the pill in a browser at `offer` (the click on "Update and restart" itself was not run: the SDK applied) |
+| A new binary that does not start is rolled back to the previous folder; clients show "failed, back on Y"; the next automatic check does not offer it, "Check now" does, and a newer release is offered again | covered: scenarios 5 and 6 (the dialog text in the browser); "npm daemons too" only by the shared service's unit tests, not live |
+| A binary outside `bin/versions` reports `cannot_update(unmanaged_binary)` when a newer version exists | covered: scenario 8 |
+| A corrupted asset ends in `failed` and the running daemon keeps running | covered: scenario 3 |
+| `pi-studio update` on a binary (spec § CLI) | covered: scenario 7, and its refusal in scenario 8 |
+
+## Answered / Open
+
+- **Answered:** a daemon the helper started through `bin/current` is still managed (`binaryBlocker` resolves
+  the link): it was offered and applied the next update (scenarios 5 and 7).
+- **Answered:** the version folder of a version that was rolled back stays in `bin/versions` until the next
+  successful update prunes to the new and the previous one (scenario 7 removed `0.0.9001` and `0.0.9003`).
+- **Open (observation, unchanged):** `pi-studio update` on an unmanaged binary still runs `pi update
+  --extensions` before reporting that it cannot update itself (scenario 8's output order).
+- **Open (observation, unchanged):** after fix 1 a client that reconnects within the first 0.5 s of the
+  rolled-back daemon (before the watch reads the result) can still see `available` for that moment; the two
+  clients here never did.
+- **Not tried:** the "Update and restart" click in the workbench (and its "Updated to X" reading), a relay
+  client, `not_writable` (a read-only `bin/`), a daemon killed by a real crash instead of the wrapper,
+  `linux-arm64` and the macOS builds, the 6 h timer (fake-timer tests only), an unmanaged binary that shares
+  its `PI_STUDIO_HOME` with a managed install (scenario 8 used its own home), and the SPA with fix 3.
 
 ## 2026-11-24 — all ten scenarios pass
 

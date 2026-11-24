@@ -60,6 +60,64 @@ describe("createProcessTransport — spawn failure handling", () => {
     expect(String(event.error)).toContain("boom: something broke");
     await transport.close();
   });
+
+  it("fails the transport on a non-zero exit with nothing in flight (Pi dies at start-up on a broken extension)", async () => {
+    const transport = createProcessTransport({
+      args: [
+        process.execPath,
+        "-e",
+        "process.stderr.write('Failed to load extension \"/x/index.ts\"\\n'); process.exit(1);",
+      ],
+      cwd: ".",
+      env: {},
+    });
+    // No request is made: a turn's `prompt` is a notify, so nothing is waiting for an answer.
+    const event = await new Promise<Record<string, unknown>>((resolve) => {
+      transport.onEvent((e) => resolve(e as Record<string, unknown>));
+    });
+    expect(event.type).toBe("error");
+    expect(String(event.error)).toContain("code 1");
+    expect(String(event.error)).toContain('Failed to load extension "/x/index.ts"');
+    await expect(transport.request("get_state")).rejects.toThrow(/Failed to load extension/);
+    await transport.close();
+  });
+
+  it("does not treat the exit that close() asked for as a failure", async () => {
+    let exitLogged!: () => void;
+    const exited = new Promise<void>((resolve) => {
+      exitLogged = resolve;
+    });
+    const transport = createProcessTransport({
+      // Exits non-zero on SIGTERM, as a Pi shutting down may; says when the handler is in place.
+      args: [
+        process.execPath,
+        "-e",
+        "process.on('SIGTERM', () => process.exit(143)); " +
+          'process.stdout.write(\'{"type":"ready"}\\n\'); setInterval(() => {}, 1000);',
+      ],
+      cwd: ".",
+      env: {},
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: (_fields: unknown, message?: string) => {
+          if (message === "pi process exited non-zero") exitLogged();
+        },
+      },
+    });
+    const types: unknown[] = [];
+    const ready = new Promise<void>((resolve) => {
+      transport.onEvent((e) => {
+        const type = (e as Record<string, unknown>).type;
+        types.push(type);
+        if (type === "ready") resolve();
+      });
+    });
+    await ready;
+    await transport.close();
+    await exited;
+    expect(types).toEqual(["ready"]);
+  });
 });
 
 describe("PiAgentClient — fail fast when unavailable", () => {

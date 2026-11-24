@@ -270,6 +270,8 @@ export class UpdateService {
   private probed: Promise<void> | undefined;
   private resultWatch: unknown;
   private skippedVersion: string | undefined;
+  /** The version the last automatic check offered, `undefined` after any other check outcome. */
+  private automaticOffer: string | undefined;
 
   private readonly pipeline: UpdatePipeline;
   private readonly now: () => number;
@@ -362,8 +364,10 @@ export class UpdateService {
         .takeLastResult()
         .then(async (result) => {
           if (result) {
-            this.lastResult = result;
             await this.recordSkip(result);
+            // Result and withdrawn offer land in the same step: no status shows one without the other.
+            this.lastResult = result;
+            this.withdrawSkippedOffer();
             this.stopResultWatch();
             this.emitIfChanged();
           } else if (this.now() - startedAt >= this.resultWatchMs) {
@@ -377,6 +381,23 @@ export class UpdateService {
           reading = false;
         });
     }, this.resultPollMs);
+  }
+
+  /**
+   * The helper writes its result once the rolled-back daemon answers, i.e. after this daemon's
+   * start check: when that automatic check offered the very version the result says was rolled
+   * back, the offer is taken back (an automatic check never offers a skipped version, D14). A
+   * manual offer stays: the user asked.
+   */
+  private withdrawSkippedOffer(): void {
+    const { state } = this;
+    if (
+      state.kind === "available" &&
+      state.version === this.skippedVersion &&
+      state.version === this.automaticOffer
+    ) {
+      this.state = { kind: "idle" };
+    }
   }
 
   private stopResultWatch(): void {
@@ -434,6 +455,8 @@ export class UpdateService {
         this.checkedAt = this.now();
         this.checkError = undefined;
         this.state = next;
+        this.automaticOffer =
+          by === "automatic" && next.kind === "available" ? next.version : undefined;
       }
     } catch (err) {
       this.deps.logger?.warn({ err: (err as Error).message }, "update: check failed");

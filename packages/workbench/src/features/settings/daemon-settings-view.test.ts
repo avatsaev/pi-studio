@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DaemonUpdateStatus } from "@av-pi-studio/protocol";
 import {
+  autoCheckHelpText,
   daemonSettingsView,
   installKindText,
   lastCheckedText,
@@ -65,6 +66,15 @@ describe("installKindText", () => {
 describe("binary kind and skipped version", () => {
   it("names the binary install kind", () => {
     expect(installKindText("binary")).toBe("Single binary");
+  });
+
+  it("does not send a binary to npm for its automatic checks", () => {
+    expect(autoCheckHelpText("binary")).toBe(
+      "Look for a newer release at start and every six hours.",
+    );
+    expect(autoCheckHelpText("npm-global")).toBe(
+      "Ask npm for a newer daemon at start and every six hours.",
+    );
   });
 
   it("says a rolled-back version is not offered, and nothing without one", () => {

@@ -775,7 +775,9 @@ src/
                             (`skippedText`) = "X was rolled back and is not offered; Check now to try it
                             again." under "Last checked" when `status.skippedVersion` is set; reason
                             `unmanaged_binary` has its own wording, and the dialog's cannot_update view
-                            carries `link` (`isWebAddress(command)`) so the release page is also an anchor.
+                            carries `link` (`isWebAddress(command)`) so the release page is also an anchor;
+                            `autoCheckHelpText(kind)` is the line under "Check automatically" ("Ask npm…",
+                            "Look for a newer release…" for a binary).
                             daemon-settings-actions.ts (+ test): `checkDaemonNow(client,
                             applyStatus)` — a failed check is the answer's `checkError`, so only a
                             failed request resolves a message; `changeAutoCheck(client, enabled,

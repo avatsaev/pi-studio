@@ -1,7 +1,7 @@
 # Task 004 — Live check of the binary on Linux with a real Pi
 
 - **Sprint:** sprints/sprint-140-binary-build
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** binary, Pi
 - **Priority:** P1

@@ -9,6 +9,7 @@ import { createRelayLogger, startRelayServer } from "@av-pi-studio/relay/server"
 import {
   isBinary,
   prepareBinaryDaemon,
+  preparePiRuntime,
   runBinaryHelperMain,
   runBundledPiCli,
   runBundledSkillsCli,
@@ -17,6 +18,7 @@ import {
 } from "@av-pi-studio/server";
 
 import { parseBinaryCommand } from "./binary-dispatch.js";
+import { defaultContext } from "./cli-core.js";
 import { run } from "./program.js";
 
 /** `__relay`: what `packages/relay/src/relay-main.ts` does, with the listen address given. */
@@ -59,7 +61,13 @@ async function main(args: readonly string[]): Promise<void> {
       // and a kept-alive health connection must not hold the helper open.
       process.exit(await runBinaryHelperMain(command.json));
     case "cli":
-      process.exitCode = await run(command.args);
+      // `auth login` runs Pi's auth engine in this process; an OAuth login needs Pi's Bun runtime
+      // setup first. It renames the process and silences warnings, so it runs on first use of the
+      // auth engine only (`CliContext.prepareAuth`), not for every command.
+      process.exitCode = await run(command.args, {
+        ...defaultContext(),
+        prepareAuth: preparePiRuntime,
+      });
       return;
   }
 }

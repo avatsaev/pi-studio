@@ -26,16 +26,26 @@ function applyBinaryPiOverrides(): void {
 }
 
 /**
- * Prepares the daemon process for the Pi SDK it uses in-process: Pi's Bun runtime setup (without it
- * an OAuth login fails with `Cannot find module './anthropic.js'`) and the settings overrides, so
- * `pi install` and the resource service use the `bun` script and leave out the excluded packages.
- * A no-op on Node. Call before `runDaemon`.
+ * Pi's Bun runtime setup (`dist/bun/runtime-setup.js`): registers the OAuth flows the compiled
+ * executable cannot find by file name (without it an OAuth login fails with `Cannot find module
+ * './anthropic.js'`) and Pi's bundled provider modules. Needed by every process that runs Pi's auth
+ * engine in-process: the daemon, and the CLI's `auth login`. A no-op on Node.
  */
-export async function prepareBinaryDaemon(): Promise<void> {
+export async function preparePiRuntime(): Promise<void> {
   if (!isBinary) return;
   // Dynamic on purpose: the module has process-wide side effects (process title, warnings, OAuth
   // flows) that Node must never get, so it is imported only in the binary.
   await import("../../../../node_modules/@earendil-works/pi-coding-agent/dist/bun/runtime-setup.js");
+}
+
+/**
+ * Prepares the daemon process for the Pi SDK it uses in-process: Pi's Bun runtime setup and the
+ * settings overrides, so `pi install` and the resource service use the `bun` script and leave out
+ * the excluded packages. A no-op on Node. Call before `runDaemon`.
+ */
+export async function prepareBinaryDaemon(): Promise<void> {
+  if (!isBinary) return;
+  await preparePiRuntime();
   applyBinaryPiOverrides();
 }
 

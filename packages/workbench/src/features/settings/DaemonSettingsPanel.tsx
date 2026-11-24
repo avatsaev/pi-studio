@@ -13,7 +13,7 @@ import { useClient } from "../../lib/connection/connection-store.js";
 import { useUiStore } from "../../stores/ui-store.js";
 import { useDaemonUpdateStore } from "../connection/daemon-update-store.js";
 import { changeAutoCheck, checkDaemonNow } from "./daemon-settings-actions.js";
-import { daemonSettingsView } from "./daemon-settings-view.js";
+import { autoCheckHelpText, daemonSettingsView } from "./daemon-settings-view.js";
 import styles from "./DaemonSettingsPanel.module.css";
 
 /** How often the "5 minutes ago" wording is recomputed. */
@@ -108,9 +108,7 @@ export function DaemonSettingsPanel() {
       <div className={styles.row}>
         <div className={styles.rowMain}>
           <span className={styles.name}>Check automatically</span>
-          <span className={styles.description}>
-            Ask npm for a newer daemon at start and every six hours.
-          </span>
+          <span className={styles.description}>{autoCheckHelpText(status.installKind)}</span>
         </div>
         <Switch
           checked={view.autoCheck}

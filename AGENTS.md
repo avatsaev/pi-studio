@@ -111,7 +111,12 @@ Vite aliases (the workbench's published `dist` is proven by `packages/workbench/
 The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
 containers against a local verdaccio registry, never the real one; recipe in its README, dated
 results in `packages/server/docs/daemon-update-live-results.md`). Run it from a clean worktree after
-changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop.
+changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop. The single
+binary's update path has its own: `scripts/binary-update-check/` (a Node-less container, a local HTTP
+release channel; `build:binary` takes `--version`/`--out-dir` for it).
+What Pi, the `skills` CLI, an OAuth login and older glibc do inside the single binary (a Node-less
+container; real agent turn, `pi install`, a failing extension) was checked live; results are in
+`packages/server/docs/binary-live-results.md`.
 
 ---
 

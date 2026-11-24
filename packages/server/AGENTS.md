@@ -116,7 +116,7 @@ src/
   daemon/
     main.ts                       Production entry: `runDaemon()` (bin `pi-studio-daemon`); listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767).
     run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
-    binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `prepareBinaryDaemon()` (Pi's `dist/bun/runtime-setup.js`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose.
+    binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
@@ -1005,6 +1005,18 @@ creation" above.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
+- **A dead Pi process ends the turn with its error.** A non-zero exit with nothing in flight that
+  `close()` did not ask for also fails the transport (a turn's `prompt` is a `notify`, so nothing is
+  waiting for an answer). `PiAgentSession` keeps the transport's `error` frame (`processFailure`;
+  only the transport emits that frame, only once the process is gone): `run()` ends a turn at once
+  with an `error` stream event when the process died before it (the frame went out while nobody
+  listened: Pi exits at start-up when an extension fails to load and its stderr names it), and ends
+  one in flight when the process dies. `runTurn` then settles the agent as `error` with the message
+  on the timeline, and `create_agent` answers instead of timing out; before, the agent stayed
+  `running` forever and the stderr reached only the daemon log (found by the binary's live check,
+  `docs/binary-live-results.md`). The dead session answers every later prompt the same way until
+  `agent reload` respawns it. Tests: `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi
+  process ends the turn").
 - **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
   `switch_session` to load `handle.nativeHandle`'s JSONL history into it.** RPC mode has no CLI
   flag to preload a session at spawn — `--session <path>` is a TUI-only flag (docs/usage.md),
@@ -1976,6 +1988,10 @@ timers.
   pass it). `status.skippedVersion` is set while one is held. An automatic check finding exactly
   that version stays `idle`; a manual check offers it; a newer latest clears it (file removed).
   `outcome: "updated"` writes nothing. `MANUAL_UPDATE_COMMANDS.unmanaged_binary` is the releases page.
+  A result taken by the watch arrives after this daemon's own start check, which had no skip to honour
+  and offered the rolled-back version: the watch then takes that offer back (`withdrawSkippedOffer`:
+  `idle`, only when the offer came from an *automatic* check — `automaticOffer` — so a manual offer
+  stays), and sets `lastResult` and the state in one step.
 
 - **Check.** `npm view` result → `checkError` `offline` (no answer) or `bad_answer` (not `x.y.z`),
   state kept; otherwise `idle` (not newer), or the blocker in the spec's order: install kind
@@ -2061,7 +2077,12 @@ timers.
   The live check (a real `npm i -g` in a container against a local registry: update, rollback, the
   read-only folder cases, auto-check, a rollback with the registry stopped) is
   `scripts/daemon-update-check/` (README there); its dated results are in
-  `packages/server/docs/daemon-update-live-results.md`.
+  `packages/server/docs/daemon-update-live-results.md`. The same for a single binary in a Node-less
+  container (update, rollback, the skipped version, `unmanaged_binary`, a corrupted asset, the CLI's
+  `update`): `scripts/binary-update-check/`, dated section in that results file.
+  What Pi, the skills CLI, an OAuth login and the oldest glibc do in a Node-less container (real turn,
+  `pi install`, a package that fails to load, `skills` add/remove, the oldest distribution): dated
+  sections of `packages/server/docs/binary-live-results.md`.
 - **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
   read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
   value through `loadConfig` so an env override still wins in memory.

@@ -101,6 +101,32 @@ describe("defaultAuthRuntime — lazy import", () => {
       refreshOnCreate: false,
     });
   });
+
+  it("runs `prepare` once, on first use and before Pi is loaded (the binary's OAuth flows)", async () => {
+    // Live check of the binary (2026-11-24): `pi-studio auth login` failed with `Cannot find
+    // module './anthropic.js'` because Pi's Bun runtime setup had not run in the CLI process.
+    const order: string[] = [];
+    mockCreate.mockClear();
+    mockCreate.mockImplementation(async () => {
+      order.push("load");
+      return {
+        getProviders: () => [],
+        checkAuth: async () => undefined,
+        login: async () => ({ type: "oauth" }),
+        logout: async () => {},
+      };
+    });
+    const prepare = vi.fn(async () => {
+      order.push("prepare");
+    });
+    const runtime = defaultAuthRuntime({}, prepare);
+    expect(prepare).not.toHaveBeenCalled();
+
+    await runtime.listProviders();
+    await runtime.checkAuth("anthropic");
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["prepare", "load"]);
+  });
 });
 
 // ─── provider mapping + filtering ──────────────────────────────────────────────────

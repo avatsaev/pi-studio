@@ -1,7 +1,7 @@
 # Task 005 — Live check: a binary daemon updates itself and rolls back
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** binary, update
 - **Priority:** P1

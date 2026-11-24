@@ -80,6 +80,13 @@ export function installKindText(kind: string): string {
   return INSTALL_KINDS[kind] ?? kind;
 }
 
+/** The line under "Check automatically": where this install kind looks for a newer daemon. */
+export function autoCheckHelpText(kind: string): string {
+  return kind === "binary"
+    ? "Look for a newer release at start and every six hours."
+    : "Ask npm for a newer daemon at start and every six hours.";
+}
+
 function updateRow(status: DaemonUpdateStatus): DaemonSettingsView["update"] {
   const { state } = status;
   switch (state.kind) {
