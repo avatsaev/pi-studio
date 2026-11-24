@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { type LocalDaemonState, type RemoteDaemonState } from "../../host/types.js";
 import {
   DAEMON_ERROR_CODES,
-  INSTALL_CLI_COMMAND,
-  UPDATE_CLI_COMMAND,
   daemonErrorView,
   daemonFailureOf,
   isDaemonErrorCode,
@@ -45,26 +43,40 @@ function actions(state: RemoteDaemonState): string[] {
   return remoteStateView(state).actions.map((a) => `${a.kind}:${a.call}`);
 }
 
+function installingLabel(stage: "downloading" | "sending", done: number, total: number): string {
+  return remoteStateView({ state: "installing", stage, done, total }).label;
+}
+
 describe("remoteStateView", () => {
-  it("offers Start for a stopped or failed daemon, and Retry for a probe", () => {
+  it("offers Start and Update for a stopped daemon", () => {
     expect(actions({ state: "stopped" })).toEqual(["start:start", "update:update"]);
-    expect(actions({ state: "failed", reason: "timeout" })).toEqual([
-      "start:start",
-      "retry:refresh",
-    ]);
-    expect(actions({ state: "failed", reason: "no_shell" })).toEqual([
-      "start:start",
-      "retry:refresh",
-    ]);
   });
 
-  it("offers Retry (a new probe) for a missing or outdated CLI and an unchecked host", () => {
-    expect(actions({ state: "not_installed" })).toEqual(["retry:refresh"]);
-    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual([
+  it("offers Install for a host with nothing installed, with no shell command", () => {
+    expect(actions({ state: "not_installed" })).toEqual(["install:install"]);
+    expect(remoteStateView({ state: "not_installed" })).toMatchObject({
+      label: "pi-studio is not installed on this host",
+      tone: "error",
+    });
+  });
+
+  it("offers Update and a new probe for an outdated daemon", () => {
+    expect(actions({ state: "outdated", version: "0.0.100" })).toEqual([
       "update:update",
       "retry:refresh",
     ]);
+    expect(remoteStateView({ state: "outdated", version: "0.0.100" }).label).toContain("0.0.100");
+  });
+
+  it("offers a probe for an unchecked host", () => {
     expect(actions({ state: "unknown" })).toEqual(["retry:refresh"]);
+  });
+
+  it("says the system is not supported and offers no button", () => {
+    const view = remoteStateView({ state: "unsupported", system: "Linux x86_64 (musl)" });
+    expect(view.label).toBe("This system is not supported (Linux x86_64 (musl))");
+    expect(view.tone).toBe("error");
+    expect(view.actions).toEqual([]);
   });
 
   it("offers nothing while checking, starting or running", () => {
@@ -73,49 +85,86 @@ describe("remoteStateView", () => {
     expect(actions({ state: "running" })).toEqual([]);
   });
 
-  it("offers Update for a stopped or outdated host and after a failed update", () => {
-    expect(actions({ state: "stopped" })).toEqual(["start:start", "update:update"]);
-    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual([
-      "update:update",
-      "retry:refresh",
-    ]);
-    expect(actions({ state: "failed", reason: "update_failed" })).toEqual([
-      "update:update",
-      "retry:refresh",
-    ]);
-  });
-
-  it("shows a busy row without actions while updating", () => {
-    expect(actions({ state: "updating" })).toEqual([]);
-    expect(remoteStateView({ state: "updating" })).toMatchObject({
-      label: "Updating…",
+  it("shows the stage, with a percentage while bytes move, and no buttons while installing", () => {
+    expect(remoteStateView({ state: "installing", stage: "downloading" })).toMatchObject({
+      label: "Downloading the daemon",
       tone: "busy",
+      actions: [],
     });
+    expect(installingLabel("downloading", 512, 2048)).toBe("Downloading the daemon · 25 %");
+    expect(installingLabel("sending", 1024, 2048)).toBe("Sending the daemon to the host · 50 %");
+    expect(installingLabel("sending", 5, 0)).toBe("Sending the daemon to the host");
+    expect(installingLabel("sending", 9, 4)).toBe("Sending the daemon to the host · 100 %");
+    expect(remoteStateView({ state: "installing", stage: "unpacking" }).label).toBe(
+      "Unpacking the daemon on the host",
+    );
+    expect(remoteStateView({ state: "installing", stage: "starting" }).label).toBe(
+      "Starting the daemon",
+    );
   });
 
-  it("words each state and flags failures as errors", () => {
-    expect(remoteStateView({ state: "not_installed" })).toMatchObject({
-      label: "pi-studio is not installed on this host",
-      tone: "error",
-    });
-    expect(remoteStateView({ state: "cli_outdated", version: "0.0.100" }).label).toContain(
-      "0.0.100",
-    );
+  it("offers Retry that installs again after a failed install, and Retry that starts after a failed start", () => {
+    for (const reason of [
+      "download_failed",
+      "checksum_mismatch",
+      "send_failed",
+      "install_failed",
+    ] as const) {
+      expect(actions({ state: "failed", reason }), reason).toEqual(["retry:install"]);
+    }
+    for (const reason of [
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "exec_failed",
+      "no_shell",
+    ] as const) {
+      expect(actions({ state: "failed", reason }), reason).toEqual(["retry:start"]);
+    }
+  });
+
+  it("words every failure and flags it as an error", () => {
+    for (const reason of [
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "exec_failed",
+      "no_shell",
+      "download_failed",
+      "checksum_mismatch",
+      "send_failed",
+      "install_failed",
+    ] as const) {
+      const view = remoteStateView({ state: "failed", reason });
+      expect(view.label.length, reason).toBeGreaterThan(0);
+      expect(view.tone, reason).toBe("error");
+    }
     expect(remoteStateView({ state: "running" }).tone).toBe("ok");
     expect(remoteStateView({ state: "stopped" }).tone).toBe("neutral");
     expect(remoteStateView({ state: "starting" }).tone).toBe("busy");
-    expect(remoteStateView({ state: "failed", reason: "exec_failed" }).tone).toBe("error");
   });
 });
 
 describe("remoteNeedsScreen", () => {
-  it("is true exactly for stopped, not_installed, cli_outdated and failed (S8)", () => {
-    expect(remoteNeedsScreen("stopped")).toBe(true);
-    expect(remoteNeedsScreen("not_installed")).toBe(true);
-    expect(remoteNeedsScreen("cli_outdated")).toBe(true);
-    expect(remoteNeedsScreen("failed")).toBe(true);
-    for (const state of ["unknown", "checking", "running", "starting", null] as const) {
-      expect(remoteNeedsScreen(state)).toBe(false);
+  it("is true exactly for stopped, not_installed, outdated, unsupported and failed (S8)", () => {
+    for (const state of [
+      "stopped",
+      "not_installed",
+      "outdated",
+      "unsupported",
+      "failed",
+    ] as const) {
+      expect(remoteNeedsScreen(state), state).toBe(true);
+    }
+    for (const state of [
+      "unknown",
+      "checking",
+      "running",
+      "starting",
+      "installing",
+      null,
+    ] as const) {
+      expect(remoteNeedsScreen(state), String(state)).toBe(false);
     }
   });
 });
@@ -259,7 +308,7 @@ describe("daemonErrorView", () => {
         "local_not_removable",
         "unsupported",
         "outdated",
-        "cli_outdated",
+        "install_not_offered",
         "busy",
         "no_current",
         "local_stopped",
@@ -284,11 +333,10 @@ describe("daemonErrorView", () => {
     );
   });
 
-  it("gives the update command for an old remote CLI and none for an old local daemon", () => {
-    expect(INSTALL_CLI_COMMAND).toBe("npm i -g @av-pi-studio/cli");
-    expect(daemonErrorView("cli_outdated").command).toBe(UPDATE_CLI_COMMAND);
-    expect(daemonErrorView("not_installed").command).toBe(INSTALL_CLI_COMMAND);
-    expect(daemonErrorView("outdated").command).toBeUndefined();
+  it("offers no shell command for an old or missing daemon: the host's own Install and Update do it", () => {
+    expect(daemonErrorView("not_installed")).not.toHaveProperty("command");
+    expect(daemonErrorView("outdated")).not.toHaveProperty("command");
+    expect(daemonErrorView("install_not_offered").message).toMatch(/cannot be installed/);
   });
 
   it("explains that a local daemon needs macOS, Linux or WSL", () => {

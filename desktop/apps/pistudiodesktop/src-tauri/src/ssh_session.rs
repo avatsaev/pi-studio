@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -32,12 +32,12 @@ use pistudiodesktop_engine::SshPlan;
 use pistudiodesktop_model::{EntryId, RemoteState, Secret};
 use pistudiodesktop_net::{DaemonSocket, Wire};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
-use pistudiodesktop_shell::services::{RemoteOutput, RemoteRunFailure, RemoteRunHook};
+use pistudiodesktop_shell::services::{RemoteDaemonVersionHook, RemoteOutput, RemoteRunFailure, RemoteRunHook, RemoteSendFailure, RemoteSendHook};
 use pistudiodesktop_shell::shell_env::{ShellEnv, process_env};
 use pistudiodesktop_shell::transports::{SshState, SshView};
 use pistudiodesktop_shell::{Services, dialogs};
 use pistudiodesktop_ssh::config::{self, ConfigError, ConfigSource, Entry, HostSuggestion, Target};
-use pistudiodesktop_ssh::{DaemonError, Environment, Error, Limits, RunError, Secrets, Session, connect, known_hosts};
+use pistudiodesktop_ssh::{DaemonError, Environment, Error, Limits, RunError, Secrets, SendError, Session, connect, known_hosts};
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::{OnceCell, RwLock, watch};
@@ -309,19 +309,27 @@ impl SshSessions {
         tauri::async_runtime::block_on(self.run(access, command, limit))
     }
 
-    async fn run(&self, access: &OwnerAccess, command: &str, limit: Duration) -> Result<RemoteOutput, RemoteRunFailure> {
+    /// The session of the current entry, leased, with its plan; `None` (and a log line with the code) when there is
+    /// none and none could be opened.
+    async fn leased(&self, access: &OwnerAccess) -> Option<(Lease, SshPlan)> {
         let plan = blocking({
             let access = access.clone();
             move || access.ssh_plan()
         })
         .await
         .ok()
-        .and_then(Result::ok)
-        .ok_or(RemoteRunFailure::ExecFailed)?;
-        let lease = self.lease(access, &plan).await.map_err(|failure| {
-            log::info!("remote command: no SSH session ({})", failure.code);
-            RemoteRunFailure::ExecFailed
-        })?;
+        .and_then(Result::ok)?;
+        match self.lease(access, &plan).await {
+            Ok(lease) => Some((lease, plan)),
+            Err(failure) => {
+                log::info!("remote command: no SSH session ({})", failure.code);
+                None
+            }
+        }
+    }
+
+    async fn run(&self, access: &OwnerAccess, command: &str, limit: Duration) -> Result<RemoteOutput, RemoteRunFailure> {
+        let (lease, _) = self.leased(access).await.ok_or(RemoteRunFailure::ExecFailed)?;
         let guard = lease.live.session.read().await;
         let session = guard.as_ref().ok_or(RemoteRunFailure::ExecFailed)?;
         let ran = tokio::select! {
@@ -338,10 +346,75 @@ impl SshSessions {
         }
     }
 
+    /// Write the `size` bytes of the file at `source` to `path` on the host over the shared session
+    /// ([`Session::send`]). Blocks until it is there or has failed: call it off the thread that owns the registry and off
+    /// the async runtime's workers. Neither the path nor the data is logged; only the kind of failure is.
+    pub fn send_blocking(
+        &self,
+        access: &OwnerAccess,
+        path: &str,
+        source: &Path,
+        size: u64,
+        stall: Duration,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<(), RemoteSendFailure> {
+        tauri::async_runtime::block_on(self.send(access, path, source, size, stall, progress))
+    }
+
+    async fn send(
+        &self,
+        access: &OwnerAccess,
+        path: &str,
+        source: &Path,
+        size: u64,
+        stall: Duration,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<(), RemoteSendFailure> {
+        let (lease, _) = self.leased(access).await.ok_or(RemoteSendFailure::Failed)?;
+        let file = tokio::fs::File::open(source).await.map_err(|_| RemoteSendFailure::Failed)?;
+        let guard = lease.live.session.read().await;
+        let session = guard.as_ref().ok_or(RemoteSendFailure::Failed)?;
+        let sent = tokio::select! {
+            sent = session.send(path, file, size, stall, progress) => sent,
+            () = lease.live.closing() => Err(SendError::Closed),
+        };
+        sent.map_err(|error| {
+            log::info!("remote send failed ({})", error.code());
+            if matches!(error, SendError::Rejected { .. }) { RemoteSendFailure::Rejected } else { RemoteSendFailure::Failed }
+        })
+    }
+
+    /// The version the daemon of the current entry reports on its health endpoint, asked over the shared session.
+    /// Blocks like [`Self::run_blocking`].
+    pub fn daemon_version_blocking(&self, access: &OwnerAccess) -> Option<String> {
+        tauri::async_runtime::block_on(async {
+            let (lease, plan) = self.leased(access).await?;
+            let guard = lease.live.session.read().await;
+            let session = guard.as_ref()?;
+            let answer = tokio::select! {
+                answer = session.daemon_health(plan.fields.daemon_port) => answer,
+                () = lease.live.closing() => None,
+            };
+            crate::daemon_health::parse(&answer?)
+        })
+    }
+
     /// The hook the shell's remote supervisor runs commands through.
     pub fn remote_run_hook(&self, access: OwnerAccess) -> RemoteRunHook {
         let sessions = self.clone();
         Arc::new(move |command, limit| sessions.run_blocking(&access, command, limit))
+    }
+
+    /// The hook the shell's remote supervisor sends the daemon's archive through.
+    pub fn remote_send_hook(&self, access: OwnerAccess) -> RemoteSendHook {
+        let sessions = self.clone();
+        Arc::new(move |path, source, size, stall, progress| sessions.send_blocking(&access, path, source, size, stall, progress))
+    }
+
+    /// The hook the shell's remote supervisor reads a running daemon's version through.
+    pub fn remote_daemon_version_hook(&self, access: OwnerAccess) -> RemoteDaemonVersionHook {
+        let sessions = self.clone();
+        Arc::new(move || sessions.daemon_version_blocking(&access))
     }
 
     /// A lease on the session of `plan`'s entry, dialling it when there is none. A session that

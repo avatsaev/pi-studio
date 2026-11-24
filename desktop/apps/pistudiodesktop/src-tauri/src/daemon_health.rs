@@ -31,8 +31,8 @@ pub fn version(host: &str, port: u16) -> Option<String> {
     parse(&String::from_utf8_lossy(&answer))
 }
 
-/// The `version` of a `200` answer whose body is a JSON object.
-fn parse(answer: &str) -> Option<String> {
+/// The `version` of a `200` answer whose body is a JSON object (the local read above, and the SSH session's over a channel).
+pub(crate) fn parse(answer: &str) -> Option<String> {
     let (head, body) = answer.split_once("\r\n\r\n")?;
     let status = head.lines().next()?.split_whitespace().nth(1)?;
     if status != "200" {

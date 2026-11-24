@@ -59,6 +59,7 @@ export type {
   LocalDaemonState,
   NewDaemon,
   RemoteDaemonState,
+  RemoteInstallStage,
   SaveTarget,
   SshEntryView,
   SshHostSuggestion,

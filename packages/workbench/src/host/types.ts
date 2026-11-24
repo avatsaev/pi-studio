@@ -82,23 +82,23 @@ export type LocalDaemonState =
       output?: string;
     };
 
+/** Where an install on an SSH host is. */
+export type RemoteInstallStage = "downloading" | "sending" | "unpacking" | "starting";
+
 /**
  * The daemon behind the current `ssh` entry, as the host last probed or drove it. In memory; reset
  * when another entry is opened.
  */
 export type RemoteDaemonState =
   | {
-      state:
-        | "unknown"
-        | "checking"
-        | "running"
-        | "stopped"
-        | "not_installed"
-        | "starting"
-        | "updating";
+      state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting";
     }
-  /** The host's `pi-studio` is older than the minimum the desktop app drives. */
-  | { state: "cli_outdated"; version: string }
+  /** The host's daemon (running) is older than the minimum the desktop app drives. */
+  | { state: "outdated"; version: string }
+  /** The host cannot run the daemon: `system` is how the host names itself, e.g. "Linux x86_64 (musl)". */
+  | { state: "unsupported"; system: string }
+  /** The daemon is being put on the host; `done` and `total` are bytes while one is being moved. */
+  | { state: "installing"; stage: RemoteInstallStage; done?: number; total?: number }
   | {
       state: "failed";
       reason:
@@ -107,8 +107,11 @@ export type RemoteDaemonState =
         | "bad_output"
         | "exec_failed"
         | "no_shell"
-        | "update_failed";
-      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+        | "download_failed"
+        | "checksum_mismatch"
+        | "send_failed"
+        | "install_failed";
+      /** With `send_failed` or `install_failed`: the last lines the host printed. Shown, never parsed. */
       output?: string;
     };
 
@@ -160,7 +163,7 @@ export type DaemonErrorCode =
   | "local_not_removable"
   | "unsupported"
   | "outdated"
-  | "cli_outdated"
+  | "install_not_offered"
   | "busy"
   | "no_current"
   | "local_stopped"
@@ -258,12 +261,17 @@ export interface HostDaemons {
   };
   /**
    * The current `ssh` entry's daemon. Rejects `wrong_kind` for any other entry, `busy`, and (start)
-   * `not_installed` or `cli_outdated`.
+   * `not_installed` or `outdated`.
    */
   remote: {
     start(): Promise<void>;
     refresh(): Promise<void>;
-    /** Updates `pi-studio` on the host, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    /**
+     * Puts the daemon the app was built with on the host, then starts it. Offered for `not_installed`, `stopped`
+     * and a failed install.
+     */
+    install(): Promise<void>;
+    /** Installs the app's daemon on the host and restarts the daemon on it. Offered for `outdated` or `stopped`. */
     update(): Promise<void>;
   };
   /**

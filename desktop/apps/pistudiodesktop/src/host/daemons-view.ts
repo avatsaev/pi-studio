@@ -37,14 +37,24 @@ const REMOTE_FAIL_REASONS = [
   "bad_output",
   "exec_failed",
   "no_shell",
-  "update_failed",
+  "download_failed",
+  "checksum_mismatch",
+  "send_failed",
+  "install_failed",
 ] as const;
+const REMOTE_STAGES = ["downloading", "sending", "unpacking", "starting"] as const;
 const ENTRY_KINDS = ["local", "direct", "relay", "ssh"] as const;
 
 /** A string, or `undefined` for an absent or null field; `null` for any other type. */
 function optionalString(value: unknown): string | undefined | null {
   if (value === undefined || value === null) return undefined;
   return typeof value === "string" ? value : null;
+}
+
+/** A number, or `undefined` for an absent or null field; `null` for any other type. */
+function optionalNumber(value: unknown): number | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  return typeof value === "number" ? value : null;
 }
 
 function parseLocalState(value: unknown): LocalDaemonState | null {
@@ -90,10 +100,23 @@ function parseRemoteState(value: unknown): RemoteDaemonState | null {
     case "stopped":
     case "not_installed":
     case "starting":
-    case "updating":
       return { state: value.state };
-    case "cli_outdated":
-      return typeof value.version === "string" ? { state: "cli_outdated", version: value.version } : null;
+    case "outdated":
+      return typeof value.version === "string" ? { state: "outdated", version: value.version } : null;
+    case "unsupported":
+      return typeof value.system === "string" ? { state: "unsupported", system: value.system } : null;
+    case "installing": {
+      const stage = REMOTE_STAGES.find((s) => s === value.stage);
+      const done = optionalNumber(value.done);
+      const total = optionalNumber(value.total);
+      if (!stage || done === null || total === null) return null;
+      return {
+        state: "installing",
+        stage,
+        ...(done === undefined ? {} : { done }),
+        ...(total === undefined ? {} : { total }),
+      };
+    }
     case "failed": {
       const reason = REMOTE_FAIL_REASONS.find((r) => r === value.reason);
       const output = optionalString(value.output);

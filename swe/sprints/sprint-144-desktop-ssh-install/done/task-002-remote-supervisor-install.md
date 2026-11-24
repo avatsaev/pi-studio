@@ -1,7 +1,7 @@
 # Task 002 — The remote supervisor installs and runs the binary on an SSH host
 
 - **Sprint:** sprints/sprint-144-desktop-ssh-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (model, engine, shell, app)
 - **Priority:** P1

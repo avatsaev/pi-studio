@@ -452,7 +452,7 @@ All communication uses a **single WebSocket connection** per client.
   `runDaemon` (SIGINT/SIGTERM close then exit, plus the self-update restart hook), and `daemon stop`/`restart`
   wait up to 10 s for the exit and report `still_running`. **Shipped and live-verified**: the workbench pill,
   dialog and Settings → Daemon switch; the desktop Daemons screen's Update for a stopped or too-old local or
-  SSH daemon (`pi-studio -H 127.0.0.1:<port> update 2>&1` over SSH). Seen live in a real `npm i -g` in
+  SSH daemon (milestone 6: both install the app's pinned binary and restart on it; over SSH the app sends the archive through the session, `desktop/docs/architecture.md`). Seen live in a real `npm i -g` in
   containers against a local registry (`packages/server/docs/daemon-update-live-results.md`: update with
   clients reconnecting, rollback of a broken version, a rollback with the registry stopped, read-only folder,
   auto-check off) and in the desktop app's webview on Linux (`desktop/docs/platform-checks.md` § Daemon

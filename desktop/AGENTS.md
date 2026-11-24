@@ -48,7 +48,7 @@ first upload into a fresh daemon (64 MiB allowed). The page's path held a 5 GiB 
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; a file dragged from the OS
 file manager was not tried (the page's drop was dispatched as an event); a `kill -9`ed daemon leaves its
 `.pistudio-upload-<hex>.part` until it starts again, and the explorer lists it meanwhile. The app's `minDaemonVersion`
-(`cli_answers::MIN_CLI_VERSION`, also the oldest daemon the supervisor accepts, and the oldest CLI over SSH) is 0.0.127: the release
+(`cli_answers::MIN_CLI_VERSION`, also the oldest daemon the supervisor accepts, locally and over SSH) is 0.0.127: the release
 that carries the daemon's temporary-file and pacing changes. `main` published 0.0.126 from older code
 while the branch was open, so the number is the one the branch's merge publishes.
 Milestone 4 (the relay in Rust and SSH entries) is built: a relay entry's socket is Rust's (`relay`, protocol 2; the
@@ -70,19 +70,16 @@ AppImage, `.rpm`, `.msi`, a graphical polkit Cancel, and the first publishing ru
 users install 0.3.0 by hand once: earlier builds cannot update themselves.
 
 The daemon's self-update (roadmap 5b, `swe/features/self-update.md`) is built on the app's side too: the Daemons
-screen offers Update beside Retry for a local or SSH daemon that is `outdated` (local) or `cli_outdated` (SSH), and beside Start when it is
+screen offers Update beside Retry for a local or SSH daemon that is `outdated`, and beside Start when it is
 `stopped` (`daemon.local.update`, `daemon.remote.update`; the local one is refused with `unsupported`,
-`update_not_offered` or `busy`, the SSH one with `not_installed`, `wrong_kind`, `no_current` or `update_not_offered`). Locally the supervisor stops a running
+`update_not_offered` or `busy`, the SSH one with `not_installed`, `unsupported`, `wrong_kind`, `no_current` or `update_not_offered`). Locally the supervisor stops a running
 outdated daemon (the binary's `daemon stop`), installs the pinned binary when the one in place is older, and starts the daemon; it is
 refused in effect (the state is what `daemon status` says) when the binary is the pin's or newer and the daemon is not outdated (P11: never a downgrade);
-the state is `updating`, then `running`, `outdated` or a failure with the install's reason. Over SSH the supervisor runs `pi-studio update` on the host
-(`pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`, so the CLI restarts that host's daemon and not one on its own
-default port), 5 minutes at most, then `--version` and the same Start; the state is `updating`, then `running`,
-`cli_outdated` or `failed(update_failed)` with the last 20 lines of output (an Update on a failed row runs again).
+the state is `updating`, then `running`, `outdated` or a failure with the install's reason. Over SSH, since milestone 6, Update installs the pinned binary on the host
+and restarts the daemon on it (below); `pi-studio update` is no longer run over SSH.
 The page reconnects after an Update like after a Start; an announced `restarting` (the workbench pill's update) is
-not probed as a crash. Checked live on Linux in the real webview, scripted (`docs/platform-checks.md` § Daemon
-self-update rows, D-U1 to D-U7: five defects found and fixed); not seen: macOS and Windows (owner's decision), a real
-old CLI, the pill on an SSH entry's daemon, a rollback seen from the app.
+not probed as a crash. The local side was checked live on Linux in the real webview, scripted (`docs/platform-checks.md` § Daemon
+self-update rows, D-U1 to D-U7, run against the npm-era behavior); not seen: macOS and Windows (owner's decision), the pill on an SSH entry's daemon, a rollback seen from the app.
 
 Milestone 6 (the daemon as one binary the app installs, `swe/features/single-binary-daemon.md`): the local side, the page's new
 states (task 004) and the command-line tool (task 005) are built. `desktop/daemon-pin.json` (the version, and each of the four systems' archive address, SHA-256 and size,
@@ -103,6 +100,7 @@ A running daemon older than 0.0.127 (`GET /api/health`, `src-tauri/src/daemon_he
 no installer and runs the binary in place (`failed(spawn_failed)` when there is none). Tested with fake services (`shell/src/supervisor/tests.rs`)
 and a loopback download (`daemon_install.rs`); not yet run live (sprint-145/task-001).
 
+**Milestone 6, the SSH side** (`swe/features/desktop-ssh-daemon-install.md`): an SSH row installs the pinned binary on the host. `RemoteState` is `unknown`, `checking`, `running`, `stopped`, `not_installed`, `starting`, `outdated {version}`, `unsupported {system}`, `installing {stage, done?, total?}` and `failed {reason, output?}` (reasons `not_healthy`, `timeout`, `bad_output`, `exec_failed`, `no_shell`, `download_failed`, `checksum_mismatch`, `send_failed`, `install_failed`; `cli_outdated`, `updating`, `update_failed` and the host's `pi-studio update` are gone). `daemon.remote.install` (enabled for `not_installed`, `stopped` and an install failure) and `daemon.remote.update` (`outdated`, `stopped`; a restart after the install) run `shell::remote_supervisor`: one facts script over the session (`remote_supervisor/scripts.rs`), the archive from `Services::archives` (the `ArchiveSource` the app's `LocalInstaller` implements, same cache as the local install), `Services::remote_send` (`Session::send`, `ssh_session.rs`), the check, unpack and start scripts under `/bin/sh -c`, then a prune. The running daemon's version comes from `Services::remote_daemon_version` (`Session::daemon_health`, `GET /api/health` through the session; not the page's handshake, which Rust cannot see). The shell crate depends on neither `ssh` nor `install`; the app fills the hooks. Only the last lines of host output reach the state, for `install_failed` and `send_failed`, and no log holds them. Tested with scripted fake hosts, real `/bin/sh` scratch hosts (`remote_supervisor/tests.rs`, `scripts/tests.rs`) and one install through the in-process SSH server (`commands/tests/ssh_tests.rs`); not yet run live (sprint-145/task-001).
 **The command-line tool** (task 005): `cli_tool.state` and `cli_tool.install` (`docs/control-protocol.md` § Command-line tool commands). The
 link is `~/.local/bin/pi-studio` → `$PI_STUDIO_HOME/bin/current/pi-studio` (so it follows every update); `state` is `unavailable` with no
 binary installed (and on Windows), `absent` with nothing at the link, `occupied` when what is there is not a symbolic link to that path (a

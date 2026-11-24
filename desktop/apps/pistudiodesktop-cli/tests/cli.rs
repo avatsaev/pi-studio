@@ -83,6 +83,7 @@ fn commands_lists_the_registry() {
             "daemon.local.update",
             "daemon.remote.start",
             "daemon.remote.refresh",
+            "daemon.remote.install",
             "daemon.remote.update",
             "command.list",
             "settings.get",

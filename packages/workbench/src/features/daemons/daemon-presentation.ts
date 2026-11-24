@@ -115,46 +115,84 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
 
 /** What the user can ask of the current SSH entry's daemon. */
 export interface RemoteAction {
-  kind: "start" | "retry" | "update";
+  kind: "start" | "retry" | "install" | "update";
   label: string;
-  /** The `HostDaemons.remote` member to call: Retry probes the host again. */
-  call: "start" | "refresh" | "update";
+  /** The `HostDaemons.remote` member to call: Retry after a failed install installs again, a failed start starts again. */
+  call: "start" | "refresh" | "install" | "update";
 }
 
 export interface RemoteStateView {
   label: string;
   tone: LocalTone;
-  /** In display order. Empty while the state is transient or already running. */
+  /** In display order. Empty while the state is transient, already running, or not supported. */
   actions: RemoteAction[];
 }
 
+type RemoteFailReason = Extract<RemoteDaemonState, { state: "failed" }>["reason"];
+type RemoteInstallFailReason =
+  | "download_failed"
+  | "checksum_mismatch"
+  | "send_failed"
+  | "install_failed";
+
 const REMOTE_START: RemoteAction = { kind: "start", label: "Start", call: "start" };
-const REMOTE_RETRY: RemoteAction = { kind: "retry", label: "Retry", call: "refresh" };
-/** Runs `pi-studio update` on the host, then starts the daemon. */
+/** For an unknown state: look at the host. */
+const REMOTE_PROBE: RemoteAction = { kind: "retry", label: "Retry", call: "refresh" };
+/** For a failed start: start the daemon again. */
+const REMOTE_RETRY_START: RemoteAction = { kind: "retry", label: "Retry", call: "start" };
+/** For a failed install: run the install again. */
+const REMOTE_RETRY_INSTALL: RemoteAction = { kind: "retry", label: "Retry", call: "install" };
+/** Puts the daemon the app was built with on the host, then starts it. */
+const REMOTE_INSTALL: RemoteAction = { kind: "install", label: "Install", call: "install" };
+/** Installs the app's daemon on the host and restarts the daemon on it. */
 const REMOTE_UPDATE: RemoteAction = { kind: "update", label: "Update", call: "update" };
 
-const REMOTE_FAILED_LABELS: Record<
-  Extract<RemoteDaemonState, { state: "failed" }>["reason"],
-  string
-> = {
+const REMOTE_FAILED_LABELS: Record<RemoteFailReason, string> = {
   not_healthy: "Started, but not answering",
   timeout: "Did not start in time",
-  bad_output: "The pi-studio CLI printed something unexpected",
+  bad_output: "The pi-studio daemon printed something unexpected",
   exec_failed: "Could not run a command on the host",
   no_shell: "The host's login shell could not be used",
-  update_failed: "The update failed",
+  download_failed: "The download failed",
+  checksum_mismatch: "The file did not match its checksum on the host and was deleted",
+  send_failed: "Sending the daemon to the host failed",
+  install_failed: "Installing the daemon on the host failed",
 };
 
-/** The oldest `pi-studio` the desktop app drives on an SSH host (the host's `MIN_CLI_VERSION`). */
-export const MIN_REMOTE_CLI_VERSION = "0.0.127";
+/** The failures of getting the daemon onto the host; Retry runs the install again. */
+export function isRemoteInstallFailure(
+  reason: RemoteFailReason,
+): reason is RemoteInstallFailReason {
+  return (
+    reason === "download_failed" ||
+    reason === "checksum_mismatch" ||
+    reason === "send_failed" ||
+    reason === "install_failed"
+  );
+}
 
-/** The command that installs (or updates) `pi-studio` on an SSH host. */
-export const REMOTE_INSTALL_COMMAND = "npm install -g @av-pi-studio/cli";
+const INSTALLING_LABELS: Record<
+  Extract<RemoteDaemonState, { state: "installing" }>["stage"],
+  string
+> = {
+  downloading: "Downloading the daemon",
+  sending: "Sending the daemon to the host",
+  unpacking: "Unpacking the daemon on the host",
+  starting: "Starting the daemon",
+};
+
+/** "Sending the daemon to the host · 42 %"; no share while the size is not known. */
+function installingLabel(state: Extract<RemoteDaemonState, { state: "installing" }>): string {
+  const label = INSTALLING_LABELS[state.stage];
+  const { done, total } = state;
+  if (done === undefined || total === undefined || total <= 0) return label;
+  return `${label} · ${Math.min(100, Math.floor((done / total) * 100))} %`;
+}
 
 export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
   switch (state.state) {
     case "unknown":
-      return { label: "Not checked yet", tone: "neutral", actions: [REMOTE_RETRY] };
+      return { label: "Not checked yet", tone: "neutral", actions: [REMOTE_PROBE] };
     case "checking":
       return { label: "Checking…", tone: "busy", actions: [] };
     case "running":
@@ -167,24 +205,27 @@ export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
       return {
         label: "pi-studio is not installed on this host",
         tone: "error",
-        actions: [REMOTE_RETRY],
+        actions: [REMOTE_INSTALL],
       };
-    case "cli_outdated":
+    case "outdated":
       return {
-        label: `The pi-studio CLI ${state.version} on this host is too old`,
+        label: `The pi-studio daemon ${state.version} on this host is too old`,
         tone: "error",
-        actions: [REMOTE_UPDATE, REMOTE_RETRY],
+        actions: [REMOTE_UPDATE, REMOTE_PROBE],
       };
-    case "updating":
-      return { label: "Updating…", tone: "busy", actions: [] };
+    case "unsupported":
+      return {
+        label: `This system is not supported (${state.system})`,
+        tone: "error",
+        actions: [],
+      };
+    case "installing":
+      return { label: installingLabel(state), tone: "busy", actions: [] };
     case "failed":
       return {
         label: REMOTE_FAILED_LABELS[state.reason],
         tone: "error",
-        actions:
-          state.reason === "update_failed"
-            ? [REMOTE_UPDATE, REMOTE_RETRY]
-            : [REMOTE_START, REMOTE_RETRY],
+        actions: [isRemoteInstallFailure(state.reason) ? REMOTE_RETRY_INSTALL : REMOTE_RETRY_START],
       };
   }
 }
@@ -194,7 +235,8 @@ export function remoteNeedsScreen(state: RemoteDaemonState["state"] | null): boo
   return (
     state === "stopped" ||
     state === "not_installed" ||
-    state === "cli_outdated" ||
+    state === "outdated" ||
+    state === "unsupported" ||
     state === "failed"
   );
 }
@@ -207,14 +249,9 @@ export interface DaemonErrorView {
   message: string;
   /** A second sentence explaining why or what to do, when the message alone is not enough. */
   detail?: string;
-  /** A shell command the user can copy. */
-  command?: string;
   /** `false`: a plain state, not drawn as an error (the local daemon is stopped by choice). */
   isError: boolean;
 }
-
-export const INSTALL_CLI_COMMAND = "npm i -g @av-pi-studio/cli";
-export const UPDATE_CLI_COMMAND = "npm i -g @av-pi-studio/cli@latest";
 
 const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { isError?: false }> = {
   invalid_name: { message: "The name must be 1 to 64 characters." },
@@ -234,10 +271,10 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
     message: "The pi-studio daemon is too old.",
     detail: "Update it, then retry.",
   },
-  cli_outdated: {
-    message: "The pi-studio CLI is too old to start a daemon.",
-    detail: "Update it, then retry.",
-    command: UPDATE_CLI_COMMAND,
+  install_not_offered: {
+    message: "The daemon cannot be installed now.",
+    detail:
+      "Install is offered when nothing is installed, the daemon is stopped, or an install failed.",
   },
   busy: { message: "Another action on the local daemon is still running." },
   no_current: { message: "No daemon is selected.", detail: "Pick one or add one.", isError: false },
@@ -270,11 +307,7 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
   invalid_port: { message: "The port must be a number from 1 to 65535." },
   invalid_path: { message: "This is not a valid file path." },
   invalid_jump: { message: "This is not a valid jump host." },
-  not_installed: {
-    message: "pi-studio is not installed on this host.",
-    detail: "Install it there, then retry.",
-    command: INSTALL_CLI_COMMAND,
-  },
+  not_installed: { message: "pi-studio is not installed on this host." },
   ssh_config: {
     message: "~/.ssh/config could not be read.",
     detail: "Fix the file (a ProxyCommand is not supported), then try again.",

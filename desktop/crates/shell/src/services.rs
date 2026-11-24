@@ -148,6 +148,56 @@ pub enum RemoteRunFailure {
 /// it over the entry's SSH session; the shell holds no socket.
 pub type RemoteRunHook = Arc<dyn Fn(&str, Duration) -> Result<RemoteOutput, RemoteRunFailure> + Send + Sync>;
 
+/// Why a file did not reach the SSH host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteSendFailure {
+    /// The host's own command failed (no space left, no permission, no such folder): what it said is worth showing.
+    Rejected,
+    /// No channel, a stall, a lost connection, or the file could not be read.
+    Failed,
+}
+
+/// Write the file at the local path (given second) on the current SSH entry's host at the absolute path given first, with
+/// the file's size and the stall limit (no total limit), telling the callback the bytes sent so far. Blocks until the
+/// file is there or the send failed: whoever calls it ([`crate::remote_supervisor`]) must not own the session. The app
+/// fills it over the entry's SSH session; the shell holds no socket. Neither the path nor the data is logged.
+pub type RemoteSendHook = Arc<dyn Fn(&str, &Path, u64, Duration, &mut dyn FnMut(u64)) -> Result<(), RemoteSendFailure> + Send + Sync>;
+
+/// The version the daemon behind the current SSH entry's session reports on its health endpoint; `None` when it cannot
+/// be read within a few seconds. Blocks like [`RemoteRunHook`].
+pub type RemoteDaemonVersionHook = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
+/// A pinned daemon archive on the app's disk, ready to send.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Archive {
+    pub path: PathBuf,
+    /// The file's size in bytes, as the pin says (the cache checked it).
+    pub size: u64,
+    /// The file's SHA-256 as the pin says, 64 hexadecimal digits.
+    pub sha256: String,
+}
+
+/// Why a pinned archive could not be had.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchFailure {
+    /// No network, a refused or stalled download, a disk that cannot hold it: `download_failed`.
+    Download,
+    /// The download is not the pinned file; it was deleted: `checksum_mismatch`.
+    Checksum,
+}
+
+/// The pinned daemon archives, behind the shell's view of them: `crates/install` is above the shell. Blocks (a download
+/// takes as long as the link needs): whoever calls it must not own the session.
+pub trait ArchiveSource: Send + Sync {
+    /// The pinned version.
+    fn version(&self) -> &str;
+
+    /// The archive of the pin for `target` (one of the four published systems), from the app's archive cache or
+    /// downloaded into it; the callback gets `(received, total)` bytes while it downloads. A cached file is used only
+    /// when it matches the pin.
+    fn fetch(&self, target: &str, progress: &mut dyn FnMut(u64, u64)) -> Result<Archive, FetchFailure>;
+}
+
 /// Every hook is optional: where one is missing (tests, a platform without it), what needs it is
 /// disabled instead of failing: a confirmation is declined, a message and a link are dropped, and saving to disk and picking files are refused.
 ///
@@ -166,6 +216,16 @@ pub struct Services {
     pub transports: Option<TransportsHook>,
     pub transfers: Option<TransfersHook>,
     pub remote_run: Option<RemoteRunHook>,
+    /// Sends a file over the current SSH entry's session ([`RemoteSendHook`]). Missing in tests that need no send:
+    /// an install over SSH then fails with `send_failed`.
+    pub remote_send: Option<RemoteSendHook>,
+    /// The version the daemon of the current SSH entry reports ([`RemoteDaemonVersionHook`]); without it a running
+    /// remote daemon is never `outdated`.
+    pub remote_daemon_version: Option<RemoteDaemonVersionHook>,
+    /// The pinned daemon archives for any of the four systems (the pin, the archive cache, the download), which an
+    /// install over SSH sends. The app fills it with the same object as [`Self::installer`]. Missing in the headless
+    /// CLI: an install over SSH is refused.
+    pub archives: Option<Arc<dyn ArchiveSource>>,
     /// The daemon binary's installer (the pin, the archive cache, the download). Missing in the headless CLI
     /// and in tests that run a binary that is already in place: the supervisor then runs `current/pi-studio` as it
     /// finds it and installs nothing.

@@ -31,6 +31,7 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.local.update",
     "daemon.remote.start",
     "daemon.remote.refresh",
+    "daemon.remote.install",
     "daemon.remote.update",
     "settings.get",
     "settings.set",
@@ -305,6 +306,7 @@ fn remote_request_to_json(request: &RemoteRequest) -> Value {
     let action = match request.action {
         RemoteAction::Start => "start",
         RemoteAction::Probe => "probe",
+        RemoteAction::Install => "install",
         RemoteAction::Update => "update",
     };
     json!({"entry": request.entry.as_str(), "action": action})
@@ -316,6 +318,7 @@ pub fn remote_requests_from_json(value: &Value) -> Vec<RemoteRequest> {
         let action = match item["action"].as_str()? {
             "start" => RemoteAction::Start,
             "probe" => RemoteAction::Probe,
+            "install" => RemoteAction::Install,
             "update" => RemoteAction::Update,
             _ => return None,
         };
@@ -460,6 +463,7 @@ mod tests {
         assert_eq!(ssh_plan_from_json(&json!({"entry": "../x"})), Err("internal"));
         let requests = vec![
             RemoteRequest { entry: entry.clone(), action: RemoteAction::Start },
+            RemoteRequest { entry: entry.clone(), action: RemoteAction::Install },
             RemoteRequest { entry: entry.clone(), action: RemoteAction::Update },
             RemoteRequest { entry, action: RemoteAction::Probe },
         ];

@@ -34,7 +34,7 @@ const CODES: Record<DaemonErrorCode, true> = {
   local_not_removable: true,
   unsupported: true,
   outdated: true,
-  cli_outdated: true,
+  install_not_offered: true,
   busy: true,
   no_current: true,
   local_stopped: true,
@@ -232,6 +232,7 @@ export function createDesktopDaemons(
     remote: {
       start: () => accepted("daemon.remote.start"),
       refresh: () => accepted("daemon.remote.refresh"),
+      install: () => accepted("daemon.remote.install"),
       update: () => accepted("daemon.remote.update"),
     },
     cliTool: {

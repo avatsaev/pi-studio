@@ -298,31 +298,35 @@ thread, on the supervisor (`src-tauri/src/commands.rs`): the install may wait fo
 file; the Daemons screen shows the line to add. Windows is `unavailable`.
 
 **The SSH entry's daemon.** The engine keeps the `RemoteState` of the current SSH entry's daemon in
-memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`, `updating`,
-`failed`; reset when another entry is opened) and a queue of requests (`daemon.remote.start`,
-`daemon.remote.refresh`, `daemon.remote.update`, and the probe a `transport_open` that failed with `daemon_not_running`
-queues); like the local supervisor it runs no process. `shell::remote_supervisor` (native only) works
-the queue one request at a time through `RemoteAccess` (the app's `RemoteOwner`, over `LocalOp::Ssh`)
-and `Services::remote_run`, a hook the app fills with a command run over the shared SSH session:
-`"$SHELL" -lic '<begin marker>; <command>; <end marker with the status>'`, fresh random markers each
-time, answering what lies between them (a login shell, interactive, because on Debian and Ubuntu
-`.bashrc` returns early otherwise and nvm's `pi-studio` is not on the PATH). A probe runs
-`pi-studio --version` (15 s): not found is `not_installed`, below 0.0.127 `cli_outdated`, otherwise
-`running` when the app's last open reached the daemon and `stopped` when it did not. Start runs the
-same check, then `pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` (90 s; `-H` because
-`daemon start` listens where `-H` says), read by `cli_answers` as the local supervisor reads it
-(`up` is `running`; otherwise `failed` with `not_healthy`, `timeout` or `bad_output`; `exec_failed`
-when the command could not be run, `no_shell` when the account runs no commands); `pairingUrl` is
-discarded. After a successful Start or Update Rust emits `connection_resume`, so the page connects
-again. A start is never run without the button. Update (`daemon.remote.update`, enabled for
-`cli_outdated`, `stopped` and `failed(update_failed)`, the retry; not `not_installed`) runs `pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`
-(300 s; `-H` so that the update's restart step finds this entry's daemon and not whatever listens on
-the CLI's default port; the hook gives only standard output, so standard error is merged into it) while the state is `updating`; a
-non-zero exit is `failed(update_failed)` with the last 20 lines (at most 2000 characters, control
-characters removed: `cli_answers::output_tail`, the local supervisor's helper) as `output`, a timeout
-is `update_failed` saying so, an SSH-level failure keeps its `exec_failed` / `no_shell` reason. Then
-it reads `--version` again (`cli_outdated` when still too old) and starts the daemon as Start does.
-A log line holds the action and the state code; the output of a remote command is never logged.
+memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `starting`, `outdated {version}`,
+`unsupported {system}`, `installing {stage, done?, total?}` (stage `downloading`, `sending`, `unpacking`, `starting`),
+`failed {reason, output?}`; reset when another entry is opened) and a queue of requests (`daemon.remote.start`,
+`daemon.remote.refresh`, `daemon.remote.install`, `daemon.remote.update`, and the probe a `transport_open` that failed with
+`daemon_not_running` queues); like the local supervisor it runs no process. `shell::remote_supervisor` (native only) works
+the queue one request at a time through `RemoteAccess` (the app's `RemoteOwner`, over `LocalOp::Ssh`) and the hooks of
+`Services`: `remote_run` (a command run over the shared SSH session: `"$SHELL" -lic '<begin marker>; <command>; <end marker
+with the status>'`, fresh random markers, answering what lies between them), `remote_send` (`Session::send` of a file the
+app holds, into `cat > <path>` on the host; the app's `ssh_session.rs`), `remote_daemon_version` (`GET /api/health`
+through a direct-tcpip channel to the daemon's loopback port, `Session::daemon_health`: the page's handshake is not
+visible to Rust) and `Services::archives` (the trait `ArchiveSource`, which the app's `LocalInstaller` implements over the
+same archive cache as the local install). The scripts are in `remote_supervisor/scripts.rs` and run as `/bin/sh -c '<script>'`.
+A probe: a daemon the last open reached is `running`, or `outdated` below 0.0.127; otherwise one facts script (`pi-studio-fact:` lines:
+`uname`, musl, the home folder `$PI_STUDIO_HOME` or `~/.pi-studio`, the installed binary's `--version`) gives `unsupported`
+(Windows, musl, an unknown CPU, no `uname`; the host's words, sanitised, in `system`), `not_installed` or `stopped`. Start runs
+`<folder>/bin/current/pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` (90 s), read by `cli_answers`
+(`up` is `running`; otherwise `failed` with `not_healthy`, `timeout` or `bad_output`; `exec_failed` or `no_shell` when no
+command could run); `pairingUrl` is discarded. **Install** (`daemon.remote.install`, enabled for `not_installed`, `stopped` and
+`failed` with `download_failed`, `checksum_mismatch`, `send_failed` or `install_failed`) and **Update** (`daemon.remote.update`,
+for `outdated` and `stopped`, followed by `daemon restart`) run the same steps, each with its reason: fetch the host's archive from
+the cache (`downloading`; `download_failed`, `checksum_mismatch`), make `bin/tmp` and remove entries older than an hour, send the
+archive (`sending`, progress at most every 250 ms, a 60 s stall stops it; a cut send or a host that rejects it is `send_failed`
+with the host's own words from a `df` run), check size and SHA-256 on the host (`checksum_mismatch`: file deleted), unpack
+(`unpacking`: `versions/<pin>`, `current` switched by a relative link; the version already present only switches the link;
+failures remove everything made and are `install_failed` with the host's last lines), then start (`starting`) and, after a
+start that reached `running`, prune the older versions. A binary at or above the pin is never replaced (P11); a daemon already
+running is used as it is. After a successful Start, Install or Update Rust emits `connection_resume`, so the page connects
+again. Nothing is run without a button. The last 20 lines of host output (at most 2000 characters, control characters removed)
+are kept only for `install_failed` and `send_failed`. A log line holds the action and the state code; the output of a remote command is never logged.
 
 **The native menu.** `menus::daemons_menu` turns the registry view into the "Daemons" menu (one
 check item per entry, "Manage Daemons…", Start, Stop and Restart); `src-tauri/src/menu.rs` draws

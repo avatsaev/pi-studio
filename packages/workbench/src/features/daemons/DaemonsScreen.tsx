@@ -178,7 +178,6 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
                     )
                   }
                   onRemoteAction={(call) => void run(() => runRemoteAction(daemons, call))}
-                  onCopy={(command) => void run(() => copyCommand(getHost().clipboard, command))}
                 />
               ))}
             </ul>
@@ -208,7 +207,6 @@ function Banner({ banner }: { banner: BannerView }) {
     >
       <span className={styles.bannerMessage}>{banner.message}</span>
       {banner.detail && <span className={styles.bannerDetail}>{banner.detail}</span>}
-      {banner.command && <code className={styles.command}>{banner.command}</code>}
     </div>
   );
 }
@@ -220,7 +218,6 @@ function EntryRow({
   onRemove,
   onLocalAction,
   onRemoteAction,
-  onCopy,
 }: {
   row: EntryRowView;
   onOpen: () => void;
@@ -228,7 +225,6 @@ function EntryRow({
   onRemove: () => void;
   onLocalAction: (call: LocalAction["call"]) => void;
   onRemoteAction: (call: RemoteAction["call"]) => void;
-  onCopy: (command: string) => void;
 }) {
   return (
     <li className={styles.row} data-current={row.current || undefined}>
@@ -251,7 +247,7 @@ function EntryRow({
           </div>
         )}
         {row.local && <StateBlock state={row.local} />}
-        {row.remote && <StateBlock state={row.remote} onCopy={onCopy} />}
+        {row.remote && <StateBlock state={row.remote} />}
       </div>
       <div className={styles.rowActions}>
         {row.local?.actions.map((action) => (
@@ -299,14 +295,7 @@ function EntryRow({
   );
 }
 
-function StateBlock({
-  state,
-  onCopy,
-}: {
-  state: LocalRowView | RemoteRowView;
-  /** Present when the command in the notice is offered with a Copy button. */
-  onCopy?: (command: string) => void;
-}) {
+function StateBlock({ state }: { state: LocalRowView | RemoteRowView }) {
   const { notice } = state;
   return (
     <div className={styles.localState}>
@@ -320,17 +309,6 @@ function StateBlock({
         <div className={styles.notice}>
           <span>{notice.text}</span>
           {notice.output !== undefined && <pre className={styles.output}>{notice.output}</pre>}
-          {notice.command !== undefined &&
-            (onCopy ? (
-              <div className={styles.commandRow}>
-                <code className={styles.command}>{notice.command}</code>
-                <Button size="xs" variant="secondary" onClick={() => onCopy(notice.command ?? "")}>
-                  Copy
-                </Button>
-              </div>
-            ) : (
-              <code className={styles.command}>{notice.command}</code>
-            ))}
         </div>
       )}
     </div>

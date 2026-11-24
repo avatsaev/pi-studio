@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pistudiodesktop_model::{EntryId, Kind, RemoteState};
+use pistudiodesktop_model::{EntryId, Kind, RemoteFailReason, RemoteInstallStage, RemoteState};
 use serde_json::{Value, json};
 
 use super::{RemoteAction, RemoteRequest};
@@ -180,6 +180,9 @@ fn remote_commands_refuse_an_entry_that_is_not_ssh() {
     for id in ["daemon.remote.start", "daemon.remote.refresh"] {
         assert_eq!(code(&mut s, id), "wrong_kind", "{id}");
     }
+    for id in ["daemon.remote.install", "daemon.remote.update"] {
+        assert!(code(&mut s, id).ends_with("wrong_kind"), "{id}");
+    }
     assert!(!s.has_remote_requests());
     assert_eq!(s.remote_state(), &RemoteState::Unknown);
 }
@@ -217,11 +220,15 @@ fn refresh_merges_and_anything_else_is_busy_until_the_outcome() {
 }
 
 #[test]
-fn a_missing_or_old_cli_refuses_start_but_not_a_refresh() {
+fn a_missing_binary_an_outdated_daemon_and_an_unsupported_system_refuse_start_but_not_a_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let (mut s, _, id) = on_ssh(dir.path());
     let entry = EntryId::parse(&id).unwrap();
-    for (state, expected) in [(RemoteState::NotInstalled, "not_installed"), (RemoteState::CliOutdated { version: "0.0.1".into() }, "cli_outdated")] {
+    for (state, expected) in [
+        (RemoteState::NotInstalled, "not_installed"),
+        (RemoteState::Outdated { version: "0.0.1".into() }, "outdated"),
+        (RemoteState::Unsupported { system: "Linux x86_64 (musl)".into() }, "unsupported"),
+    ] {
         assert!(s.apply_remote_outcome(&entry, state.clone()));
         assert_eq!(code(&mut s, "daemon.remote.start"), expected);
         assert!(s.take_remote_requests().is_empty());
@@ -231,46 +238,97 @@ fn a_missing_or_old_cli_refuses_start_but_not_a_refresh() {
     }
 }
 
-#[test]
-fn update_is_offered_for_stopped_an_outdated_cli_and_a_failed_update_only() {
-    let dir = tempfile::tempdir().unwrap();
-    let (mut s, _, id) = on_ssh(dir.path());
-    let entry = EntryId::parse(&id).unwrap();
-    let outdated = RemoteState::CliOutdated { version: "0.0.1".into() };
-    let update_failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::UpdateFailed, output: Some("x".into()) };
-    let start_failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::Timeout, output: None };
-    let cases = [
-        (RemoteState::Stopped, None),
-        (outdated, None),
-        (RemoteState::NotInstalled, Some("not_installed")),
-        (RemoteState::Unknown, Some("update_not_offered")),
-        (RemoteState::Checking, Some("update_not_offered")),
-        (RemoteState::Starting, Some("update_not_offered")),
-        (RemoteState::Updating, Some("update_not_offered")),
-        (RemoteState::Running, Some("update_not_offered")),
-        (update_failed, None),
-        (start_failed, Some("update_not_offered")),
-    ];
+fn failed(reason: RemoteFailReason) -> RemoteState {
+    RemoteState::Failed { reason, output: None }
+}
+
+/// What each of `daemon.remote.install` and `daemon.remote.update` does in each state: `None` is accepted, a code is the
+/// refusal; the same code is the reason `command.list` gives.
+fn offers(s: &mut Session, entry: &EntryId, id: &str, action: RemoteAction, cases: Vec<(RemoteState, Option<&str>)>) {
     for (state, refusal) in cases {
-        assert!(s.apply_remote_outcome(&entry, state.clone()));
-        let rows = s.execute("command.list", json!({"filter": "daemon.remote.update"})).unwrap();
-        assert_eq!(rows[0]["enabled"], json!(refusal.is_none()), "{state:?}");
-        assert_eq!(rows[0]["reason"], json!(refusal), "{state:?}");
+        assert!(s.apply_remote_outcome(entry, state.clone()));
+        let rows = s.execute("command.list", json!({"filter": id})).unwrap();
+        assert_eq!(rows[0]["enabled"], json!(refusal.is_none()), "{id} {state:?}");
+        assert_eq!(rows[0]["reason"], json!(refusal), "{id} {state:?}");
         match refusal {
             None => {
-                assert!(s.execute("daemon.remote.update", json!({})).is_ok(), "{state:?}");
-                assert_eq!(s.execute("daemon.list", json!({})).unwrap()["remote"], json!({"state": "updating"}));
-                assert_eq!(s.take_remote_requests(), vec![RemoteRequest { entry: entry.clone(), action: RemoteAction::Update }]);
-                assert_eq!(code(&mut s, "daemon.remote.refresh"), "busy");
+                assert!(s.execute(id, json!({})).is_ok(), "{id} {state:?}");
+                // Both begin by reading the host: the stages follow from the host.
+                assert_eq!(s.execute("daemon.list", json!({})).unwrap()["remote"], json!({"state": "checking"}));
+                assert_eq!(s.take_remote_requests(), vec![RemoteRequest { entry: entry.clone(), action }]);
+                assert_eq!(code(s, "daemon.remote.refresh"), "busy");
+                assert!(code(s, id).ends_with("_not_offered"), "{id} {state:?}: not offered while it reads the host");
             }
             Some(reason) => {
-                assert!(code(&mut s, "daemon.remote.update").ends_with(reason), "{state:?}");
+                assert!(code(s, id).ends_with(reason), "{id} {state:?}");
                 assert!(s.take_remote_requests().is_empty());
             }
         }
     }
+}
+
+#[test]
+fn install_is_offered_for_no_binary_a_stopped_daemon_and_a_failed_install_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _, id) = on_ssh(dir.path());
+    let entry = EntryId::parse(&id).unwrap();
+    let installing = RemoteState::Installing { stage: RemoteInstallStage::Sending, done: Some(1), total: Some(2) };
+    let cases = vec![
+        (RemoteState::NotInstalled, None),
+        (RemoteState::Stopped, None),
+        (failed(RemoteFailReason::DownloadFailed), None),
+        (failed(RemoteFailReason::ChecksumMismatch), None),
+        (RemoteState::Failed { reason: RemoteFailReason::SendFailed, output: Some("x".into()) }, None),
+        (RemoteState::Failed { reason: RemoteFailReason::InstallFailed, output: Some("x".into()) }, None),
+        (RemoteState::Unsupported { system: "Windows".into() }, Some("unsupported")),
+        (RemoteState::Unknown, Some("install_not_offered")),
+        (RemoteState::Checking, Some("install_not_offered")),
+        (RemoteState::Starting, Some("install_not_offered")),
+        (installing, Some("install_not_offered")),
+        (RemoteState::Running, Some("install_not_offered")),
+        (RemoteState::Outdated { version: "0.0.1".into() }, Some("install_not_offered")),
+        (failed(RemoteFailReason::NotHealthy), Some("install_not_offered")),
+        (failed(RemoteFailReason::NoShell), Some("install_not_offered")),
+    ];
+    offers(&mut s, &entry, "daemon.remote.install", RemoteAction::Install, cases);
+}
+
+#[test]
+fn update_is_offered_for_an_outdated_daemon_and_a_stopped_one_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _, id) = on_ssh(dir.path());
+    let entry = EntryId::parse(&id).unwrap();
+    let cases = vec![
+        (RemoteState::Stopped, None),
+        (RemoteState::Outdated { version: "0.0.1".into() }, None),
+        (RemoteState::NotInstalled, Some("not_installed")),
+        (RemoteState::Unsupported { system: "Windows".into() }, Some("unsupported")),
+        (RemoteState::Unknown, Some("update_not_offered")),
+        (RemoteState::Checking, Some("update_not_offered")),
+        (RemoteState::Starting, Some("update_not_offered")),
+        (RemoteState::Installing { stage: RemoteInstallStage::Unpacking, done: None, total: None }, Some("update_not_offered")),
+        (RemoteState::Running, Some("update_not_offered")),
+        (failed(RemoteFailReason::SendFailed), Some("update_not_offered")),
+        (failed(RemoteFailReason::Timeout), Some("update_not_offered")),
+    ];
+    offers(&mut s, &entry, "daemon.remote.update", RemoteAction::Update, cases);
     s.execute("daemon.remote.refresh", json!({})).unwrap();
     assert_eq!(s.execute("daemon.list", json!({})).unwrap()["remote"], json!({"state": "checking"}));
+}
+
+#[test]
+fn progress_is_stored_for_the_current_entry_without_ending_the_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _, id) = on_ssh(dir.path());
+    let entry = EntryId::parse(&id).unwrap();
+    s.execute("daemon.remote.refresh", json!({})).unwrap();
+    let sending = RemoteState::Installing { stage: RemoteInstallStage::Sending, done: Some(5), total: Some(10) };
+    assert!(s.set_remote_state_for(&entry, sending.clone()));
+    assert_eq!(s.remote_state(), &sending);
+    assert_eq!(code(&mut s, "daemon.remote.start"), "busy", "the request is still in flight");
+    let other = EntryId::parse("123e4567-e89b-12d3-a456-426614174099").unwrap();
+    assert!(!s.set_remote_state_for(&other, RemoteState::Running));
+    assert!(s.apply_remote_outcome(&entry, RemoteState::Running));
 }
 
 #[test]

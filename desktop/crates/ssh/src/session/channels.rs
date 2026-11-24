@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use pistudiodesktop_net::{DaemonSocket, dial_over};
 use russh::{Channel, ChannelMsg, Sig, client};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::time::timeout;
 
 use super::Session;
@@ -13,6 +14,10 @@ use crate::error::{DaemonError, RunError};
 
 /// Where the daemon listens, as the host sees it: the tunnel ends on the host's own loopback.
 const DAEMON_HOST: &str = "127.0.0.1";
+/// The health request: HTTP/1.0 so that the daemon closes after the answer and never chunks it.
+const HEALTH_REQUEST: &[u8] = b"GET /api/health HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n";
+/// The most bytes of a health answer that are read: its body is about 40.
+const HEALTH_LIMIT: u64 = 16 * 1024;
 
 impl Session {
     /// Opens the daemon's WebSocket: a `direct-tcpip` channel to `127.0.0.1:port` on the host and the upgrade over it
@@ -26,6 +31,23 @@ impl Session {
         let stream = self.open_tcpip(DAEMON_HOST, port).await?;
         let url = format!("ws://{DAEMON_HOST}:{port}");
         Ok(dial_over(stream, &url, password, self.limits.step, max_message_bytes).await?)
+    }
+
+    /// What the daemon behind `port` answers to `GET /api/health` (it needs no login): one plain HTTP/1.0 request over a
+    /// `direct-tcpip` channel, so that the answer is never chunked, read up to 16 KiB within one step. `None` when no
+    /// channel could be opened or nothing came back in time. The answer is the raw HTTP text; the caller reads the version
+    /// from it. Nothing is logged.
+    pub async fn daemon_health(&self, port: u16) -> Option<String> {
+        let ask = async {
+            let mut stream = self.open_tcpip(DAEMON_HOST, port).await.ok()?;
+            stream.write_all(HEALTH_REQUEST).await.ok()?;
+            let mut answer = Vec::new();
+            // A read that ends in an error after some bytes still leaves what arrived: the body is short.
+            let _ = (&mut stream).take(HEALTH_LIMIT).read_to_end(&mut answer).await;
+            Some(answer)
+        };
+        let answer = timeout(self.limits.step, ask).await.ok()??;
+        Some(String::from_utf8_lossy(&answer).into_owned())
     }
 
     /// Runs `command` in the user's login shell (`"$SHELL" -lic`) on its own channel and returns its status and the

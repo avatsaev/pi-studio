@@ -82,6 +82,7 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "daemon.local.update",
             "daemon.remote.start",
             "daemon.remote.refresh",
+            "daemon.remote.install",
             "daemon.remote.update",
             "command.list",
             "settings.get",

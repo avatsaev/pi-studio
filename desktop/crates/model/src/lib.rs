@@ -16,8 +16,8 @@ pub use cli_tool::CliToolState;
 pub use registry::{
     DEFAULT_DAEMON_PORT, EntryV3, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_HOST_CHARS, MAX_IDENTITY_FILE_CHARS,
     MAX_JUMP_CHARS, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MAX_USER_CHARS, MigratedSecret, NewEntry, REGISTRY_V3, RegistryError, RegistryV3,
-    RemoteFailReason, RemoteState, Secret, SshFields, SshView, Update, check_host, check_identity_file, check_jump, check_link, check_password, check_port,
-    check_user, decode_registry_any, decode_registry_v3, encode_registry_v3,
+    RemoteFailReason, RemoteInstallStage, RemoteState, Secret, SshFields, SshView, Update, check_host, check_identity_file, check_jump, check_link,
+    check_password, check_port, check_user, decode_registry_any, decode_registry_v3, encode_registry_v3,
 };
 
 use std::collections::BTreeMap;

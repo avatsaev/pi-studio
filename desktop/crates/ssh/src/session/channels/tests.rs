@@ -110,6 +110,52 @@ async fn a_port_nothing_listens_on_is_a_daemon_that_is_not_running() {
     assert!(matches!(error, DaemonError::Channel(Error::PortRefused { hop: 0 })));
 }
 
+/// A stand-in daemon that answers every request with `answer` and closes; the request it read is sent to the channel.
+async fn health_daemon(answer: &'static str) -> (u16, mpsc::UnboundedReceiver<String>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let listener = TcpListener::bind((HOST, 0)).await.expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let (requests, seen) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((mut tcp, _)) = listener.accept().await {
+            let requests = requests.clone();
+            tokio::spawn(async move {
+                let mut head = vec![0_u8; 1024];
+                let read = tcp.read(&mut head).await.unwrap_or(0);
+                let _ = requests.send(String::from_utf8_lossy(&head[..read]).into_owned());
+                let _ = tcp.write_all(answer.as_bytes()).await;
+            });
+        }
+    });
+    (port, seen)
+}
+
+#[tokio::test]
+async fn the_health_answer_of_the_daemon_comes_back_as_it_was_sent() {
+    let (_fixture, server, session) = session(|_| {}).await;
+    let answer = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"version\":\"0.0.131\"}";
+    let (port, mut requests) = health_daemon(answer).await;
+    assert_eq!(timeout(PATIENCE, session.daemon_health(port)).await.expect("in time").as_deref(), Some(answer));
+    let request = requests.recv().await.expect("a request");
+    assert!(request.starts_with("GET /api/health HTTP/1.0\r\n"), "{request}");
+    assert_eq!(server.seen().forwards, [(HOST.to_owned(), port)]);
+}
+
+#[tokio::test]
+async fn no_health_answer_when_nothing_listens_or_the_channel_is_forbidden() {
+    let (_fixture, _server, session) = session(|_| {}).await;
+    let closed = TcpListener::bind((HOST, 0)).await.expect("bind").local_addr().expect("addr").port();
+    assert_eq!(session.daemon_health(closed).await, None);
+    let (_fixture, _server, session) = session_without_forwarding().await;
+    let (port, _requests) = health_daemon("HTTP/1.0 200 OK\r\n\r\n").await;
+    assert_eq!(session.daemon_health(port).await, None);
+}
+
+async fn session_without_forwarding() -> (Fixture, Server, Session) {
+    session(|behavior| behavior.forwarding = false).await
+}
+
 #[tokio::test]
 async fn a_server_that_forbids_forwarding_is_not_a_daemon_that_is_not_running() {
     let (_fixture, server, session) = session(|behavior| behavior.forwarding = false).await;

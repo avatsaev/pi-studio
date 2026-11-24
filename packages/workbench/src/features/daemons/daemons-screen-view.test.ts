@@ -5,11 +5,6 @@ import {
   type RemoteDaemonState,
 } from "../../host/types.js";
 import {
-  MIN_REMOTE_CLI_VERSION,
-  REMOTE_INSTALL_COMMAND,
-  UPDATE_CLI_COMMAND,
-} from "./daemon-presentation.js";
-import {
   bannerView,
   buildDaemonsScreenView,
   FILE_SECRET_STORE_NOTE,
@@ -90,46 +85,75 @@ describe("the SSH row", () => {
     expect(row?.local).toBeNull();
   });
 
-  it("offers Start and Retry after a failure", () => {
+  it("offers Retry that starts again after a failed start", () => {
     const row = rowOf({ state: "failed", reason: "not_healthy" });
-    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start", "refresh"]);
+    expect(row?.remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["retry:start"]);
+    expect(row?.remote?.notice).toBeNull();
   });
 
-  it("says pi-studio is not installed, with the command to copy and Retry", () => {
+  it("offers Install, and no npm instruction, when nothing is installed", () => {
     const remote = rowOf({ state: "not_installed" })?.remote;
     expect(remote?.label).toBe("pi-studio is not installed on this host");
-    expect(remote?.notice?.command).toBe("npm install -g @av-pi-studio/cli");
-    expect(remote?.actions.map((a) => a.call)).toEqual(["refresh"]);
+    expect(remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["install:install"]);
+    expect(remote?.notice?.text).toMatch(/^Install copies the pi-studio daemon/);
+    expect(remote?.notice).not.toHaveProperty("command");
+    expect(JSON.stringify(remote)).not.toMatch(/npm|Node\.js/);
   });
 
-  it("offers Update beside the command for an outdated CLI and shows a busy row while updating", () => {
-    const outdated = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
-    expect(outdated?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
-    expect(rowOf({ state: "updating" })?.remote).toMatchObject({
-      label: "Updating…",
+  it("offers Update and Retry for an outdated daemon and names the version it found", () => {
+    const remote = rowOf({ state: "outdated", version: "0.0.100" })?.remote;
+    expect(remote?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+    expect(remote?.label).toContain("0.0.100");
+    expect(remote?.notice?.text).toContain("Found version 0.0.100");
+  });
+
+  it("shows the stage and the percentage while installing, with no buttons and no notice", () => {
+    expect(
+      rowOf({ state: "installing", stage: "sending", done: 1, total: 4 })?.remote,
+    ).toMatchObject({
+      label: "Sending the daemon to the host · 25 %",
       tone: "busy",
       actions: [],
       notice: null,
     });
   });
 
-  it("shows the last lines of a failed update on the host", () => {
-    const remote = rowOf({ state: "failed", reason: "update_failed", output: "EACCES" })?.remote;
-    expect(remote?.label).toBe("The update failed");
-    expect(remote?.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: REMOTE_INSTALL_COMMAND,
-      output: "EACCES",
+  it("says the system is not supported, with no button and no notice", () => {
+    expect(rowOf({ state: "unsupported", system: "Linux x86_64 (musl)" })?.remote).toMatchObject({
+      label: "This system is not supported (Linux x86_64 (musl))",
+      tone: "error",
+      actions: [],
+      notice: null,
     });
-    expect(remote?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
   });
 
-  it("names both versions for an outdated CLI", () => {
-    const remote = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
-    expect(remote?.label).toContain("0.0.100");
-    expect(remote?.notice?.text).toContain("0.0.100");
-    expect(remote?.notice?.text).toContain(MIN_REMOTE_CLI_VERSION);
-    expect(remote?.notice?.command).toBe(REMOTE_INSTALL_COMMAND);
+  it("shows the reason and the last lines the host printed for a failed install, and Retry installs again", () => {
+    const remote = rowOf({
+      state: "failed",
+      reason: "install_failed",
+      output: "tar: not found",
+    })?.remote;
+    expect(remote?.label).toBe("Installing the daemon on the host failed");
+    expect(remote?.notice).toEqual({
+      text: "Retry installs the daemon again.",
+      output: "tar: not found",
+    });
+    expect(remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["retry:install"]);
+  });
+
+  it("explains each failed step of an install", () => {
+    const text = (reason: "download_failed" | "checksum_mismatch" | "send_failed") =>
+      rowOf({ state: "failed", reason })?.remote?.notice;
+    expect(text("download_failed")).toEqual({ text: "Check the internet connection, then retry." });
+    expect(text("checksum_mismatch")).toEqual({
+      text: "The file was not unpacked. Retry downloads it again.",
+    });
+    expect(
+      rowOf({ state: "failed", reason: "send_failed", output: "No space left" })?.remote,
+    ).toMatchObject({
+      label: "Sending the daemon to the host failed",
+      notice: { text: "Retry sends the daemon to the host again.", output: "No space left" },
+    });
   });
 
   it("has no state when it is not the current entry", () => {
@@ -204,7 +228,7 @@ describe("the local row", () => {
   it("shows the found version and offers Update and Retry when the daemon is outdated", () => {
     const row = localRow({ state: "outdated", version: "0.0.100" });
     expect(row.notice?.text).toContain("0.0.100");
-    expect(row.notice?.command).toBeUndefined();
+    expect(row.notice).not.toHaveProperty("command");
     expect(row.actions.map((a) => a.kind)).toEqual(["update", "retry"]);
   });
 
@@ -227,7 +251,7 @@ describe("the local row", () => {
     const row = localRow({ state: "unsupported" });
     expect(row.actions).toEqual([]);
     expect(row.notice?.text).toMatch(/macOS, Linux or WSL/);
-    expect(row.notice?.command).toBeUndefined();
+    expect(row.notice).not.toHaveProperty("command");
   });
 
   it("offers Retry when the daemon failed to start", () => {
@@ -319,12 +343,11 @@ describe("the banner", () => {
     expect(bannerView("no_current", { state: "stopped" })?.tone).toBe("info");
   });
 
-  it("carries the version for outdated, and a remote host's old CLI keeps the update command", () => {
+  it("carries the version for outdated and offers no command to run", () => {
     const banner = bannerView("outdated", { state: "outdated", version: "0.0.100" });
     expect(banner?.tone).toBe("error");
-    expect(banner?.command).toBeUndefined();
+    expect(banner).not.toHaveProperty("command");
     expect(banner?.detail).toContain("0.0.100");
-    expect(bannerView("cli_outdated", { state: "stopped" })?.command).toBe(UPDATE_CLI_COMMAND);
   });
 
   it("leaves the detail alone when the local state no longer says which version", () => {

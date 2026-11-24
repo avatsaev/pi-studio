@@ -363,11 +363,21 @@ describe("remote daemon and ssh hosts", () => {
     expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.remote.start" }, { id: "daemon.remote.refresh" }]);
   });
 
-  it("update goes through engine_command, for the local entry and the current ssh entry", async () => {
+  it("install and update go through engine_command, update for the local entry and the current ssh entry", async () => {
     const h = harness(() => ({ accepted: true }));
+    await h.daemons.remote.install();
     await h.daemons.local.update();
     await h.daemons.remote.update();
-    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.local.update" }, { id: "daemon.remote.update" }]);
+    expect(h.engineCalls().map((c) => c.args)).toEqual([
+      { id: "daemon.remote.install" },
+      { id: "daemon.local.update" },
+      { id: "daemon.remote.update" },
+    ]);
+  });
+
+  it("a refused install rejects with its code", async () => {
+    const refused = await rejection(harness(() => Promise.reject("install_not_offered")).daemons.remote.install());
+    expect(refused).toMatchObject({ code: "install_not_offered" });
   });
 
   it("a refused remote action rejects with its code", async () => {

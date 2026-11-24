@@ -94,6 +94,8 @@ fn built_app_ssh(
     services.transports = Some(transport.inspector(&ssh));
     let (requests, inbox) = channel();
     services.remote_run = Some(ssh.remote_run_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    services.remote_send = Some(ssh.remote_send_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    services.remote_daemon_version = Some(ssh.remote_daemon_version_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
     let launch = make_launch(&requests, &services);
     let app = mock_builder()
         .plugin(tauri_plugin_dialog::init())

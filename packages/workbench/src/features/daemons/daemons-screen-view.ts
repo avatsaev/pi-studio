@@ -9,9 +9,8 @@
 
 import { type DaemonEntryView, type RemoteDaemonState } from "../../host/types.js";
 import {
-  MIN_REMOTE_CLI_VERSION,
-  REMOTE_INSTALL_COMMAND,
   daemonErrorView,
+  isRemoteInstallFailure,
   daemonFailureOf,
   isInstallFailure,
   localStateView,
@@ -27,10 +26,9 @@ export type EntryAction = "open" | "replaceLink" | "edit" | "remove";
 
 export const LINK_INVALID_LABEL = "Pairing link no longer valid";
 
-/** A short explanation under the local entry's state, with a command the user can run. */
+/** A short explanation under an entry's state. */
 export interface LocalNotice {
   text: string;
-  command?: string;
   /** The last lines of what a failed update or install printed; shown as is. */
   output?: string;
 }
@@ -54,26 +52,17 @@ export function truncateOutput(output: string | undefined): string | undefined {
   return text.length <= OUTPUT_MAX_CHARS ? text : `…${text.slice(-OUTPUT_MAX_CHARS)}`;
 }
 
-/** What the SSH row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
-function updateFailedNotice(command: string, output: string | undefined): LocalNotice {
-  const lines = truncateOutput(output);
-  return {
-    text: "Run the update yourself, then retry.",
-    command,
-    ...(lines === undefined ? {} : { output: lines }),
-  };
-}
-
 const INSTALL_FAILED_TEXTS: Record<
-  "download_failed" | "checksum_mismatch" | "install_failed",
+  "download_failed" | "checksum_mismatch" | "send_failed" | "install_failed",
   string
 > = {
   download_failed: "Check the internet connection, then retry.",
   checksum_mismatch: "The file was not unpacked. Retry downloads it again.",
+  send_failed: "Retry sends the daemon to the host again.",
   install_failed: "Retry installs the daemon again.",
 };
 
-/** What the local row says under a failed download or install: what Retry does, and what the install printed. */
+/** What a row says under a failed download, send or install: what Retry does, and what the host printed. */
 function installFailedNotice(
   reason: keyof typeof INSTALL_FAILED_TEXTS,
   output: string | undefined,
@@ -96,7 +85,7 @@ export interface RemoteRowView {
   label: string;
   tone: LocalTone;
   actions: RemoteAction[];
-  /** For a missing or outdated CLI: the text and the command to copy. */
+  /** An explanation under the state and, for a failed install, the last lines the host printed. */
   notice: LocalNotice | null;
 }
 
@@ -121,7 +110,6 @@ export interface EntryRowView {
 export interface BannerView {
   message: string;
   detail?: string;
-  command?: string;
   /** `info`: a plain state (the local daemon is stopped by choice), not drawn as an error. */
   tone: "error" | "info";
 }
@@ -172,22 +160,20 @@ function entryAddress(entry: DaemonEntryView): string | null {
   return `${user === undefined ? "" : `${user}@`}${host}${port === undefined ? "" : `:${port}`}`;
 }
 
-/** The SSH entry's explanation under its state; the command is offered with a Copy button (D22). */
+/** The SSH entry's explanation under its state: what the button does, and what the host printed. */
 export function remoteNotice(remote: RemoteDaemonState): LocalNotice | null {
   switch (remote.state) {
     case "not_installed":
       return {
-        text: "Install it on the host (it needs Node.js), then retry.",
-        command: REMOTE_INSTALL_COMMAND,
+        text: "Install copies the pi-studio daemon to the host and starts it. Nothing is installed until you click.",
       };
-    case "cli_outdated":
+    case "outdated":
       return {
-        text: `Found version ${remote.version}; version ${MIN_REMOTE_CLI_VERSION} or newer is needed. Update it on the host, then retry.`,
-        command: REMOTE_INSTALL_COMMAND,
+        text: `Found version ${remote.version}. Update installs the version this app was built with and restarts the daemon on it; Retry looks again.`,
       };
     case "failed":
-      return remote.reason === "update_failed"
-        ? updateFailedNotice(REMOTE_INSTALL_COMMAND, remote.output)
+      return isRemoteInstallFailure(remote.reason)
+        ? installFailedNotice(remote.reason, remote.output)
         : null;
     default:
       return null;
@@ -255,7 +241,6 @@ export function bannerView(
   return {
     message: view.message,
     ...(detail === undefined ? {} : { detail }),
-    ...(view.command === undefined ? {} : { command: view.command }),
     tone: view.isError ? "error" : "info",
   };
 }

@@ -56,6 +56,8 @@ export interface TestDaemonsOptions {
   remoteStartOutcome?: RemoteDaemonState;
   /** The state a remote `update` ends in (default: `running`). */
   remoteUpdateOutcome?: RemoteDaemonState;
+  /** The state a remote `install` ends in (default: `running`). */
+  remoteInstallOutcome?: RemoteDaemonState;
 }
 
 export interface TestDaemons extends HostDaemons {
@@ -98,6 +100,13 @@ const BUSY_LOCAL: LocalDaemonState["state"][] = [
   "updating",
 ];
 const DEFAULT_DAEMON_PORT = 6767;
+/** The remote failures an install can be retried from (the others are retried by a start). */
+const REMOTE_INSTALL_FAILURES: readonly string[] = [
+  "download_failed",
+  "checksum_mismatch",
+  "send_failed",
+  "install_failed",
+];
 
 function view(entry: StoredEntry): DaemonEntryView {
   return {
@@ -274,6 +283,23 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     throw new DaemonError("local_stopped");
   };
 
+  /** `wrong_kind` unless the current entry is an SSH entry. */
+  const refuseUnlessSsh = (): void => {
+    if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
+      throw new DaemonError("wrong_kind");
+    }
+  };
+  /** `busy` while the remote daemon is being checked, started or installed. */
+  const refuseWhileBusy = (): void => {
+    if (
+      remote.state === "starting" ||
+      remote.state === "checking" ||
+      remote.state === "installing"
+    ) {
+      throw new DaemonError("busy");
+    }
+  };
+
   return {
     switches,
     setLocalState: setLocal,
@@ -431,14 +457,11 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     },
     remote: {
       start: async () => {
-        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
-          throw new DaemonError("wrong_kind");
-        }
-        if (remote.state === "starting" || remote.state === "checking") {
-          throw new DaemonError("busy");
-        }
+        refuseUnlessSsh();
+        refuseWhileBusy();
+        if (remote.state === "unsupported") throw new DaemonError("unsupported");
         if (remote.state === "not_installed") throw new DaemonError("not_installed");
-        if (remote.state === "cli_outdated") throw new DaemonError("cli_outdated");
+        if (remote.state === "outdated") throw new DaemonError("outdated");
         setRemote({ state: "starting" });
         pending = (async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
@@ -446,26 +469,30 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
         })();
       },
       refresh: async () => {
-        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
-          throw new DaemonError("wrong_kind");
-        }
-        if (remote.state === "starting" || remote.state === "checking") {
-          throw new DaemonError("busy");
-        }
+        refuseUnlessSsh();
+        refuseWhileBusy();
         notify();
       },
+      install: async () => {
+        refuseUnlessSsh();
+        refuseWhileBusy();
+        if (remote.state === "unsupported") throw new DaemonError("unsupported");
+        const offered =
+          remote.state === "not_installed" ||
+          remote.state === "stopped" ||
+          (remote.state === "failed" && REMOTE_INSTALL_FAILURES.includes(remote.reason));
+        if (!offered) throw new DaemonError("install_not_offered");
+        setRemote({ state: "installing", stage: "downloading" });
+        pending = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          setRemote(options.remoteInstallOutcome ?? { state: "running" });
+        })();
+      },
       update: async () => {
-        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
-          throw new DaemonError("wrong_kind");
-        }
-        if (
-          remote.state === "starting" ||
-          remote.state === "checking" ||
-          remote.state === "updating"
-        ) {
-          throw new DaemonError("busy");
-        }
-        setRemote({ state: "updating" });
+        refuseUnlessSsh();
+        refuseWhileBusy();
+        if (remote.state === "unsupported") throw new DaemonError("unsupported");
+        setRemote({ state: "installing", stage: "downloading" });
         pending = (async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
           setRemote(options.remoteUpdateOutcome ?? { state: "running" });

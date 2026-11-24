@@ -10,8 +10,10 @@ Written 2026-11-24 against commit `3e25cec5` on `feat/single-binary-daemon`, dae
 `0.0.130`. Line numbers are from that commit and will drift. Nothing in the repository was changed
 by the audit; this file is its only output.
 
-This is a snapshot, not a maintained document. Before acting on a finding, re-check it against the
-code: other agents were changing the tree while the audit ran.
+The findings are a snapshot of that commit. Before acting on one, re-check it against the code:
+other agents were changing the tree while the audit ran. The [Decisions](#decisions) section is the
+part that is kept current: it records what the owner approved, rejected and left open, because not
+all of it will be implemented at once.
 
 ## How to read the findings
 
@@ -29,6 +31,8 @@ shims, aliases and version gates are listed as things to delete.
 
 ## Contents
 
+Start with [Decisions](#decisions).
+
 1. [Summary](#1-summary)
 2. [Measurements](#2-measurements)
 3. [Security findings](#3-security-findings)
@@ -43,6 +47,413 @@ shims, aliases and version gates are listed as things to delete.
 12. [Parts that were checked and found sound](#12-parts-that-were-checked-and-found-sound)
 13. [Open questions](#13-open-questions)
 14. [How to reproduce](#14-how-to-reproduce)
+
+---
+
+## Decisions
+
+Recorded 2026-11-24. Nothing here is implemented yet. Each entry says what was decided, what goes
+with it, and what to check first.
+
+| Item | Decision |
+|---|---|
+| Chat rooms, loops, schedules | **Approved: drop** |
+| Service proxy, its config and three env vars | **Approved: drop** |
+| `agent/mcp-server.ts` | **Approved: drop** |
+| Git write operations, stash, GitHub PR RPCs, diff subscribe | **Rejected: keep.** Needed later for the desktop client |
+| Mode support (`plan` / `default` / `full-access`) | **Approved: drop** |
+| Mock provider and dev daemon in the published package | **Approved: move out of the published package** |
+| Dead config keys | **Approved: drop** (the five listed below) |
+| CORS and the HTTP password check | **Approved: drop**, with the service proxy |
+| `provider-snapshot.ts`, `reconciliation.ts`, `workspace-activity.ts`, `PiAgentSession.history` | **Approved: delete all four** |
+| `extends: "pi"` profiles | **Approved: drop** |
+| Compatibility shims: `migrateConfig`, `registerAlias`, `legacyRespondToPermissionSchema`, the legacy `checkout` kind, the `normalize` option, the always-true switches | **Approved: drop** |
+| `.passthrough()` on wire schemas and on disk schemas, `version: 1` in state files | **Keep** |
+| Relay parking of 0.0.120 daemons | **Deferred.** Recommended to wait for the single-protocol-version change; the owner accepted the drops and the keeps and did not comment on this one |
+| The nine improvements (table below) | **Approved, all nine** |
+| Web client: drop it, or keep it | **Keep it, as a second-class "Lite".** The desktop app is the first-class client |
+| The five things Lite gives up (table below) | **Approved, all five** |
+| Lite connects through the relay only | **Approved.** No opt-in switch for direct browser connections |
+| What Lite keeps | **Approved:** chat, sessions, dialogs, todos, model and thinking pickers, read-only files, diffs and git status |
+| Can Lite start new agents | **Approved: yes, with two limits** (existing folders only, and a cap per device) |
+| Serving the desktop viewers' bytes from Rust | **Parked.** The analysis below is kept for when it is picked up |
+| Milestones | **Proposed, not yet approved.** See [Milestones](#milestones-proposed) |
+
+Not yet put to the owner: the rest of section 9 (the unreferenced project, workspace and terminal
+RPCs, the unused contract members other than the mode ones, the upload journal, the top-level
+`version` config key), the smaller fixes in sections 3 to 8 that are not part of the nine
+improvements, and the parts of section 11 that the Lite decision does not cover.
+
+### Approved improvements
+
+Approved 2026-11-24, in this order. The owner approved them on a plain-language description of what
+changes for the user, which is the middle column. Nothing is implemented yet.
+
+| # | Improvement | What changes for the user | Findings | Watch out for |
+|---|---|---|---|---|
+| 1 | Block websites from reaching the daemon; require a password when it is open to the network | Websites are turned away, except the hosted app. A daemon opened to the network without a password refuses to start and says why. | S1, S2 | The owner starts the daemon on `0.0.0.0` without a password, so a password has to be set first. The allowlist must include the hosted app, the local dev server and the desktop webview; requests with no `Origin` (CLI, the desktop app's Rust side) pass. |
+| 2 | Recover when the agent process crashes | A crashed turn shows as failed, and the next message starts Pi again. A second message while one is running is refused cleanly. | A1, A2, A3, A4 | Refusing a send while running is a behaviour change for any client that queues by sending twice. |
+| 3 | Keep conversation history safe | History is saved to disk as it happens and is there after a restart, whatever the user does first. | A5, A6 | Do the small part first (seed the timeline in `runTurn`). The file format is new persisted state under `$PI_STUDIO_HOME/agents/`. A little more disk per conversation. |
+| 4 | Answer immediately on create and send | A new conversation appears at once; long turns no longer show a false error; a brief disconnect no longer confuses the app. | A7 | A wire change. The workbench, the SDK and the CLI's `run` and `send` must change in the same release as the daemon. Fixture and changelog procedure applies. |
+| 5 | Stop the daemon cleanly, every time | Stop, restart and update always finish in a bounded time and leave no stray processes. | T1 | The update pipeline ends in this shutdown; re-run `scripts/daemon-update-check/` after the change. |
+| 6 | Notice dead connections and protect against slow ones | The connected-clients list is accurate, memory stays steady, and one bad connection cannot slow the others. | T2, T3 | A user on a very poor connection sees a reconnect where today they see a long freeze. |
+| 7 | Check every request before acting on it | A malformed request is refused at once with a clear message. No visible change in the app. | T4 | It will surface the CLI commands that already send the wrong shape (F8); most of those go with the orchestration drop. |
+| 8 | Never overwrite a damaged settings or data file | A damaged file is set aside under a new name and reported. A damaged main configuration stops the daemon from starting instead of running unprotected. | S5, F2 | Refusing to start is a new failure the CLI and the desktop Daemons screen must report clearly. |
+| 9 | One start-up path for the real and the development daemon | Nothing visible. What is tested matches what ships. | Section 8 | Do it after the approved drops, and together with moving the mock provider and dev daemon out of the published package. |
+
+### Approved drops: scope
+
+**Chat rooms, loops, schedules.**
+
+- Goes: `orchestration/` (chat, loop and schedule services, `cron.ts`), `daemon/orchestration-rpc.ts`,
+  the schedule and loop executors and `lastAssistantText` in `bootstrap.ts`, the stubbed
+  `schedule_list_request` in `dev-bootstrap.ts`, the `onRecoverLoops` hook in `agent-manager.ts`, and
+  the chat, loop and schedule stores and schemas in `persistence/`.
+- Goes in the CLI: the `chat`, `loop` and `schedule` command groups in
+  `packages/cli/src/feature-commands.ts`.
+- Goes in the docs: the `chat/`, `loops/` and `schedules/` rows of the persistence layout in the root
+  `AGENTS.md`, the feature specs under `swe/features/`, and the CLI pages under `fern/`.
+- Side effects, all wanted: finding F8 disappears, `loop_run_request` stops being a way to run a
+  shell command from a client (S1), and five of the six `registerAlias` calls and all the field
+  aliases go with it.
+- Checked: no external-client fixture names these families.
+- Existing `chat/`, `loops/` and `schedules/` folders under `$PI_STUDIO_HOME` are left on disk and
+  ignored.
+
+**Service proxy.**
+
+- Goes: `proxy/`, `daemon.serviceProxy.*`, `PI_STUDIO_SERVICE_PROXY_LISTEN`, `_PUBLIC_BASE_URL` and
+  `_ENABLED`, the `onRequest` hook of the HTTP server, and the rows for those variables in the root
+  `AGENTS.md`.
+- Once it is gone the HTTP server answers `/api/health` and nothing else, so CORS and the HTTP
+  password check protect nothing. **Approved: drop both.** Goes: `applyCors` and the
+  `Access-Control-*` headers in `http/http-server.ts`, `daemon.cors.allowedOrigins`, and
+  `authenticateHttp` with `bearerFromAuthHeader` in `auth/password-auth.ts`.
+- Stays: the password check on the WebSocket upgrade (`authenticateUpgrade`), which is a separate
+  path, and the Host check. `/api/health` was already exempt from both checks.
+- Checked: no client fetches `/api/health` from a page, so nothing depends on the CORS headers. The
+  CLI probes it from Node.
+
+**`agent/mcp-server.ts`.**
+
+- Goes: the file, its test, its export from `agent/index.ts`, the `mcpConfigPath` option of
+  `buildPiArgs` (`providers/pi/agent.ts:98-102`), `supportsMcpServers` on both providers, and the
+  `daemon.mcp.*` config keys.
+- `supportsMcpServers` is also a field of the provider manifest schema in
+  `packages/protocol/src/provider-manifest.ts:24`. Removing a wire field follows the fixture and
+  changelog procedure if a fixture carries it; check before deleting.
+
+**Mode support.**
+
+- Goes on the daemon: `setMode` and the mode fields of `PiAgentSession`, the three modes in
+  `agent/manifest.ts`, the contract members `getAvailableModes`, `getCurrentMode` and `listModes`, the
+  mode handler in `session-operations.ts`, and `modeId` in the agent record schema.
+- Goes in the clients: the CLI's `mode` command and `--mode` flag (`packages/cli/src/agent-commands.ts`),
+  and the mode methods of `PiStudioClient`.
+- Check first: the workbench's `Composer.tsx` and `ModelMenu.tsx` mention modes; confirm whether that
+  is this feature or something else before deleting.
+- The provider manifest on the wire carries `modes`. Same fixture rule as above.
+
+**Mock provider and dev daemon out of the published package.**
+
+- Today `dist/test-support/`, `dev-bootstrap.js`, `dev-main.js` and the mock provider all ship in
+  `@av-pi-studio/server`, and `daemon/index.ts` exports `startDevDaemon`.
+- Users of the dev daemon that must keep working from source: `npm run dev:daemon`, nine end-to-end
+  tests in `packages/server`, three in `packages/cli` (`agent-todos-sdk-e2e`, `agent-ui-sdk-e2e`,
+  `file-transfer-sdk-e2e`, which import `startDevDaemon` from `@av-pi-studio/server`), and
+  `packages/server/scripts/record-external-fixtures.ts` (imports `dist/test-support/`).
+- So the move needs a second, unpublished entry point for those importers, not a deletion.
+- Fix with it: `handleCreate` defaults a missing provider to `"mock"` (A10). It must default to `"pi"`
+  or reject. The mock also has to leave `agent/manifest.ts` and `resolveProviderClient` in the
+  production build.
+- The single binary must not contain them either.
+
+**Dead config keys.**
+
+- Approved: `daemon.mcp.*`, `log.*`, `worktrees.root`, `daemon.appendSystemPrompt`,
+  `providers.local.modelsDir`.
+- `daemon.appendSystemPrompt` was re-checked: `buildPiClient` never passes it on, so
+  `PiClientDeps.appendSystemPrompt` is never set and goes too. The per-agent `config.systemPrompt`
+  is a different thing and works.
+- `worktrees.root`: the worktree service is kept (git decision below) and has a `root` option. Either
+  wire the key or delete it; deleting was approved.
+- The top-level `version` key is also unread but was not in the approved list.
+
+### Rejected drop: git write, stash, GitHub and diff subscribe
+
+These RPCs stay because the desktop client will use them. That turns their findings into work to do
+before the first client calls them:
+
+- F7: a timeout, a larger output buffer and `GIT_TERMINAL_PROMPT=0` on every git and `gh` call.
+- S6: `--` before client-supplied positional arguments.
+- F7: `checkout_diff_subscribe` never refreshes and is not disposed when its session closes.
+- F9: `WorktreeService` and `GitHubService` are built without most of their dependencies, so setup
+  commands never run and archiving a worktree does not archive its agents.
+- T4: none of these handlers validate their input.
+- The structured-generation stubs for commit message, PR title, PR body and branch name belong to
+  these RPCs and therefore stay too.
+- The always-true switches `checkoutRefreshEnabled` and `setAutoMergeEnabled` can still be removed.
+
+### Approved: delete four pieces of code with no production caller
+
+| Code | Size | What it is | Decision |
+|---|---|---|---|
+| `PiAgentSession.history` and `streamHistory` | a few lines, plus one contract member | An array that keeps every stream event of an agent for the life of its Pi process. Its only reader, `streamHistory`, is called by tests only. The timeline store already holds the same events. | **Delete.** It is an unbounded memory leak with no reader. |
+| `agent/provider-snapshot.ts` | 107 lines, 71 of tests | A per-directory cache of a provider's models and modes: probes once, shares one probe between concurrent callers, re-probes only on an explicit refresh. Built by tests only. | **Delete.** See below. |
+| `projects/reconciliation.ts` | 90 lines, 88 of tests | A start-up repair that merges duplicate projects with the same root path and archives the emptied ones. Never called. | **Delete**, and fix the cause instead. |
+| `projects/workspace-activity.ts` | 95 lines | A pure function that turns agent statuses into one status per workspace, with a running subagent counted against its root parent's workspace. Never called. | **Delete.** |
+
+Detail for each:
+
+- **`history`.** `emit()` pushes every event (`providers/pi/agent.ts:249`), so a long conversation
+  holds every text chunk twice, once here and once in the timeline. Removing it means removing
+  `streamHistory` from `provider-contract.ts` and reworking the tests that read it (one real use in
+  `pi-adapter.test.ts`, stubs in four other test files). The mock provider keeps its own private
+  array, which it uses to script its answers.
+- **`provider-snapshot.ts`.** It was designed for the model picker, and it would solve a real
+  finding: today `resolve_default_model` caches forever with no invalidation, and listing models
+  without a live session starts a Pi process on every call (A11). The case for deleting anyway: half
+  of what it caches is modes, which are being dropped; its contract is "refresh only when told", and
+  no RPC tells it; and it is small enough that the cache is better written where it is used when A11
+  is fixed. The owner chose to delete it; A11 still needs its own fix.
+- **`reconciliation.ts`.** Duplicate projects come from a lost-update race in
+  `WorkspaceRegistryService` (F2): two concurrent `open_project_request` calls each read the file,
+  then each write it. A per-file write queue makes duplicates impossible, and then there is nothing
+  to repair. The registry matters more now that the git RPCs are kept, which is a reason to fix the
+  race, not to keep the repair.
+- **`workspace-activity.ts`.** Production uses a five-line `statusOf` in `bootstrap.ts` instead. The
+  function's `attention` state came from the permission system retired on 2026-11-13, and its
+  `needsAttention` input has no source anywhere in the code. If the desktop client later wants a
+  status badge per workspace, the escalation rule is one paragraph in its header comment and can be
+  rewritten from that.
+
+### Compatibility shims
+
+The earlier summary listed these as one item to drop. They are not all alike. The owner approved the
+six drops, confirmed the three keeps, and did not comment on the one deferral.
+
+| Shim | Where | Decision |
+|---|---|---|
+| `migrateConfig`, `migrateProviderSettings`, the `allowedHosts` rename | `config/daemon-config.ts:164-215` | **Drop.** They rewrite two old `config.json` shapes on load. The owner's own `config.json` uses neither (checked). |
+| `registerAlias` and its aliases | `ws/router.ts:54`, `agent/session-operations.ts:56` | **Drop.** Five of the six calls go with the orchestration drop. The sixth, `cancel_agent`, has no sender. With no alias left, the alias map in the router goes too. |
+| `legacyRespondToPermissionSchema` | `packages/protocol/src/messages.ts:444`, in the message union at `:2232` | **Drop.** It is the old name of a message of the retired permission system. It is a wire schema, so check the fixtures first. |
+| `normalizeWorkspaceKind` accepting `checkout` | `projects/workspace-registry.ts:27` | **Drop.** The owner's `workspaces.json` has no such kind (checked). |
+| The `normalize` option of `loadStore` | `persistence/atomic-store.ts:63` | **Drop.** No caller. |
+| Always-true switches: `checkoutRefreshEnabled`, `setAutoMergeEnabled`, `restoreModesEnabled` | `bootstrap.ts`, `git-checkout-rpc.ts:69`, `github-service.ts:97`, `terminal-rpc.ts:86` | **Drop.** Each is passed `true` at its only call site. |
+| `.passthrough()` on wire schemas (177 uses) | `packages/protocol/src/messages.ts` | **Keep.** See below. |
+| `.passthrough()` on disk schemas (20 uses) | `persistence/entity-schemas.ts`, `extensions/extensions-state.ts`, `files/upload-journal.ts` | **Keep.** See below. |
+| `version: z.literal(1)` in state files | `extensions/extensions-state.ts:60`, `files/upload-journal.ts:10`, viewer settings | **Leave.** One line each; removing them gains nothing, and the viewer-settings one is on the wire. |
+| Relay parking of 0.0.120 daemons | `packages/relay/src/relay-server.ts`, `control.ts` (about 37 lines) | **Deferred** (recommendation, not yet confirmed). See below. |
+
+Why four are not simple drops (the `version` reason is in the table):
+
+- **`.passthrough()` on wire schemas.** It does two jobs that are not about old users. The push
+  families with no schema of their own (`checkout_status_update`, `file_changed`, `terminals_update`,
+  `provider_auth_flow_event`) are validated through the passthrough base schema. And the desktop app
+  and the daemon are released separately, so a client does meet a daemon that sends a field it does
+  not know. Removing passthrough is only safe together with the single-protocol-version change
+  (section 11.2, item 7), which refuses mismatched versions outright.
+- **`.passthrough()` on disk schemas.** It is what lets an older daemon keep a field a newer one
+  wrote. That happens for real: the self-update rolls back to the previous version when the new one
+  fails to start. It costs nothing at run time. The real weaknesses of these schemas are separate:
+  the `z.unknown()` arrays, the dead `timeline` field of the agent record, and the silent fallback to
+  defaults (F2).
+- **Relay parking.** The relay holds sockets from a daemon that speaks the old relay protocol so that
+  a client is told `daemon_outdated` (close code 4105) instead of waiting forever. The parking is the
+  only thing that produces that code, and the code is handled in four places: the TypeScript relay
+  transport, the Rust relay crate, the Rust transfer engine and the desktop host. Dropping the
+  parking alone leaves those four dead; dropping all of it means a relay deployment and a desktop
+  release for no change in behaviour. The single-protocol-version change needs exactly this "your
+  daemon is too old" signal, so do the two together and give the code a real producer.
+
+### Approved: drop `extends: "pi"` profiles
+
+- **What it is.** An entry under `agents.providers` in `config.json` with an id other than `pi`, plus
+  `extends: "pi"` and a `label`. It runs the Pi adapter under that id with its own `command` and
+  `env`, optionally with a replaced or extended model list (`models`, `additionalModels`) and its own
+  session folder for imports (`params.sessionDir`).
+- **What it is for.** Running a Pi fork, or a second Pi installation with its own home, beside the
+  built-in one.
+- **How it is reached.** Only by editing `config.json` by hand and then passing the id to the CLI's
+  `--provider`. The workbench always creates agents with `provider: "pi"`
+  (`packages/workbench/src/stores/materialize.ts:115`), so a profile cannot be picked in the UI. The
+  owner's `config.json` has no provider entries at all (checked).
+- **It is half supported.** Everything else in the daemon assumes the built-in Pi's home: provider
+  auth, skills, extension sync and title generation all resolve `agents.providers.pi` only
+  (`agent/pi-home.ts:34`). A profile with its own home gets no Settings support and no synced
+  extensions, so no todo list either.
+- **What would go.** `extends` and the rule that a custom id needs it and a label
+  (`config/daemon-config.ts:27`, `:46-62`), `models`, `additionalModels`, `params.sessionDir`,
+  `applyModelOverrides` (which replaces a method on the client object at run time),
+  `ProviderRegistry.replaceMetadata`, `PROVIDER_CLIENT_FACTORIES`, `listImportableSessions`, and
+  `extends` in the protocol's provider manifest. Three more fields of the same schema are read by
+  nothing at all and go regardless: `disallowedTools`, `enabled`, `order`.
+- **What stays.** Overriding the built-in `pi` entry's `command` and `env`. That is how a custom Pi
+  binary path and a custom Pi home are set, and it is used.
+- **Decision: drop.** The cost is losing the ability to run a second Pi side by side from the
+  CLI. If that is ever wanted, it needs a design in which auth, skills and extensions follow the
+  profile's home; the current code would not be the starting point.
+
+### Web client as "Lite", desktop first
+
+Decided 2026-11-24. The web client stays, as a remote companion with limited rights. Section 11
+describes dropping it entirely; this section replaces that as the plan. Nothing is implemented yet.
+
+**What Lite gives up, all approved:**
+
+| Lite gives up | What it unlocks |
+|---|---|
+| Connecting straight to a daemon by address and password. Lite connects only with a pairing link, through the relay. | The daemon's direct port turns away every request that carries an `Origin`, so S1 is closed by design. The local daemon can move to a Unix socket or named pipe for the desktop app and the CLI (section 11.2, item 1), and SSH can forward to it (item 6). The password in the page URL and in browser storage goes. `pi-studio ui` goes, and with it about 28 MB of web app in the CLI package and the single binary; `workbench`, `ui-library` and `web-client` no longer need publishing to npm. |
+| Full power. Lite has a limited role: no terminal, no file write, delete or upload, no Settings (provider credentials, skills, extensions, daemon update). | The daemon's first permission model, with two roles (S2). A compromise of the hosted app can no longer open a shell, read credentials or replace the daemon directly. |
+| The shared password. Each Lite device gets its own credential at pairing; the desktop app keeps a key in the OS keychain. | One device can be revoked without rotating the daemon's key. Fixes S3. |
+| The full message set. Lite speaks a small, stable subset. | The desktop app and the daemon can require an exact version match (section 11.2, item 7). The feature flags shrink to the Lite subset, which the external-client fixtures can pin. |
+| Uploads and large downloads. Lite views files up to a size cap. | Uploads run only on the desktop's separate transfer connection, so the control connection is never paused (F5). The desktop's `--transfers page` mode goes. |
+
+**Accepted costs:**
+
+- Lite needs the relay even on the same network, and a self-hoster must run it.
+- Opening the web UI over the network against a local daemon stops working. Use the desktop app, or
+  pair.
+- Web development against a local daemon needs an explicit developer switch.
+
+**Known limit of the limited role.** Lite can send a prompt, and an agent can run commands. The role
+removes the direct routes (terminal, file writes, credentials, daemon update); it does not make a
+compromised hosted app harmless.
+
+**What stays while Lite exists:** the TypeScript side of the relay channel, the hosted app with its
+Docker image and release steps, and the JSON ping.
+
+**Effect on what was approved earlier:**
+
+- Improvement 1 becomes simpler: no allowlist of web origins on the direct port, only "refuse any
+  `Origin`", plus the developer switch.
+- The approved CORS drop is unaffected.
+- "Reject every upgrade that carries an `Origin`" and "delete `pi-studio ui`" move from section 11
+  (drop the web client) to this plan.
+
+**Suggested grouping.** The first three rows are one piece of work: two doors (a trusted local one, a
+paired remote one), two roles, a credential per device. Rows four and five can follow.
+
+#### Approved: Lite can start new agents, with two limits
+
+Decided 2026-11-24: yes, with the two limits below. The cap's number is not chosen yet.
+
+- The extra risk is smaller than it looks, because Lite can already prompt an existing agent.
+- What starting an agent adds: a choice of folder (anywhere on the machine, which needs the
+  folder-browsing and folder-creating requests of `OpenWorkspaceDialog`), a choice of model (cost),
+  and one Pi process per agent with nothing limiting how many.
+- Limit 1: Lite starts agents only in folders that already have a workspace or an agent, picked from
+  a list. Opening a new folder stays on the desktop.
+- Limit 2: a cap on how many agents a Lite device may have running.
+
+#### Parked: the desktop viewers' bytes from Rust
+
+Parked by the owner on 2026-11-24. No trial is planned. Until this is picked up, viewing on the
+desktop keeps using the page-side transfer code, and so does Lite, so `FileTransferClient` and
+`browser-files.ts` stay. The question of moving Lite to a small image-read request, so that this
+code can be deleted, is parked with it.
+
+**Today (checked).** On the desktop, saving a file to disk and uploading a picked file go through the
+Rust transfer engine. Viewing does not: `files.openForView` is still the browser host's
+(`desktop/apps/pistudiodesktop/src/host/transfers.ts`, `packages/workbench/src/host/browser-files.ts`).
+The bytes travel daemon → Rust proxy → loopback WebSocket → page, as 32 KiB frames on the control
+connection; the page collects them into a `Blob` and views that. Six consumers: the image, video,
+PDF and molecule viewers, large text (5 to 30 MiB), and inline images in chat. A file dropped onto
+the window also uploads this way, because the window uses HTML drag and drop
+(`dragDropEnabled: false` in `tauri.conf.json`).
+
+**What that costs.**
+
+- The whole file is in the page's memory. The PDF viewer then copies it again
+  (`getDocument({ data: bytes })`).
+- A video cannot start or seek until all of it has arrived.
+- No size limit was found for images, video or PDF.
+- The bytes share the control connection with chat and terminals.
+
+**Options.**
+
+| Option | How | For | Against |
+|---|---|---|---|
+| A. Loopback HTTP from Rust | Rust answers `http://127.0.0.1:<port>/<token>/…` with `Range` support, each range fetched from the daemon by the transfer engine. Reuses the gate of the existing loopback proxy (token, `Origin` check). | A real streamed body with back-pressure. Plain HTTP is what every webview's media stack expects. Same choice, for the same reason, as the control connection (`swe/features/desktop-transport-bridge.md`). | One more thing on loopback, so the same "security software blocks 127.0.0.1" failure. The CSP gains `http://127.0.0.1:*` for images, media and fetch. The token is in a URL and must live as long as the view, not for one request. |
+| B. A custom URI scheme | A second scheme beside `pi-preview:`, answering range requests. | No listener, no token. | Tauri answers a scheme request with a whole buffer, so large files work only if the webview asks in ranges. Video through a custom scheme on Linux is a known weak spot of WebKitGTK (to verify). This project has only checked its one custom scheme on Linux; on macOS and Windows the preview is `inert` for that reason. |
+| C. Download to a temporary file, then view the file | The engine saves to a temp file; the page loads it through Tauri's asset protocol. | Simplest. Reuses the save path as it is. | The whole file must arrive before viewing, so video still does not stream. Uses local disk. Same Linux video caveat as B. |
+| D. Read the file from disk when the daemon is local | For the `local` entry only, serve the path straight from this machine. | Instant, no copy. | A second code path that only some entries take, and it bypasses the daemon. An optimisation to add later, not a design. |
+
+**Recommendation when picked up: A, after a spike.** The spike must show, on Linux, macOS and Windows: a video that
+starts at once and seeks, a large PDF whose first page appears before the whole file arrived, and a
+2 GB file viewed with flat memory.
+
+**What it needs.**
+
+- A ranged download in the Rust engine. The protocol has `offset` and `length`; the engine's save
+  path sends no `length` today.
+- `ifUnchanged` on every range, so a file that changed mid-view is reloaded, not mixed.
+- The PDF viewer loading by URL with ranges instead of by bytes. Optional at first.
+- Dropped files: either native drag and drop, which conflicts with the in-page drag from the file
+  tree to the composer, or leave dropped files on the old path.
+
+**What it does not give by itself.** The TypeScript transfer client cannot be deleted while Lite views
+files through it. It can go only if Lite also changes: text and diffs through `file_read_request` as
+today, plus a small "read as base64 up to the cap" request for images. Then the chunked transfer
+protocol is spoken by Rust only, and `FileTransferClient` (about 27 KB and 40 KB of tests) and
+`browser-files.ts` can be deleted.
+
+**Value.** A better experience with large media, and a control connection that carries no bulk data.
+Lower priority than the two-doors work. Effort: medium, most of it the three-platform checking.
+
+### Milestones (proposed)
+
+Proposed 2026-11-24, not yet approved by the owner. Everything approved above is placed in exactly
+one milestone. No sprint or task files exist yet; those are derived (`av-swe plan`) once the
+milestones are agreed.
+
+| # | Milestone | Contains | What the user gets | Size | Needs |
+|---|---|---|---|---|---|
+| M1 | Close the door | Improvement 1 in its Lite form: the direct port refuses any request with an `Origin`, with a developer switch for local web development. Refuse a network bind without a password. Web client connects by pairing link only (address and password form removed; no password in the URL or browser storage). Remove `pi-studio ui`. | No website can reach the daemon. | Small | Nothing |
+| M2 | Clear the ground | The approved drops: orchestration, service proxy with CORS and the HTTP password check, `mcp-server.ts`, mode support, dead config keys, the four uncalled pieces, `extends: "pi"` profiles, the six shims. Also the packaging that follows from M1: the CLI and the binary stop carrying the web app; `workbench`, `ui-library` and `web-client` stop being published. | Nothing visible. A smaller install, and less code for every later milestone to touch. | Medium, mostly deletions | Nothing; packaging part needs M1 |
+| M3 | Agents that recover | Improvement 2 (crash path, turn lock, spawn lock, close during a turn) and improvement 3 (seed the timeline, then save it to disk). | No stuck conversations, no duplicated replies, no lost history. | Medium to large | Nothing |
+| M4 | Instant replies | Improvement 4: create and send answer at once; the daemon, SDK, workbench and CLI change together. | New conversations appear at once; long turns show no false error. | Medium | M3 |
+| M5 | A daemon that holds up | Improvement 5 (ordered, bounded shutdown), improvement 6 (liveness, limits, slow clients), improvement 8 (set damaged files aside). | Stop and update always finish; steady memory; no silent loss of settings. | Medium, three independent parts | Nothing |
+| M6 | One wiring | Improvement 9 (one start-up path), the mock provider and dev daemon out of the published package, improvement 7 (every request checked, with the schema declared where the handler is registered). | Nothing visible. Tested code matches shipped code; clear errors for malformed requests. | Medium to large | M2; best after M4 |
+| M7 | The local door | The local daemon listens on a Unix socket or named pipe; the desktop app and the CLI use it; SSH forwards to it; the TCP port becomes opt-in (Docker, headless remote hosts). | No port conflict and no password for the local daemon; an SSH host needs no open port. | Medium, plus checks on three systems | M6 |
+| M8 | Devices and roles | A credential per device at pairing, the desktop's key in the OS keychain, revoking one device. Two roles, full and Lite, carried by the credential and enforced per request. The web client trimmed to the Lite feature set. Lite starts agents only in known folders, up to a cap. | A lost phone can be cut off alone. The web client can no longer open a shell, change files or touch settings. | Large; needs a written design first | M6, M7 |
+| M9 | Lite contract and version match | Lite speaks a small pinned subset. The desktop app and the daemon require the same version; the feature flags shrink to the Lite subset. The relay's parking of old daemons is replaced by a real "daemon too old" signal. Uploads only on the transfer connection; Lite views files up to a cap; the desktop's `--transfers page` mode goes. | Faster changes to the desktop app without compatibility code; an upload never stalls chat. | Medium to large | M8 |
+
+**Order and what can run side by side.**
+
+- M1 first, alone: it is small and it closes the most serious finding.
+- Then M2, M3 and M5 can run side by side; they touch different parts of the daemon.
+- M4 follows M3. M6 follows M2 and is easier after M4, because M4 changes two of the handlers M6
+  rewires.
+- M7, M8 and M9 are the Lite plan, in that order. They come after M6 so that sockets, roles and
+  credentials are wired once, not once per bootstrap.
+
+**Why roles wait for credentials (M8).** The desktop app also connects through the relay, and it must
+keep full rights. Until each device has its own credential, the daemon cannot tell a paired desktop
+from a paired browser, so it cannot give them different roles.
+
+**Consequence to accept in M1.** After M1 the web client relies on pairing links alone, and a pairing
+link is still the daemon's public key with no per-device revocation (S3) until M8. This is no worse
+than today, where the relay already works that way, but it is the reason M8 should not slip far.
+
+**Things M1 changes for existing set-ups.**
+
+- The Docker daemon image binds `0.0.0.0:6767` with no password by default
+  (`docker/daemon.Dockerfile:81`). After M1 it refuses to start that way, so the compose file and
+  `docker/README.md` must set a password.
+- The Vite dev server's `/daemon-ws` proxy needs the developer switch.
+
+**Not in any milestone.**
+
+- Parked: the desktop viewers' bytes from Rust.
+- Kept for later: hardening the git, stash and GitHub requests (F7, S6, F9), to be done before the
+  desktop client first calls them.
+- Never put to the owner: the unreferenced project, workspace and terminal requests, the unused
+  provider-contract members, the upload journal, the top-level `version` config key.
+- Small fixes never put to the owner, with the milestone each would fit: deleting a symlink deletes
+  its target (F1, M5), `file_read_request` on endless files (F3, M5), terminal subscriptions leaking
+  on disconnect (F4, M5), the unwired skip store (T6, M5), credentials in extension error text
+  (section 7, M5), requests to Pi with no timeout (A8, M3).
 
 ---
 
@@ -523,9 +934,12 @@ That stack also fixes T1.
 
 ## 9. What can be dropped today
 
+This section is the audit's proposal. What the owner decided about each item is in
+[Decisions](#decisions); where the two differ, Decisions wins.
+
 ### 9.1 RPC names with no reference in any client (**Checked**)
 
-Git write operations, stash and branches (12):
+Git write operations, stash and branches (12). **Decision: keep**, for the desktop client:
 
 - `checkout_commit_request`, `checkout_switch_branch_request`, `checkout_rename_branch_request`
 - `checkout_merge_request`, `checkout_merge_from_base_request`
@@ -533,14 +947,14 @@ Git write operations, stash and branches (12):
 - `stash_save_request`, `stash_pop_request`, `stash_list_request`
 - `validate_branch_request`, `branch_suggestions_request`
 
-GitHub (6):
+GitHub (6). **Decision: keep**:
 
 - `checkout_pr_create_request`, `checkout_pr_merge_request`, `checkout_pr_status_request`
 - `pull_request_timeline_request`, `github_search_request`
 - `checkout.github.set_auto_merge.request`
 
 Diff streaming (2): `checkout_diff_subscribe`, `checkout_diff_unsubscribe`. The workbench uses
-`file_diff_request`.
+`file_diff_request`. **Decision: keep.**
 
 Projects and workspaces (7):
 
@@ -559,7 +973,7 @@ what happens to that dashboard.
 
 Schedule names the CLI does not use (5): `create_schedule_request`, `update_schedule_request`,
 `delete_schedule_request`, `pause_schedule_request`, `resume_schedule_request`. The CLI uses the
-`schedule_*_request` aliases.
+`schedule_*_request` aliases. **Decision: dropped with the rest of orchestration.**
 
 Alias (1): `cancel_agent`. Every client sends `interrupt_agent`.
 
@@ -567,47 +981,57 @@ Alias (1): `cancel_agent`. Every client sends `interrupt_agent`.
 
 ### 9.2 Subsystems and code
 
-| Drop | Size | Why |
-|---|---|---|
-| `orchestration/` and `daemon/orchestration-rpc.ts` (chat rooms, loops, schedules) | about 1,100 lines | CLI-only and broken (F8). Last changed 2026-06-16. If kept, wire `tick()` and `recover()` and fix the CLI payloads. |
-| `proxy/`, `daemon.serviceProxy.*`, three env vars, the `onRequest` hook | about 220 lines | Nothing registers a route, so `handleRequest` always returns false. The HTTP server is `/api/health` plus 404. |
-| CORS and the HTTP bearer path | small | They protect only that 404. |
-| `agent/mcp-server.ts`, its test, and the `supportsMcpServers` plumbing | about 310 lines | Its header says it is not reachable at runtime. No route, no backend, no `--mcp-config`. |
-| Git write, stash, GitHub and diff-subscribe services | `git-operations.ts` 281, `github-service.ts` 236, `checkout-diff-manager.ts` | No consumer (9.1). |
-| Mode support for the Pi provider | spread over `agent.ts`, the manifest and the CLI | Cosmetic (A11). Implement it or remove it. |
-| Mock provider and dev daemon in the published package | about 1,200 lines plus `dist/test-support/` | `tsconfig.json` excludes only `*.test.ts`, and `files` ships all of `dist`. Move them to a test-only entry. |
-| `agent/provider-snapshot.ts` | one file | Built only by tests. |
-| `projects/reconciliation.ts`, `projects/workspace-activity.ts` | two files | No caller. |
-| `PiAgentSession.history` and `streamHistory` | small | No reader; a memory leak. |
-| Unused contract members in `provider-contract.ts` | `setFeature`, `tryHandleOutOfBand`, `RunOptions.outputSchema` and `attachments`, `features`, `getAvailableModes`, `getCurrentMode`, `listModes`, `getDiagnostic`, the legacy `setModel?` | No caller, or Pi does not implement them. |
-| `PROVIDER_CLIENT_FACTORIES` | small | Unreachable for `pi` and `mock`, which are handled first. |
-| `extends: "pi"` profiles (`applyModelOverrides`, `additionalModels`, `params.sessionDir`) | spread | Reachable only by editing `config.json` by hand. |
-| `listImportableSessions` | small | No RPC exposes it. |
-| Structured-generation stubs for commit message, PR title, PR body and branch name | small | Only `agent_title` is wired; the rest fall back to fixed text. |
-| `UploadJournal`'s version gate; possibly the journal itself | small | Temporary files already match a strict name pattern, so a scan at start would do. |
+| Drop | Size | Why | Decision |
+|---|---|---|---|
+| `orchestration/` and `daemon/orchestration-rpc.ts` (chat rooms, loops, schedules) | about 1,100 lines | CLI-only and broken (F8). Last changed 2026-06-16. | Approved |
+| `proxy/`, `daemon.serviceProxy.*`, three env vars, the `onRequest` hook | about 220 lines | Nothing registers a route, so `handleRequest` always returns false. The HTTP server is `/api/health` plus 404. | Approved |
+| CORS and the HTTP bearer path | small | They protect only that 404. | Approved |
+| `agent/mcp-server.ts`, its test, and the `supportsMcpServers` plumbing | about 310 lines | Its header says it is not reachable at runtime. No route, no backend, no `--mcp-config`. | Approved |
+| Git write, stash, GitHub and diff-subscribe services | `git-operations.ts` 281, `github-service.ts` 236, `checkout-diff-manager.ts` | No consumer today (9.1). | Rejected: keep |
+| Mode support for the Pi provider | spread over `agent.ts`, the manifest and the CLI | Cosmetic (A11). | Approved |
+| Mock provider and dev daemon in the published package | about 1,200 lines plus `dist/test-support/` | `tsconfig.json` excludes only `*.test.ts`, and `files` ships all of `dist`. Move them to a test-only entry. | Approved |
+| `agent/provider-snapshot.ts` | 107 lines | Built only by tests. | Approved |
+| `projects/reconciliation.ts`, `projects/workspace-activity.ts` | 90 and 95 lines | No caller. | Approved |
+| `PiAgentSession.history` and `streamHistory` | small | No reader; a memory leak. | Approved |
+| Unused contract members in `provider-contract.ts` | `setFeature`, `tryHandleOutOfBand`, `RunOptions.outputSchema` and `attachments`, `features`, `getAvailableModes`, `getCurrentMode`, `listModes`, `getDiagnostic`, the legacy `setModel?` | No caller, or Pi does not implement them. | Mode members approved; the rest not asked yet |
+| `PROVIDER_CLIENT_FACTORIES` | small | Unreachable for `pi` and `mock`, which are handled first. | Approved, with profiles |
+| `extends: "pi"` profiles (`applyModelOverrides`, `additionalModels`, `params.sessionDir`) | spread | Reachable only by editing `config.json` by hand. | Approved |
+| `listImportableSessions` | small | No RPC exposes it. | Approved, with profiles |
+| Structured-generation stubs for commit message, PR title, PR body and branch name | small | Only `agent_title` is wired; the rest fall back to fixed text. | Keep: they belong to the git RPCs |
+| `UploadJournal`'s version gate; possibly the journal itself | small | Temporary files already match a strict name pattern, so a scan at start would do. | Not asked yet |
 
 ### 9.3 Compatibility shims
 
+Decision per shim is in [Decisions](#compatibility-shims): six approved drops, three keeps, one
+deferral. The list as the audit first gave it:
+
 - `migrateConfig`, `migrateProviderSettings` and the `allowedHosts` rename
-  (`config/daemon-config.ts:140-198`).
-- `registerAlias` and all seven aliases (`ws/router.ts`).
+  (`config/daemon-config.ts:164-215`).
+- `registerAlias` and all six aliases (`ws/router.ts`).
 - Field aliases in `orchestration-rpc.ts`: `name ?? title`, `scheduleId ?? id`,
-  `cursor ?? sinceCursor`, `body ?? text`.
-- `.passthrough()` on every entity schema, kept for "older daemons".
+  `cursor ?? sinceCursor`, `body ?? text`. These go with the approved orchestration drop.
+- `.passthrough()` on every entity schema. **Decision: keep.**
 - `version: z.literal(1)` gates in the upload journal, extension state and viewer settings.
+  **Decision: keep.**
 - `normalizeWorkspaceKind` accepting the legacy `checkout` kind.
 - The unused `normalize` option of `loadStore`.
-- `checkoutRefreshEnabled` and `setAutoMergeEnabled`, always `true`.
+- `checkoutRefreshEnabled`, `setAutoMergeEnabled` and `restoreModesEnabled`, always `true`.
 - `legacyRespondToPermissionSchema` in the protocol package.
-- The relay's parking of 0.0.120 daemons (`packages/relay`, `relay-server.ts`).
+- The relay's parking of 0.0.120 daemons (`packages/relay`, `relay-server.ts`). Deferred.
 
 ### 9.4 Config keys nothing reads
 
-`daemon.mcp.*`, `daemon.appendSystemPrompt`, `log.*` (logging reads only `PI_STUDIO_LOG_LEVEL`),
-`providers.local.modelsDir`, `worktrees.root` (the service supports it; `bootstrap.ts` never passes
-it), `version`.
+Decision: approved for `daemon.mcp.*`, `daemon.appendSystemPrompt`, `log.*` (logging reads only
+`PI_STUDIO_LOG_LEVEL`), `providers.local.modelsDir` and `worktrees.root` (the service supports it;
+`bootstrap.ts` never passes it). The top-level `version` key is also unread but was not in the
+approved list.
 
 ## 10. Suggested order of work
+
+The owner approved all of this on 2026-11-24: step 4 as the drops, the other nine steps as the nine
+improvements (see [Decisions](#decisions)). The approved order is the one in the Decisions table,
+which has "return from create and send at once" fourth; this list had it ninth because it changes
+the wire contract. Either position works, since it does not depend on steps 5 to 8.
 
 1. **Close the web-page hole (S1, S2).** An `Origin` allowlist on the upgrade, and refuse a
    non-loopback bind without a password. Small, and independent of everything else.
@@ -615,8 +1039,8 @@ it), `version`.
    dead session, one turn lock and one spawn lock per agent.
 3. **Fix the timeline (A5, A6).** Seed in `runTurn` first (small), then persist to an append-only
    file.
-4. **Delete the dead subsystems (section 9).** This shrinks everything after it, including the
-   bootstrap refactor.
+4. **Delete what was approved (see [Decisions](#decisions)).** This shrinks everything after it,
+   including the bootstrap refactor.
 5. **Make shutdown ordered and bounded (T1).**
 6. **Add liveness and limits to direct sockets (T2, T3).**
 7. **Validate inbound RPCs in the router (T4).**
@@ -628,6 +1052,10 @@ Smaller independent fixes that can go in at any point: F1 (symlink delete), F3 (
 F4 (terminal leak), T6 (skip store), the credential leak in section 7, A10 (mock default).
 
 ## 11. Dropping the web client
+
+**Superseded in part on 2026-11-24:** the owner chose to keep the web client as a second-class "Lite"
+(see [Decisions](#web-client-as-lite-desktop-first)). This section stays as the analysis of the
+full drop; what was taken from it is listed there.
 
 ### 11.1 What falls out immediately
 
@@ -775,11 +1203,13 @@ So that a later reader knows what was covered and need not be re-read first.
 - **Is the skip store unwired on purpose (T6)?** It may be unfinished work on this branch.
 - **Does anything still use the Rust dashboard** that consumes the `daemon_status_*` and
   `daemon_logs_*` fixtures? If not, that family and its fixtures are droppable too.
-- **Are chat rooms, loops and schedules wanted?** They are either a feature to finish (wire the
-  timer, recovery and CLI payloads, add a UI) or about 1,100 lines to delete.
-- **Are the git write and GitHub RPCs planned for the workbench?** If yes, they need timeouts and
-  `--` before positional arguments first (F7, S6).
-- **Is mode support (`plan` / `default` / `full-access`) meant to do something?** Today it does not.
+- **Are chat rooms, loops and schedules wanted?** Answered 2026-11-24: no, drop them.
+- **Are the git write and GitHub RPCs planned?** Answered 2026-11-24: yes, for the desktop client.
+  They need timeouts and `--` before positional arguments first (F7, S6).
+- **Is mode support (`plan` / `default` / `full-access`) meant to do something?** Answered
+  2026-11-24: no, drop it.
+- **Still open from the decisions round:** only the relay parking of old daemons, which is deferred
+  on recommendation and not yet confirmed by the owner.
 - **Does a Pi process exit when its stdin closes?** If not, a daemon killed with SIGKILL orphans
   every agent. Not tested.
 - **Do newer browsers block a public page from reaching `ws://127.0.0.1`?** Not tested; relevant only

@@ -1,7 +1,8 @@
 //! The daemon installer of the local entry: the shell's [`Installer`] hook over `pistudiodesktop-install` and the launch's
 //! pin (`swe/features/single-binary-daemon.md`, "The local entry"). The shell decides when to install; this fetches the pinned
 //! archive (the archive cache, else a download with a 60 s stall limit), unpacks it under `$PI_STUDIO_HOME/bin/versions/`,
-//! switches `current`, and after a start that reached `running` removes the old versions.
+//! switches `current`, and after a start that reached `running` removes the old versions. The same object is the shell's
+//! [`ArchiveSource`]: an install over SSH takes the archive of the host's target from the same cache.
 //!
 //! The pin's addresses are never logged: a failure is logged by its kind.
 
@@ -15,7 +16,7 @@ use pistudiodesktop_install::{
 };
 use pistudiodesktop_model::pin::{DaemonPin, this_target};
 use pistudiodesktop_shell::cli_answers::parse_version;
-use pistudiodesktop_shell::services::{InstallFailure, InstallProgress, Installer};
+use pistudiodesktop_shell::services::{Archive, ArchiveSource, FetchFailure, InstallFailure, InstallProgress, Installer};
 
 /// The folder of the archive cache in the app's data folder (S9).
 pub const ARCHIVE_DIR: &str = "daemon-archives";
@@ -40,7 +41,7 @@ impl LocalInstaller {
     /// The archive of the pin for this machine, from the cache or downloaded, reporting `(received, total)`. The download runs
     /// on a thread of its own with its own runtime, so that this works whatever thread calls it (inside a runtime or not);
     /// the progress comes back to the caller's thread over a channel.
-    fn fetch(&self, target: &str, asset: &Asset<'_>, progress: &mut dyn FnMut(InstallProgress)) -> Result<PathBuf, DownloadError> {
+    fn download_archive(&self, target: &str, asset: &Asset<'_>, progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf, DownloadError> {
         let (pieces, received) = channel::<(u64, u64)>();
         std::thread::scope(|scope| {
             let worker = scope.spawn(move || {
@@ -51,7 +52,7 @@ impl LocalInstaller {
             });
             // Ends when the worker has finished and dropped its end.
             for (got, total) in received {
-                progress(InstallProgress::Downloading { received: got, total });
+                progress(got, total);
             }
             worker.join().unwrap_or_else(|_| Err(DownloadError::Io("the download thread stopped".to_owned())))
         })
@@ -59,10 +60,10 @@ impl LocalInstaller {
 }
 
 /// How the shell is told a download ended: a wrong size or hash is `checksum_mismatch`, the rest `download_failed`.
-fn download_failure(error: &DownloadError) -> InstallFailure {
+fn fetch_failure(error: &DownloadError) -> FetchFailure {
     // The error never holds an address (`DownloadError`), so it may be logged.
     log::warn!("daemon download failed: {error}");
-    if error.is_integrity_failure() { InstallFailure::Checksum } else { InstallFailure::Download }
+    if error.is_integrity_failure() { FetchFailure::Checksum } else { FetchFailure::Download }
 }
 
 /// What the screen shows beside a failed install: the error's own words, and what the unpacked program printed when it ran.
@@ -83,6 +84,24 @@ fn installed_names(bin_dir: &Path) -> Vec<String> {
     std::fs::read_dir(versions).map(|entries| entries.filter_map(|entry| entry.ok()?.file_name().into_string().ok()).collect()).unwrap_or_default()
 }
 
+impl ArchiveSource for LocalInstaller {
+    fn version(&self) -> &str {
+        &self.pin.version
+    }
+
+    /// The archive for any of the four systems: an install over SSH sends the host's own, not this machine's. The same
+    /// cache folder as the local install: an archive is downloaded once whichever entry asks for it.
+    fn fetch(&self, target: &str, progress: &mut dyn FnMut(u64, u64)) -> Result<Archive, FetchFailure> {
+        let Some(pinned) = self.pin.asset(target) else {
+            log::warn!("daemon download failed: the pin has no archive for this target");
+            return Err(FetchFailure::Download);
+        };
+        let asset = Asset { url: &pinned.url, sha256: &pinned.sha256, size: pinned.size };
+        let path = self.download_archive(target, &asset, progress).map_err(|e| fetch_failure(&e))?;
+        Ok(Archive { path, size: pinned.size, sha256: pinned.sha256.clone() })
+    }
+}
+
 impl Installer for LocalInstaller {
     fn version(&self) -> &str {
         &self.pin.version
@@ -100,7 +119,13 @@ impl Installer for LocalInstaller {
         };
         let asset = Asset { url: &asset.url, sha256: &asset.sha256, size: asset.size };
         // A download that failed its checksum is deleted by the cache; nothing of it is unpacked.
-        let archive = self.fetch(target, &asset, progress).map_err(|e| download_failure(&e))?;
+        let archive =
+            self.download_archive(target, &asset, &mut |received, total| progress(InstallProgress::Downloading { received, total })).map_err(|e| {
+                match fetch_failure(&e) {
+                    FetchFailure::Checksum => InstallFailure::Checksum,
+                    FetchFailure::Download => InstallFailure::Download,
+                }
+            })?;
         progress(InstallProgress::Installing);
         install_version(&archive, bin_dir, &self.pin.version).map_err(|e| install_failure(&e))
     }
@@ -142,8 +167,8 @@ mod tests {
 
     #[test]
     fn a_wrong_hash_or_size_is_a_checksum_mismatch_and_every_other_failure_a_failed_download() {
-        assert_eq!(download_failure(&DownloadError::ChecksumMismatch), InstallFailure::Checksum);
-        assert_eq!(download_failure(&DownloadError::WrongSize { expected: 2, received: 1 }), InstallFailure::Checksum);
+        assert_eq!(fetch_failure(&DownloadError::ChecksumMismatch), FetchFailure::Checksum);
+        assert_eq!(fetch_failure(&DownloadError::WrongSize { expected: 2, received: 1 }), FetchFailure::Checksum);
         for other in [
             DownloadError::Stalled,
             DownloadError::Status(404),
@@ -151,8 +176,37 @@ mod tests {
             DownloadError::Io("disk".into()),
             DownloadError::InvalidName,
         ] {
-            assert_eq!(download_failure(&other), InstallFailure::Download, "{other}");
+            assert_eq!(fetch_failure(&other), FetchFailure::Download, "{other}");
         }
+    }
+
+    #[test]
+    fn the_archive_of_any_target_comes_from_the_cache_when_it_is_the_pinned_file_and_from_the_download_otherwise() {
+        // The SHA-256 of the body.
+        let body: &'static [u8] = b"a pinned archive";
+        let sha256 = "938558376e47ad4fb46af7fdbec526fa568a30402c47434003b7d35b069480d7".to_owned();
+        let dir = tempfile::tempdir().unwrap();
+        let archives = dir.path().join("archives");
+        // Nothing listens at the address: only a cache hit can answer.
+        let installer = LocalInstaller::new(pin("1.2.3", "http://127.0.0.1:1/x", &sha256, body.len() as u64), archives.clone());
+        std::fs::create_dir_all(archives.join("1.2.3")).unwrap();
+        std::fs::write(archives.join("1.2.3/darwin-arm64.tar.gz"), body).unwrap();
+        let mut seen = Vec::new();
+        let archive = ArchiveSource::fetch(&installer, "darwin-arm64", &mut |got, total| seen.push((got, total))).unwrap();
+        assert_eq!(archive, Archive { path: archives.join("1.2.3/darwin-arm64.tar.gz"), size: body.len() as u64, sha256: sha256.clone() });
+        assert!(seen.is_empty(), "a cached file is not downloaded");
+        assert_eq!(ArchiveSource::version(&installer), "1.2.3");
+        // Another target is not cached: the download fails here (nothing listens) and leaves no file.
+        assert_eq!(ArchiveSource::fetch(&installer, "linux-x64", &mut |_, _| {}), Err(FetchFailure::Download));
+        assert!(!archives.join("1.2.3/linux-x64.tar.gz").exists());
+        // A target the pin has no archive for.
+        assert_eq!(ArchiveSource::fetch(&installer, "plan9-mips", &mut |_, _| {}), Err(FetchFailure::Download));
+        // A download of something else is a checksum mismatch, with its progress.
+        let other: &'static [u8] = b"something else..";
+        let installer = LocalInstaller::new(pin("1.2.3", &serve_once(other), &sha256, other.len() as u64), dir.path().join("second"));
+        let mut seen = Vec::new();
+        assert_eq!(ArchiveSource::fetch(&installer, "linux-arm64", &mut |got, total| seen.push((got, total))), Err(FetchFailure::Checksum));
+        assert_eq!(seen.last(), Some(&(other.len() as u64, other.len() as u64)));
     }
 
     #[test]

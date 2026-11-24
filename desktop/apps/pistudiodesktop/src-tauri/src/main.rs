@@ -218,7 +218,10 @@ fn main() {
         Ok(dir) => dir,
         Err(e) => fail(2, format!("cannot find the data directory ({e}); pass --config-dir <DIR>")),
     };
-    services.installer = Some(Arc::new(daemon_install::LocalInstaller::new(pin.clone(), data_dir.join(daemon_install::ARCHIVE_DIR))));
+    // The same object installs the local entry's binary and hands an SSH install the archive of the host's target.
+    let installer = Arc::new(daemon_install::LocalInstaller::new(pin.clone(), data_dir.join(daemon_install::ARCHIVE_DIR)));
+    services.installer = Some(installer.clone());
+    services.archives = Some(installer);
     // The self-update: the plug-in behind the shell's hook, the shell's state over it (it reads `--update-manifest`),
     // and the runner that begins what the `update.*` commands accept and carries out the schedule.
     services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), update::Env::detect())));
@@ -257,6 +260,9 @@ fn main() {
     // `ui.inspect` reads the proxied connections, the SSH session and the last connection error through this.
     services.transports = Some(app.state::<transport::Transport>().inspector(&ssh));
     services.remote_run = Some(ssh.remote_run_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    // The daemon's archive goes to an SSH host over this session, and a running remote daemon's version is read over it.
+    services.remote_send = Some(ssh.remote_send_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    services.remote_daemon_version = Some(ssh.remote_daemon_version_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
     app.manage(ssh.clone());
     // The file transfer engine takes the current entry from the owner thread and the password from
     // the store, as `transport_open` does; `ui.inspect` reads its snapshot through the hook.
