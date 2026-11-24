@@ -653,6 +653,7 @@ async function main() {
   writeFileSync(path.join(outDir, "results.json"), `${JSON.stringify({ options: { ...options, from: path.basename(options.from) }, results: report.results, facts: report.facts }, null, 2)}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   console.log(`\n${summary}`);
+  console.log(`update-check: ${report.failed ? "failed" : "passed"}, exiting`);
   process.exit(report.failed ? 1 : 0);
 }
 
