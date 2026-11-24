@@ -123,17 +123,6 @@ export function resolveBundledPiCli(): string | null {
 }
 
 /**
- * Default Pi launch command. Prefers the bundled CLI (`node <pkg>/<pi's declared bin> --mode rpc`)
- * so no global install is required; falls back to a global `pi --mode rpc` on `$PATH` if the
- * dependency is absent.
- */
-export function defaultPiCommand(): string[] {
-  const cli = resolveBundledPiCli();
-  if (cli) return [process.execPath, cli, "--mode", "rpc"];
-  return ["pi", "--mode", "rpc"];
-}
-
-/**
  * Default transport: spawn `pi --mode rpc` and frame JSON commands/events over stdio per the Pi RPC
  * protocol. Framing is strict JSONL: split on `\n` only, strip an optional trailing `\r`. (Node's
  * `readline` is intentionally avoided — it also splits on U+2028/U+2029, which are valid inside JSON

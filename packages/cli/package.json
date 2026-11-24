@@ -25,7 +25,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && chmod +x dist/cli.js",
+    "build": "node scripts/gen-version.mjs && tsc -b && chmod +x dist/cli.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

@@ -12,19 +12,19 @@ import {
   type SkillInfo,
 } from "@av-pi-studio/protocol";
 
-import { resolveBundledPiCli } from "../agent/providers/pi/rpc-transport.js";
 import type { PersistedConfig } from "../config/daemon-config.js";
-import { parseSource as parseCuratedSource } from "../extensions/curated-packs.js";
 import { effectivePiHomeKey } from "../extensions/extensions-state.js";
+import { parseSource as parseCuratedSource } from "../extensions/pi-source.js";
 import { defaultInstallSpawn, type InstallSpawn } from "../extensions/sync-executor.js";
 import type { FileWatchService } from "../files/file-watch-service.js";
 import { expandHome } from "../files/resolve-path.js";
 import type { Logger } from "../logging/logger.js";
+import { piCommand, skillsCommand } from "../runtime/self.js";
 import { createLimiter } from "../util/concurrency.js";
 import type { Session } from "../ws/session.js";
 import { loadSkillsFromDir, openPiResources } from "./pi-sdk.js";
 import { buildCatalog } from "./skill-catalog.js";
-import { resolveSkillsCli, sanitizeSkillName, skillsArgv, spawnEnv } from "./skills-cli.js";
+import { sanitizeSkillName, skillsArgv, spawnEnv } from "./skills-cli.js";
 import {
   processEnvSnapshot,
   redactSource,
@@ -475,12 +475,12 @@ export class ResourceService {
     ctx: ResourceCtx,
     source: string,
   ): Promise<{ ok: boolean; results: ItemResult[] }> {
-    const cli = resolveBundledPiCli();
-    if (!cli) {
+    const command = piCommand(["install", source]);
+    if (!command) {
       return { ok: false, results: [{ target: source, ok: false, error: "spawn_failed" }] };
     }
     const outcome = await this.runSpawn(
-      [process.execPath, cli, "install", source],
+      command,
       { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
       SPAWN_TIMEOUT_MS,
     );
@@ -557,8 +557,8 @@ export class ResourceService {
       return { ok: results.every((r) => r.ok), results };
     }
 
-    const cli = resolveSkillsCli();
-    if (!cli) {
+    const command = skillsCommand(skillsArgv("add", source, toInstall));
+    if (!command) {
       for (const name of toInstall) {
         results.push({ target: name, ok: false, error: "spawn_failed" });
       }
@@ -566,7 +566,7 @@ export class ResourceService {
     }
 
     const outcome = await this.runSpawn(
-      [process.execPath, cli, ...skillsArgv("add", source, toInstall)],
+      command,
       { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
       SPAWN_TIMEOUT_MS,
     );
@@ -693,10 +693,10 @@ export class ResourceService {
       // directory (e.g. a package install root) is left intact.
       await unlink(skillDir);
     } else if (row.origin === "agents_dir" && row.provenance) {
-      const cli = resolveSkillsCli();
-      if (!cli) return { ok: false, error: "spawn_failed" };
+      const command = skillsCommand(skillsArgv("remove", row.name));
+      if (!command) return { ok: false, error: "spawn_failed" };
       const outcome = await this.runSpawn(
-        [process.execPath, cli, ...skillsArgv("remove", row.name)],
+        command,
         { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
         SPAWN_TIMEOUT_MS,
       );
@@ -746,10 +746,10 @@ export class ResourceService {
     const entry = catalog.packages.find((p) => redactSource(p.source) === requested);
     if (!entry) return { ok: false, error: "not_found" };
 
-    const cli = resolveBundledPiCli();
-    if (!cli) return { ok: false, error: "spawn_failed" };
+    const command = piCommand(["remove", entry.source]);
+    if (!command) return { ok: false, error: "spawn_failed" };
     const outcome = await this.runSpawn(
-      [process.execPath, cli, "remove", entry.source],
+      command,
       { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
       SPAWN_TIMEOUT_MS,
       // `pi remove` resolves a local-path source against its cwd, while the catalog reports the
@@ -779,10 +779,10 @@ export class ResourceService {
   }
 
   private async updateAgentSkills(ctx: ResourceCtx): Promise<ItemResult> {
-    const cli = resolveSkillsCli();
-    if (!cli) return { target: "agent-skills", ok: false, error: "spawn_failed" };
+    const command = skillsCommand(skillsArgv("update"));
+    if (!command) return { target: "agent-skills", ok: false, error: "spawn_failed" };
     const outcome = await this.runSpawn(
-      [process.execPath, cli, ...skillsArgv("update")],
+      command,
       { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
       SPAWN_TIMEOUT_MS,
     );
@@ -797,10 +797,10 @@ export class ResourceService {
   }
 
   private async updatePiPackages(ctx: ResourceCtx): Promise<ItemResult> {
-    const cli = resolveBundledPiCli();
-    if (!cli) return { target: "pi-packages", ok: false, error: "spawn_failed" };
+    const command = piCommand(["update", "--extensions"]);
+    if (!command) return { target: "pi-packages", ok: false, error: "spawn_failed" };
     const outcome = await this.runSpawn(
-      [process.execPath, cli, "update", "--extensions"],
+      command,
       { ...processEnvSnapshot(), ...spawnEnv(ctx.agentDir) },
       SPAWN_TIMEOUT_MS,
     );

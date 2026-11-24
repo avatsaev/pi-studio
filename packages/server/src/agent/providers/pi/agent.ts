@@ -8,6 +8,7 @@ import type {
   AgentStreamEvent,
 } from "@av-pi-studio/protocol";
 
+import { piCommand } from "../../../runtime/self.js";
 import type {
   AgentClient,
   AgentCommandDefinition,
@@ -35,7 +36,6 @@ import type { TimelineRow } from "../../timeline-store.js";
 import { createPiEventMapper } from "./event-mapper.js";
 import {
   createProcessTransport,
-  defaultPiCommand,
   type PiRpcTransport,
   type PiTransportFactory,
   resolveBinaryOnPath,
@@ -51,6 +51,9 @@ import { createToolOutputCoalescer } from "./tool-output-coalescer.js";
  * `AgentStreamEvent`s, passes Pi-Studio system prompts via `--append-system-prompt` (preserving Pi's
  * default prompt), and discovers models/modes via top-level RPC calls (never a scratch session).
  */
+
+/** The arguments that start Pi's RPC mode, after the command `piCommand` builds. */
+const PI_RPC_ARGS = ["--mode", "rpc"] as const;
 
 export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
@@ -639,7 +642,7 @@ export class PiAgentClient implements AgentClient {
 
   constructor(private readonly deps: PiClientDeps = {}) {
     this.provider = deps.provider ?? "pi";
-    this.command = deps.command ?? defaultPiCommand();
+    this.command = deps.command ?? piCommand(PI_RPC_ARGS) ?? ["pi", ...PI_RPC_ARGS];
     this.factory = deps.transportFactory ?? createProcessTransport;
     this.resolver = deps.binaryResolver ?? resolveBinaryOnPath;
   }

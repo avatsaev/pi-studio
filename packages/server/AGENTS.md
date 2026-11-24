@@ -23,6 +23,32 @@ src/
   version.ts                      SERVER_VERSION — single source (packages/server/package.json); used by
                                    every `server_info.version` handshake and the extensions sync.
                                    Also `PACKAGE_NAME` (`@av-pi-studio/cli`, the package updates install).
+  version.generated.ts            PACKAGE_VERSION — written from package.json by `scripts/gen-version.mjs`
+                                   (committed; rewritten by `npm run build[:server]`, which the release
+                                   runs after the version bump; `version.test.ts` fails on drift). A static
+                                   constant instead of `createRequire`, which Bun's bundler does not follow.
+  runtime/                        What differs when the daemon is the single compiled binary
+                                   (architecture/single-binary-daemon.md; milestone 6, in progress).
+    pi-overrides.ts               applyPiOverrides({SettingsManager, DefaultPackageManager}, {bunScript,
+                                   excluded}): Pi's package manager becomes the `bun` script
+                                   (`getNpmCommand`) and `DefaultPackageManager.resolve()` — inside an
+                                   AsyncLocalStorage scope — leaves out excluded packages; nothing is
+                                   written to Pi's settings. Idempotent. A fifth Pi-internals mirror.
+    excluded-packages.ts          BINARY_EXCLUDED_PACKAGES (`npm:@99percentpeople/pi-background-tasks`:
+                                   imports node-pty, which does not load under Bun).
+    self.ts                       The runtime seam (A3): `isBinary` (build-time define `PI_STUDIO_BINARY`,
+                                   `false` when undefined), `piCommand(args)` / `skillsCommand(args)`
+                                   (`null` on Node when the package is not installed), `daemonCommand(opts,
+                                   resolveServerUrl)` / `relayCommand(opts, resolveRelayUrl)`,
+                                   `helperCommand(params, script)`, `assetsDir()`, `webDist(resolveNodeDist)`.
+                                   Node: exactly the argv each site built before; binary:
+                                   `[execPath, "__pi" | "__skills" | "__daemon" | "__relay" |
+                                   "__update-helper", …]` (`SUBCOMMAND`). Every function takes a trailing
+                                   `SelfRuntime` (`{isBinary, execPath}`, default `currentRuntime()`) so
+                                   tests pin both branches. Also owns `daemonStartScript` /
+                                   `relayStartScript` (the Node `-e` texts; `runDaemon`, never
+                                   `startDaemon`). The module resolvers are passed in by the CLI, which
+                                   resolves them in its own module graph (npm may nest the server).
   update/                         Self-update engine (features/self-update.md); pure/process-control
                                    surface re-exported from the package index for the CLI.
     npm.ts                        npmLatestVersion (`npm view`, 15 s, null on failure), compareVersions,
@@ -297,7 +323,11 @@ src/
     index.ts
 
   extensions/                     Preinstalled-extensions sync (features/preinstalled-extensions.md).
-    curated-packs.ts               CURATED_PACKS manifest + parseSource/identityOf/selectEntries +
+    pi-source.ts                   ParsedSource/parseSource/identityOf/splitGitRef — pure Pi source
+                                    parsing (`npm:`/`git:`), no server-version import so it loads inside
+                                    the compiled binary; shared by curated-packs, sync-planner, resources
+                                    and runtime/pi-overrides.
+    curated-packs.ts               CURATED_PACKS manifest + selectEntries +
                                     the checkCatalogInvariants guard (unpinned, disjoint identities,
                                     stable slugs, addedIn <= SERVER_VERSION, no placeholders).
     extensions-state.ts            extensions-state.json store (offered/failures/lastSync per
@@ -355,8 +385,20 @@ src/
 
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
-    pty-backend.ts                PtyBackend — node-pty abstraction (injectable for tests).
-    screen-buffer.ts              ScreenBuffer — xterm/headless grid, backs `capture()` only.
+    pty-backend.ts                PtyBackend — NodePtyBackend (`node-pty`, loaded by a conditional top-level
+                                  `import()`: never under Bun, `undefined` → ChildProcessPtyBackend
+                                  fallback if the native binding fails), `createDefaultPtyBackend()`
+                                  (Bun → BunPtyBackend, else Node); injectable for tests.
+    bun-pty-backend.ts            BunPtyBackend — `Bun.spawn(…, { terminal })` real PTY under Bun, with a
+                                  local minimal Bun type declaration (no @types/bun) and `isBunRuntime()`;
+                                  `resolveExecutable`/`killTree` are injected (no runtime import of
+                                  pty-backend.ts). Same env as node-pty (TERM=xterm-256color, PWD=cwd).
+                                  Checked under Bun only: `npx bun test
+                                  packages/server/bun-tests/bun-pty-backend.bun_test.ts` (outside `src/`
+                                  and Vitest's globs).
+    screen-buffer.ts              ScreenBuffer — xterm/headless grid, backs `capture()` only. Imports the
+                                  xterm packages' ESM builds by deep path (`*.mjs`, no `createRequire`).
+    xterm-esm.d.ts                Ambient typings for those two deep ESM paths (re-export the packages' own).
     terminal-rpc.ts               RPC handlers: create/list/rename/subscribe/input/kill/capture +
                                   the binary Input/Resize frame handler (resize is binary-only).
     index.ts
@@ -434,7 +476,7 @@ src/
                                     frontmatter/warnings, then a first-wins-by-name reducer over
                                     ENABLED rows only, in `resolve()`'s own precedence order — a
                                     disabled duplicate never wins or shadows. Packages: `kind`/
-                                    `identity`/`pinned` reuse `extensions/curated-packs.ts`'s
+                                    `identity`/`pinned` reuse `extensions/pi-source.ts`'s
                                     `parseSource` for `npm:`/`git:`, anything else is `local`;
                                     `curated` checks membership against `CURATED_PACKS`.
     wire.ts                        `toSkillInfoList`/`toPiPackageInfoList` (sprint-075/task-004) —
@@ -536,7 +578,7 @@ src/
                                     client-sent `kind`). `pi_npm`/`pi_git`:
                                     `installPiPackage` — spawns `pi install <source>` (600 s),
                                     then on success a second locked write matches the installed
-                                    entry by `piPackageIdentity` (`curated-packs.ts`'s
+                                    entry by `piPackageIdentity` (`pi-source.ts`'s
                                     `parseSource(...).identity`) and upgrades it to skills-only
                                     object form, preserving any existing `skills` filter; a filter
                                     write failure is a failed `ItemResult` with no rollback (D25).
@@ -929,7 +971,11 @@ creation" above.
   requires Pi ≥ 1.1.0 (root `AGENTS.md` § Pi dependency posture).
 
 **Pi provider** (`providers/pi/`):
-- Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
+- Spawns `piCommand(["--mode", "rpc"])` of `runtime/self.ts` (the bundled CLI under `process.execPath`
+  on Node, `[execPath, "__pi", …]` in the binary), or a configured `command`; with no bundled Pi it
+  falls back to a global `pi --mode rpc` on `$PATH`. `extensions/sync-executor.ts` and
+  `resources/resource-service.ts` build every Pi / `skills` spawn the same way, never from
+  `resolveBundledPiCli()` + `process.execPath` directly.
 - **`resolveBundledPiCli()` (`rpc-transport.ts`) reads the Pi package's own `package.json`
   `bin.pi`** rather than hardcoding an entrypoint, falling back to `dist/bundle/cli.js` (Pi's
   declared `bin` since 0.84.4) then `dist/cli.js` (its `bin` through 0.84.3, still shipped). Pi
@@ -1798,7 +1844,8 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
   `loadSkillsFromDir`, so a Pi bump has exactly one place to check for these symbols.
 - **The `skills` CLI is a pinned exact dependency, resolved, never hardcoded.** `skills-cli.ts`'s
   `resolveSkillsCli()` reads the installed `skills` package's own `package.json` `bin`, mirroring
-  `resolveBundledPiCli()`; `remove`'s argv never passes `-a` (sprint-076/task-002), since `-a pi`
+  `resolveBundledPiCli()`; spawn sites never build the argv themselves — they call `skillsCommand`
+  (`runtime/self.ts`), which wraps that path on Node and is `__skills` in the binary. `remove`'s argv never passes `-a` (sprint-076/task-002), since `-a pi`
   on a remove keeps the canonical copy if any other detected agent still links it.
 - **Toggle: re-enabling a package skill writes `+…`, exactly as `pi config` does.** Pi's own
   `togglePackageResource` always pushes a replacement `±pattern` entry and never collapses a
@@ -1871,7 +1918,7 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
 - **`install`: dispatches on the daemon's own `detectSkillSource(source)`, one `enqueueMutation`
   call per engine** (sprint-077/tasks 004/005, R3/R8). `pi_npm`/`pi_git`: spawns bundled `pi
   install <source>` (600 s) as a unit, then one locked write upgrading the matched `packages[]`
-  entry (matched by `curated-packs.ts`'s `parseSource(...).identity`, ref/version stripped) to
+  entry (matched by `pi-source.ts`'s `parseSource(...).identity`, ref/version stripped) to
   skills-only object form (`extensions: [], prompts: [], themes: []`) — any pre-existing `skills`
   filter on that entry is preserved untouched (task-001 spike: `addSourceToSettings` only ever
   rewrites `source`); the filter write's own failure never rolls back a successful install (D25,
@@ -1931,7 +1978,8 @@ timers.
   `buildServerInfo`).
 - **Helper (`update/helper.ts`).** One self-contained script (`HELPER_SCRIPT` =
   `HELPER_LOGIC` + `HELPER_MAIN`, passed to `node -e` with the JSON `HelperParams` in `argv[1]`; only
-  `node:` built-ins, never an import of this package: the package is replaced under it), spawned
+  `node:` built-ins, never an import of this package: the package is replaced under it; the argv comes
+  from `helperCommand(params, HELPER_SCRIPT)` of `runtime/self.ts`, which is `[execPath, "__update-helper", json]` in the binary), spawned
   detached/`stdio: "ignore"`/unref'd with the carried environment plus `PI_STUDIO_LISTEN` (the bound
   address, real port) and `PI_STUDIO_HOME`. It waits ≤ 30 s for the old pid to exit (then goes on), then
   three tries: find the entry again (`npm root -g` → `@av-pi-studio/server/dist/daemon/main.js`, then

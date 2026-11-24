@@ -108,17 +108,28 @@ binary; without it an OAuth login fails with `Cannot find module './anthropic.js
 ## Pi's settings (A6, P8, D2)
 
 ```
-applyPiOverrides():                          # only when isBinary
+applyPiOverrides(SettingsManager, DefaultPackageManager):          # only when isBinary
     SettingsManager.prototype.getNpmCommand = () => [assetsDir()/bun]
-    wrap the method that returns the configured packages:
-        drop every entry whose source is in BINARY_EXCLUDED_PACKAGES
+    DefaultPackageManager.prototype.resolve runs inside an AsyncLocalStorage scope; the settings
+    reads made inside it (getGlobalSettings, getProjectSettings) leave out every `packages` entry
+    whose identity is in BINARY_EXCLUDED_PACKAGES
 ```
 
-Applied in the daemon at start (it uses `SettingsManager` and `DefaultPackageManager` in-process for
-skills and resources) and in `__pi` before Pi's entry runs. Nothing is written to Pi's
-`settings.json`. Which method returns the package list in Pi 1.4.0, and whether both replacements
-take effect inside the compiled binary, is the first task's proof; this becomes a fifth place that
-mirrors Pi internals (root `AGENTS.md` § Pi dependency posture) and is re-checked on every Pi bump.
+Only `resolve()` is filtered: it is the one place Pi turns its configured packages into what it
+loads and installs what is missing. `addSourceToSettings` and the other writers read the whole list,
+so a write never drops an excluded entry from the user's settings. Applied in the daemon at start
+(it uses `SettingsManager` and `DefaultPackageManager` in-process for skills and resources) and in
+`__pi` before Pi's entry runs. The code is `packages/server/src/runtime/pi-overrides.ts`; the pure
+source parsing it needs is `extensions/pi-source.ts` (split out of `curated-packs.ts` so the module
+loads inside the binary without the server version).
+
+**Proved 2026-11-24 (sprint-139/task-001), linux-x64, Bun 1.4.5, a bare container with no Node or
+npm:** `pi install` works through the `bun` script; with the excluded package installed on disk and
+in settings, `pi --mode rpc` starts, answers and does not load it, and the other extension loads;
+without the exclusion the same setup fails with `Cannot find module 'node-pty'` (the known limit).
+`settings.json` gains only the entry that was installed, no `npmCommand`, and keeps the excluded
+entry. Proof script: `packages/server/scripts/pi-overrides-proof/run.sh`. This is a fifth place that
+mirrors Pi internals (root `AGENTS.md` § Pi dependency posture); re-check it on every Pi bump.
 
 ## Install kind and paths (A8)
 

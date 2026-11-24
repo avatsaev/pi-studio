@@ -27,6 +27,8 @@ Or `npm link` inside `packages/cli` to expose `pi-studio` globally on `PATH`.
 src/
   cli.ts                 Entrypoint — parse argv, call run(), exit with code.
   program.ts             buildProgram() — root Commander program, global options, default action.
+  version.generated.ts   PACKAGE_VERSION — generated from package.json by `scripts/gen-version.mjs`
+                         (committed, rewritten by every build; `version.generated.test.ts` guards drift).
   cli-core.ts            CliContext, GlobalOptions, withDaemon() helper, exit codes.
   connection.ts          parseHost() — parse "host:port" or bare host strings.
   client-id.ts           Stable per-machine client-id storage + resolveHome().
@@ -105,7 +107,7 @@ Registered on the root Commander program:
 | `--home <dir>`          | Override `$PI_STUDIO_HOME` (client-id store)                                                                                                                                                                                                                                                      |
 | `--pi-home <dir>`       | Override `$PI_STUDIO_PI_HOME` — forwarded to a locally-spawned daemon (`daemon start`/bare `pi-studio`/`onboard`) and to `pi-studio pi`; also selects the `<piHome>/agent/auth.json` the `auth` group reads/writes (`resolvePiAuthPaths()`) — redirects the bundled Pi CLI's own `.pi` config dir |
 | `--json`                | Render output as JSON instead of a table                                                                                                                                                                                                                                                          |
-| `-v, --version`         | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json`, read via `createRequire` at startup — not hardcoded) and exit 0                                                                                                                                                                |
+| `-v, --version`         | Print the CLI's version (`@av-pi-studio/cli`'s own `package.json` version, via the generated `version.generated.ts` — not hardcoded) and exit 0 |
 
 Default action (no subcommand):
 
@@ -243,7 +245,7 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 - `probe(host, port)` — HTTP GET `/api/health`, returns true if 200.
 - `hash(plaintext)` — bcrypt.
 - `kill(pid, signal?)` — `process.kill`; false on any failure.
-- `start(opts)` — spawn the daemon (`subprocessStarter`) as a detached child.
+- `start(opts)` — spawn the daemon (`subprocessStarter`, argv from `daemonCommand`) as a detached child.
 - `waitForExit(pid, timeoutMs)` — `waitForProcessExit` from `@av-pi-studio/server` (100 ms poll,
   signal 0); `timeoutMs: 0` is one liveness check.
 - `readVersion(host, port)` — `version` from the `/api/health` body (`httpHealthVersionReader`);
@@ -353,8 +355,9 @@ separate publicly-reachable host from the daemon it relays for.
 `RelayRuntime` (`relay-control.ts`, mirrors `DaemonRuntime` exactly):
 
 - `probe(host, port)` — HTTP GET `/health`, returns true if 200.
-- `start(opts)` — resolve `@av-pi-studio/relay/server` via `import.meta.resolve` (same pattern
-  `subprocessStarter` uses for `@av-pi-studio/server`), spawn a detached `node -e` script calling
+- `start(opts)` — `relayCommand` (runtime seam; on Node it resolves `@av-pi-studio/relay/server` via
+  `import.meta.resolve`, the same pattern `subprocessStarter` uses for `@av-pi-studio/server`) and
+  spawn it detached — a `node -e` script calling
   `startRelayServer({ host, port })`, write the child's pid to
   `$PI_STUDIO_HOME/pi-studio-relay.pid`.
 - `kill(pid)` — send SIGTERM.
@@ -389,19 +392,20 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
 
 `PiRuntime` (`pi-commands.ts`, injectable via `CliContext.pi` for tests):
 
-- `resolveBundled()` — `resolveBundledPiCli()` from `@av-pi-studio/server` (re-exported from the
-  same `agent/providers/pi/rpc-transport.ts` the daemon uses to spawn `pi --mode rpc`): resolves the
-  entrypoint `@earendil-works/pi-coding-agent` itself declares as `bin.pi` — read from the
-  dependency's own `package.json`, not hardcoded — via `import.meta.resolve`, falling back to a
-  `node_modules` walk-up and then to the two known entrypoints (`dist/bundle/cli.js`, Pi's declared
-  `bin` since 0.84.4; `dist/cli.js`, its declared `bin` through 0.84.3 and still shipped). Returns
-  `null` if the dependency isn't installed. Reading the declared `bin` is deliberate: Pi relocated it
-  in 0.84.4, and the dependency range accepts future minors, so a hardcoded path would silently
-  regress to a global `pi` on the next relocation.
+- `piCommand(args)` — the runtime seam's `piCommand` from `@av-pi-studio/server`
+  (`runtime/self.ts`): on Node `[process.execPath, <Pi's declared bin.pi>, …args]`, the entrypoint
+  `@earendil-works/pi-coding-agent` itself declares — read from the dependency's own
+  `package.json`, not hardcoded, by `resolveBundledPiCli()` — via `import.meta.resolve`, falling
+  back to a `node_modules` walk-up and then to the two known entrypoints (`dist/bundle/cli.js`,
+  Pi's declared `bin` since 0.84.4; `dist/cli.js`, its declared `bin` through 0.84.3 and still
+  shipped); `[execPath, "__pi", …args]` in the binary. Returns `null` on Node if the dependency
+  isn't installed. Reading the declared `bin` is deliberate: Pi relocated it in 0.84.4, and the
+  dependency range accepts future minors, so a hardcoded path would silently regress to a global
+  `pi` on the next relocation.
 - `onPath(bin)` — `resolveBinaryOnPath()` (same package): probes a bare binary on `$PATH`.
-- `piProxyCommand(runtime, args)` — prefers the bundled CLI launched via `process.execPath`; falls
-  back to a global `pi` on `$PATH` when the dependency is absent (mirrors the daemon's own
-  `defaultPiCommand()` fallback); returns `null` when neither is found (reported as `EXIT_ERROR`).
+- `piProxyCommand(runtime, args)` — prefers `runtime.piCommand(args)`; falls back to a global `pi`
+  on `$PATH` when the dependency is absent (mirrors the Pi provider's own fallback); returns
+  `null` when neither is found (reported as `EXIT_ERROR`).
 - `piProxyEnv(opts, env)` — derives `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR` from
   `--pi-home`/`PI_STUDIO_PI_HOME` (same derivation as the server's `agent/pi-home.ts`
   `piHomeEnv()`, kept as a separate implementation here since the CLI has no daemon config context
@@ -416,7 +420,8 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
 `pi-studio ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` — serves the
 prebuilt `@av-pi-studio/web-client` SPA (`dist/web`, built by `npm run build:web -w
 packages/web-client`) as a static site via a minimal `node:http` server (`web-server.ts`;
-`resolveWebClientDist()` locates the installed package, `startWebServer()` serves it with SPA
+`resolveWebClientDist()` locates the built UI through the runtime seam's `webDist` — the installed
+package on Node, `<binary folder>/web` in the binary — and `startWebServer()` serves it with SPA
 fallback to `index.html` for client-side routes).
 
 Intentionally decoupled from daemon lifecycle: `ui` never probes or starts a daemon.
@@ -465,8 +470,9 @@ CLI package; there is no dry-run equivalent for the extensions step.
 - `compareVersions(a, b)` — server's plain numeric `x.y.z` compare, re-exported by
   `update-control.ts`; not a full semver comparator (this monorepo publishes bare releases only).
 - `PACKAGE_NAME` — `@av-pi-studio/cli`, re-exported from the server's `version.ts`.
-- `CURRENT_VERSION` — this package's own `package.json` version, read via `createRequire` at
-  startup (same pattern as `program.ts`'s `-v/--version`) — never hardcoded.
+- `CURRENT_VERSION` — this package's own `package.json` version, taken from the generated
+  `version.generated.ts` (static import — no `createRequire`; same source as `program.ts`'s
+  `-v/--version`) — never hardcoded.
 
 `runUpdate`'s exit code: the CLI self-update step's outcome wins over the extensions step's when
 both are attempted (a failed npm install is reported even if `pi update --extensions` happened to
@@ -578,7 +584,8 @@ branches to `createRelayTransport` when it carries a relay offer).
   command needs it (confirmed with the same live trace, instrumenting `ModelRuntime.create`
   directly: zero invocations for `--help`/`ls`, exactly one for `auth status`).
 - **`subprocessStarter`'s spawned `-e` script must call `runDaemon`, never `startDaemon`.**
-  `daemonStartScript(serverUrl, {host, port, home})` builds it. `startDaemon` deliberately never
+  `daemonStartScript(serverUrl, {host, port, home})` (`runtime/self.ts` of the server; `daemonCommand`
+  wraps it) builds it. `startDaemon` deliberately never
   calls `process.exit()` and installs no signal handlers (it is also embedded in-process by
   `packages/desktop` and the server's own integration tests — see `packages/server/AGENTS.md`'s
   invariant), so the process-level decision belongs to whoever owns the process. Here that is the
@@ -586,7 +593,14 @@ branches to `createRelayTransport` when it carries a relay offer).
   (`EADDRINUSE` would otherwise leave the child alive with a dead HTTP server and `waitForDaemon`
   timing out), SIGINT/SIGTERM → clean close (so `daemon stop` removes `pi-studio.pid`), and the exit
   after a self-update's shutdown (without it the daemon cannot update itself). Test:
-  `daemon-start-script.test.ts`.
+  `packages/server/src/runtime/self.test.ts`.
+- **The runtime seam (sprint-139/task-002) is a further narrow exception.** `daemon-control.ts`,
+  `relay-control.ts`, `pi-commands.ts` and `web-server.ts` import `daemonCommand`, `relayCommand`,
+  `piCommand` and `webDist` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
+  that spawn and bind nothing. The CLI passes the Node-only module resolvers
+  (`import.meta.resolve("@av-pi-studio/server")`, `…/relay/server`, `…/web-client/package.json`) in as
+  functions, so they run in its own module graph and are never called by the compiled binary, whose
+  commands are `<binary> __daemon|__relay|__pi <json|args>`.
 - **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
   auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
   `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public

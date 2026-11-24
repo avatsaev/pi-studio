@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 
+import { helperCommand } from "../runtime/self.js";
+
 /**
  * The update restart helper (features/self-update.md § The helper). A detached `node -e` process
  * started before the daemon shuts down: it waits for the old daemon to exit, starts the new one,
@@ -299,7 +301,8 @@ export function spawnUpdateHelper(
   env: NodeJS.ProcessEnv = process.env,
   spawnFn: HelperSpawn = spawn,
 ): void {
-  const child = spawnFn(process.execPath, ["-e", HELPER_SCRIPT, JSON.stringify(params)], {
+  const [command, ...args] = helperCommand(params, HELPER_SCRIPT);
+  const child = spawnFn(command as string, args, {
     detached: true,
     stdio: "ignore",
     env: { ...env, PI_STUDIO_LISTEN: params.listen, PI_STUDIO_HOME: params.home },

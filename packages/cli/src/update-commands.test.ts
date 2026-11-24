@@ -51,7 +51,7 @@ function fakeRuntime(overrides: Partial<UpdateRuntime> = {}): UpdateRuntime {
 function fakePiRuntime(overrides: Partial<PiRuntime> = {}): PiRuntime {
   return {
     spawn: async () => 0,
-    resolveBundled: () => "/bundled/pi-coding-agent/dist/cli.js",
+    piCommand: (args) => [process.execPath, "/bundled/pi-coding-agent/dist/cli.js", ...args],
     onPath: () => false,
     ...overrides,
   };
@@ -60,7 +60,7 @@ function fakePiRuntime(overrides: Partial<PiRuntime> = {}): PiRuntime {
 function ctxWith(
   update: UpdateRuntime,
   pi: PiRuntime = fakePiRuntime(),
-  daemon?: DaemonRuntime,
+  daemon: DaemonRuntime = fakeDaemon({ up: false, version: CURRENT_VERSION }, []),
 ): { ctx: CliContext; out: string[]; err: string[] } {
   const out: string[] = [];
   const err: string[] = [];
@@ -204,7 +204,7 @@ describe("runUpdate", () => {
 
   it("reports an error exit code when no embedded/global pi CLI is found for the extensions step", async () => {
     const runtime = fakeRuntime({ getLatestVersion: async () => CURRENT_VERSION });
-    const pi = fakePiRuntime({ resolveBundled: () => null, onPath: () => false });
+    const pi = fakePiRuntime({ piCommand: () => null, onPath: () => false });
     const { ctx, err } = ctxWith(runtime, pi);
     const code = await runUpdate(ctx, {});
     expect(err.some((l) => l.includes("embedded Pi CLI not found"))).toBe(true);

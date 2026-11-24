@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { request } from "node:http";
 import { join } from "node:path";
 
-import { waitForProcessExit } from "@av-pi-studio/server";
+import { daemonCommand, waitForProcessExit } from "@av-pi-studio/server";
 import bcrypt from "bcryptjs";
 
 import { parseHost } from "./connection.js";
@@ -141,47 +141,34 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
   }
 };
 
-/**
- * The `-e` script of the detached daemon process: imports the server module by absolute URL and
- * calls `runDaemon`, the process entry (`daemon/run.ts`): it exits on a fatal bind error
- * (`EADDRINUSE` would otherwise leave a live process with a dead HTTP server), closes cleanly on
- * SIGINT/SIGTERM (so `daemon stop` removes `pi-studio.pid`), and exits after a self-update's
- * shutdown. `startDaemon` alone does none of that, so a daemon booted with it could not update itself.
- */
-export function daemonStartScript(
-  serverUrl: string,
-  opts: { host: string | undefined; port: number; home: string },
-): string {
-  return `import(${JSON.stringify(serverUrl)}).then(m=>m.runDaemon({host:${JSON.stringify(
-    opts.host,
-  )},port:${JSON.stringify(opts.port)},home:${JSON.stringify(opts.home)}}))`;
-}
+/** The server module's absolute URL, resolved inside the CLI's own module graph (Node only). */
+const resolveServerUrl = (): string => import.meta.resolve("@av-pi-studio/server");
 
 /**
- * Default daemon starter: spawn a detached Node process that boots the real daemon via
- * `@av-pi-studio/server`'s `runDaemon()`. Resolves once the process is spawned (health is then
- * polled by the caller).
+ * Default daemon starter: spawn a detached process that boots the real daemon via
+ * `@av-pi-studio/server`'s `runDaemon()` (never `startDaemon`; see `daemonStartScript`). The
+ * command comes from the runtime seam: a Node `-e` script on Node, `<binary> __daemon <json>` in the
+ * compiled binary. Resolves once the process is spawned (health is then polled by the caller).
  *
- * The server module is resolved to an absolute file URL *here*, inside `@av-pi-studio/cli`'s own
- * module graph, and that resolved URL — not the bare `"@av-pi-studio/server"` specifier — is
- * baked into the spawned `-e` script. A detached `node -e <code>` child has no package/module
- * context of its own, so a bare-specifier `import()` inside it can fail to resolve `server` even
- * when it's correctly installed, if npm's install topology nested it under `cli`'s own
- * `node_modules` rather than hoisting it to a shared root (observed in a real global install).
+ * On Node the server module is resolved to an absolute file URL *here*, inside
+ * `@av-pi-studio/cli`'s own module graph, and that resolved URL — not the bare
+ * `"@av-pi-studio/server"` specifier — is baked into the spawned `-e` script. A detached
+ * `node -e <code>` child has no package/module context of its own, so a bare-specifier `import()`
+ * inside it can fail to resolve `server` even when it's correctly installed, if npm's install
+ * topology nested it under `cli`'s own `node_modules` rather than hoisting it to a shared root
+ * (observed in a real global install).
  */
 export const subprocessStarter: DaemonStarter = ({ home, listen, piHome }) =>
   new Promise<number>((resolve, reject) => {
     const [host, portStr] = listen.split(":");
-    const port = Number(portStr);
-    let serverUrl: string;
+    let command: string[];
     try {
-      serverUrl = import.meta.resolve("@av-pi-studio/server");
+      command = daemonCommand({ host, port: Number(portStr), home }, resolveServerUrl);
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    const code = daemonStartScript(serverUrl, { host, port, home });
-    const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
+    const child = spawn(command[0] as string, command.slice(1), {
       detached: true,
       stdio: "ignore",
       env: {

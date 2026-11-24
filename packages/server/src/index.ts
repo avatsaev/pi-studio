@@ -54,3 +54,6 @@ export * from "./extensions/index.js";
 
 // Update engine (npm lookup/install, install kind) — pure/process-control surface only.
 export * from "./update/index.js";
+
+// The runtime seam: the argv of every self-spawn, for Node and for the compiled binary.
+export * from "./runtime/self.js";

@@ -343,8 +343,8 @@ starts on a macOS runner (D16).
       progress on the Daemons screen, the daemon starts, the workbench connects.
 - [ ] On that daemon a real agent turn with Pi runs a shell command and uses the todo tool; a terminal
       opens; a file goes up and down intact.
-- [ ] Pi installs an extension on that daemon with no npm on the machine; Pi's `settings.json` is
-      byte-identical before and after.
+- [ ] Pi installs an extension on that daemon with no npm on the machine; Pi's `settings.json` gains
+      only the installed entry (no `npmCommand`, no entry removed).
 - [ ] The baseline sync does not install `pi-background-tasks`; with it already installed, an agent
       starts.
 - [ ] With no network, and with a corrupted archive, nothing is run and the row offers Retry.

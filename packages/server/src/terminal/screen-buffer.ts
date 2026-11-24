@@ -1,21 +1,14 @@
-import { createRequire } from "node:module";
-
 import stripAnsi from "strip-ansi";
-import type { ITerminalAddon, Terminal as XtermHeadlessTerminal } from "@xterm/headless";
-import type { SerializeAddon as XtermSerializeAddon } from "@xterm/addon-serialize";
+import { SerializeAddon } from "@xterm/addon-serialize/lib/addon-serialize.mjs";
+import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
+import type { ITerminalAddon } from "@xterm/headless";
 
-// `@xterm/headless` ships a UMD bundle whose `module.exports` Node's ESM loader cannot statically
-// read, so a named `import { Terminal }` resolves at type-check time but throws at runtime. Load it
-// through `createRequire` (CJS) to get the real `Terminal` constructor. `@xterm/addon-serialize`
-// ships the same way (also a UMD bundle, no `exports` map in its `package.json`) and needs the
-// identical treatment (sprint-053/task-004) — expected, not a surprise discovered at runtime. Both
-// `import type`s above are erased at compile time (no runtime `import`, so no UMD-load failure);
-// they only give the two `require(...)` results below a real type instead of `any`.
-const require = createRequire(import.meta.url);
-const { Terminal }: { Terminal: typeof XtermHeadlessTerminal } = require("@xterm/headless");
-const {
-  SerializeAddon,
-}: { SerializeAddon: typeof XtermSerializeAddon } = require("@xterm/addon-serialize");
+// Both xterm packages ship a UMD bundle as `main` whose `module.exports` Node's ESM loader cannot
+// statically read (a named `import { Terminal }` from the bare specifier throws at runtime) and a
+// stale/absent `module` field, so the bare specifiers resolve differently under Node and Bun's
+// bundler. Each also ships a real ESM build (`*.mjs`, named exports) with no `exports` map in
+// `package.json`, so the deep ESM paths above are static imports both Node and the bundler follow.
+// `xterm-esm.d.ts` types those deep paths from the packages' own typings.
 type TerminalInstance = InstanceType<typeof Terminal>;
 type SerializeAddonInstance = InstanceType<typeof SerializeAddon>;
 

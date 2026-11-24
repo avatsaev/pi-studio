@@ -173,10 +173,13 @@ Two consequences for anyone touching the Pi integration:
   `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
   path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
   to a global `pi` on `$PATH`.
-- **Four places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+- **Five places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
   none is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
-  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`), `resources/toggle-patterns.ts` (mirrors the
+  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/pi-source.ts`'s
+  `splitGitRef` (mirrors Pi's `splitRef`), `runtime/pi-overrides.ts` (sprint-139; the single binary
+  replaces `SettingsManager.getNpmCommand` and filters `DefaultPackageManager.resolve()`'s package
+  list in-process — checked at 1.4.0 inside a compiled binary by
+  `packages/server/scripts/pi-overrides-proof/run.sh`), `resources/toggle-patterns.ts` (mirrors the
   skill enable/disable pattern derivation of `ResourceList` in
   `dist/modes/interactive/components/config-selector.js`, so a Settings → Skills toggle writes
   exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component), and

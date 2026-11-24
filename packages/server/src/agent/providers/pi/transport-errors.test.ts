@@ -3,8 +3,9 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { piCommand } from "../../../runtime/self.js";
 import { PiAgentClient } from "./agent.js";
-import { createProcessTransport, defaultPiCommand, resolveBundledPiCli } from "./rpc-transport.js";
+import { createProcessTransport, resolveBundledPiCli } from "./rpc-transport.js";
 
 /**
  * Regression coverage for the daemon-crash bug: a missing `pi` binary used to emit an unhandled
@@ -110,12 +111,12 @@ describe("bundled pi CLI resolution (no global install required)", () => {
     expect(cli).toBe(join(root, manifest.bin.pi));
   });
 
-  it("defaultPiCommand launches the bundled CLI via the current node executable", () => {
-    const cmd = defaultPiCommand();
+  it("piCommand launches the bundled CLI via the current node executable", () => {
+    const cmd = piCommand(["--mode", "rpc"]);
     // [node, <pkg>/<declared bin>, --mode, rpc]
-    expect(cmd[0]).toBe(process.execPath);
-    expect(cmd[1]).toBe(resolveBundledPiCli());
-    expect(cmd[1]).toMatch(/pi-coding-agent[/\\].*cli\.js$/);
-    expect(cmd.slice(2)).toEqual(["--mode", "rpc"]);
+    expect(cmd?.[0]).toBe(process.execPath);
+    expect(cmd?.[1]).toBe(resolveBundledPiCli());
+    expect(cmd?.[1]).toMatch(/pi-coding-agent[/\\].*cli\.js$/);
+    expect(cmd?.slice(2)).toEqual(["--mode", "rpc"]);
   });
 });

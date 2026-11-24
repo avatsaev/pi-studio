@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 
+import { webDist } from "@av-pi-studio/server";
+
 /**
  * Static file server for the prebuilt `@av-pi-studio/web-client` SPA (features/cli.md § Command
  * tree — `ui`). The CLI ships no dev-server dependency (vite, etc.); it serves the already-built
@@ -32,8 +34,8 @@ const MIME_TYPES: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-/** Resolve the on-disk root of the built web-client SPA (`dist/web`). Throws if unresolvable. */
-export function resolveWebClientDist(): string {
+/** Finds the `@av-pi-studio/web-client` package's built UI on Node; throws if unresolvable. */
+function resolveNodeWebClientDist(): string {
   let pkgUrl: string;
   try {
     pkgUrl = import.meta.resolve("@av-pi-studio/web-client/package.json");
@@ -44,7 +46,15 @@ export function resolveWebClientDist(): string {
     );
   }
   const pkgPath = new URL(pkgUrl).pathname;
-  const dist = join(pkgPath, "..", "dist", "web");
+  return join(pkgPath, "..", "dist", "web");
+}
+
+/**
+ * Resolve the on-disk root of the built web-client SPA (`dist/web` on Node, `<binary folder>/web` in
+ * the compiled binary, both through the runtime seam's `webDist`). Throws if unresolvable or unbuilt.
+ */
+export function resolveWebClientDist(): string {
+  const dist = webDist(resolveNodeWebClientDist);
   if (!existsSync(join(dist, "index.html"))) {
     throw new Error(
       `@av-pi-studio/web-client is installed but has no built UI at ${dist} — run its "build:web" script.`,

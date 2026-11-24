@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, resolve as resolvePathAbs } from "node:path";
 
-import { CURATED_PACKS, parseSource as parseCuratedSource } from "../extensions/curated-packs.js";
+import { CURATED_PACKS } from "../extensions/curated-packs.js";
+import { parseSource as parseCuratedSource } from "../extensions/pi-source.js";
 import { loadSkillsFromDir, openPiResources } from "./pi-sdk.js";
 import type { LoadSkillsResult } from "./pi-sdk.js";
 

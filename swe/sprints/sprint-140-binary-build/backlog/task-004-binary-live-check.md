@@ -24,7 +24,7 @@ Nothing in the source unless a defect is found (fix with a test). Run and record
 - A real agent turn with a model credential (API key in a throwaway Pi home): a shell tool call and
   the todo tool.
 - `pi install npm:<extension>` through Settings → Skills or the daemon's sync with no npm; Pi's
-  `settings.json` hash before and after.
+  `settings.json` gains only the installed entry (compare before and after).
 - The baseline sync does not install `pi-background-tasks`; with it installed beforehand an agent
   starts.
 - Another extension made to fail (a package with a broken entry): what Pi does, whether the agent's

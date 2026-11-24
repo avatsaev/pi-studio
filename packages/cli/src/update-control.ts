@@ -1,11 +1,11 @@
-import { createRequire } from "node:module";
-
 import {
   type GlobalInstaller,
   type LatestVersionFetcher,
   npmGlobalInstall,
   npmLatestVersion,
 } from "@av-pi-studio/server";
+
+import { PACKAGE_VERSION } from "./version.generated.js";
 
 /**
  * Self-update process control (features/cli.md § Command tree — top-level `update`). The engine
@@ -16,11 +16,8 @@ import {
 export { PACKAGE_NAME, compareVersions } from "@av-pi-studio/server";
 export type { GlobalInstaller, LatestVersionFetcher } from "@av-pi-studio/server";
 
-// Read our own package.json for the current version — same relative layout in both `src/`
-// (ts-node/tsx) and `dist/` (compiled — one level below the package root either way).
-export const { version: CURRENT_VERSION }: { version: string } = createRequire(import.meta.url)(
-  "../package.json",
-);
+// This package's own version, generated from its package.json by `scripts/gen-version.mjs`.
+export const CURRENT_VERSION: string = PACKAGE_VERSION;
 
 export interface UpdateRuntime {
   getLatestVersion: LatestVersionFetcher;
