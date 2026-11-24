@@ -1,7 +1,7 @@
 # Task 004 — The binaries workflow passes on all four systems in a pull request
 
 - **Sprint:** sprints/sprint-141-binary-release
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** CI
 - **Priority:** P1
