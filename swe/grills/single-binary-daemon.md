@@ -1,6 +1,6 @@
 # Grill — Single-binary daemon and install over SSH (desktop milestone 6)
 
-> Status: grilling
+> Status: grilled (readout confirmed by the owner on 2026-11-24)
 > Started: 2026-11-24   Last updated: 2026-11-24   Rounds: 4
 > Engineer: avatsaev   Agent: Claude (omp)
 
