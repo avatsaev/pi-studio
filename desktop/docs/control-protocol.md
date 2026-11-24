@@ -118,6 +118,17 @@ Run against the real CLI (auto-start off; recorded before the app ran its own bi
 {"id":15,"ok":true,"result":{"daemons":{"currentId":"local","entries":[…],"local":{"host":"127.0.0.1","port":6767,"state":"running"},"settings":{"autoStartLocalDaemon":false,"cliPath":"/tmp/live/fake/realcli"}},"menus":[…]}}
 ```
 
+## Command-line tool commands
+
+The `pi-studio` command-line tool (`swe/features/single-binary-daemon.md` § The command-line tool): a symbolic link `~/.local/bin/pi-studio` to `$PI_STUDIO_HOME/bin/current/pi-studio`, so it follows every update of the daemon. Both are run through `engine.execute`, take no params, and answer a state `{"state": …}`.
+
+| Command | Answers |
+|---|---|
+| `cli_tool.state` | `{"state": "absent"}` (nothing at the link's place), `{"state": "installed"}` (our link, and `pi-studio` in the login shell is it), `{"state": "not_on_path"}` (our link, but `~/.local/bin` is not on the login shell's `PATH`), `{"state": "shadowed", "path"}` (our link, but another `pi-studio`, at `path`, comes first on `PATH`), `{"state": "occupied"}` (something that is not a symbolic link to the current binary is at the link's place: a file, a folder, another link, a dangling link) or `{"state": "unavailable"}` (no binary installed yet, no home directory, or Windows). The login shell's `PATH` is the one the app captured at launch (the supervisor's cached environment); it is not read again here |
+| `cli_tool.install` | The state after the install: creates `~/.local/bin` when it is missing, makes the link, then reads the login shell's environment again (a login shell has `~/.local/bin` on its `PATH` only when the folder exists when it starts) and answers `cli_tool.state` from it. Over our own link it makes nothing and only reads the environment again, so it is also how the Daemons screen checks again after the person edited a start-up file. It never replaces anything: when `occupied` it fails with `A file that Pi Studio did not make is at ~/.local/bin/pi-studio. Pi Studio never replaces it: move or remove it, then try again.`, and with no binary installed (`unavailable`) it fails and creates nothing. Other failures (a folder or link that cannot be created) are `The command-line tool could not be linked at ~/.local/bin/pi-studio: <reason>.` |
+
+`cli_tool.install` is disabled (`the command-line tool is not available in this app`) in a session with no supervisor behind it; `cli_tool.state` then answers `unavailable`. The app never edits a shell start-up file. The page runs both off the thread that owns the session (they look at the file system and may wait for the login shell, up to 5 s); a control call runs them on it. The headless CLI runs the same commands (`pistudiodesktop-cli run --cmd cli_tool.state`), in the environment its own login shell prints. The state is not in `daemon.list`, `boot` or `ui.inspect`: the Daemons screen asks for it when it opens and when the local daemon changes state.
+
 ## Update commands
 
 The app's self-update (`swe/features/desktop-self-update.md`). All are run through `engine.execute` and take no params (any are ignored; no address, path or key is ever taken).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDaemonsView } from "./daemons-view.js";
+import { parseCliToolState, parseDaemonsView } from "./daemons-view.js";
 
 const VIEW = {
   currentId: "local",
@@ -157,4 +157,25 @@ describe("parseDaemonsView local states", () => {
     expect(parseDaemonsView({ ...VIEW, local: { state: "failed", reason: "install_failed", output: 3 } })).toBeNull();
     expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason: "update_failed", output: 3 } })?.remote).toBeNull();
   });
+});
+
+describe("parseCliToolState", () => {
+  it.each(["absent", "installed", "not_on_path", "occupied", "unavailable"])("reads %s", (state) => {
+    expect(parseCliToolState({ state })).toEqual({ state });
+  });
+
+  it("reads shadowed with its path, and nothing else of the answer", () => {
+    expect(parseCliToolState({ state: "shadowed", path: "/opt/bin/pi-studio", extra: 1 })).toEqual({
+      state: "shadowed",
+      path: "/opt/bin/pi-studio",
+    });
+    expect(parseCliToolState({ state: "installed", path: "/opt/bin/pi-studio" })).toEqual({ state: "installed" });
+  });
+
+  it.each([null, undefined, "absent", [], {}, { state: "cli_missing" }, { state: "shadowed" }, { state: "shadowed", path: 3 }])(
+    "refuses %j",
+    (value) => {
+      expect(parseCliToolState(value)).toBeNull();
+    },
+  );
 });

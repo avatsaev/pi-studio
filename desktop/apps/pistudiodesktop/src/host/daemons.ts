@@ -1,4 +1,5 @@
 import {
+  type CliToolState,
   type ConnectIntent,
   type DaemonEntryView,
   type DaemonError,
@@ -8,7 +9,13 @@ import {
   type SshHostSuggestion,
 } from "@av-pi-studio/workbench";
 
-import { isRecord, parseDaemonsView, parseEntryView, type DaemonsView } from "./daemons-view.js";
+import {
+  isRecord,
+  parseCliToolState,
+  parseDaemonsView,
+  parseEntryView,
+  type DaemonsView,
+} from "./daemons-view.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 
 /** The events the app emits (`desktop-daemon-registry.md`, `commands.rs`). */
@@ -133,6 +140,13 @@ export function createDesktopDaemons(
   const engine = (id: string, params?: Record<string, unknown>): Promise<unknown> =>
     call("engine_command", params === undefined ? { id } : { id, params });
 
+  /** `cli_tool.state` and `cli_tool.install` answer the tool's state; a refusal rejects with the app's words. */
+  const cliToolState = async (id: string): Promise<CliToolState> => {
+    const state = parseCliToolState(await engine(id));
+    if (!state) throw new Error(`The app host answered ${id} with an unexpected shape.`);
+    return state;
+  };
+
   const accepted = async (id: string): Promise<void> => {
     await engine(id);
   };
@@ -219,6 +233,10 @@ export function createDesktopDaemons(
       start: () => accepted("daemon.remote.start"),
       refresh: () => accepted("daemon.remote.refresh"),
       update: () => accepted("daemon.remote.update"),
+    },
+    cliTool: {
+      state: () => cliToolState("cli_tool.state"),
+      install: () => cliToolState("cli_tool.install"),
     },
     async sshHosts() {
       const answer = await call("ssh_config_hosts");

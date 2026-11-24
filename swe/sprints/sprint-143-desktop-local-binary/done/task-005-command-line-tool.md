@@ -1,7 +1,7 @@
 # Task 005 — "Install the command-line tool"
 
 - **Sprint:** sprints/sprint-143-desktop-local-binary
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (engine, shell), packages/workbench (daemons)
 - **Priority:** P2

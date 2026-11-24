@@ -386,3 +386,28 @@ describe("remote daemon and ssh hosts", () => {
     await expect(harness(() => ({ nope: 1 })).daemons.sshHosts()).rejects.toThrow("unexpected shape");
   });
 });
+
+describe("command-line tool", () => {
+  it("state and install go through engine_command and answer the parsed state", async () => {
+    const h = harness((_command, args) =>
+      args?.id === "cli_tool.install" ? { state: "not_on_path" } : { state: "shadowed", path: "/usr/local/bin/pi-studio" },
+    );
+    expect(await h.daemons.cliTool.state()).toEqual({ state: "shadowed", path: "/usr/local/bin/pi-studio" });
+    expect(await h.daemons.cliTool.install()).toEqual({ state: "not_on_path" });
+    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "cli_tool.state" }, { id: "cli_tool.install" }]);
+  });
+
+  it("an install the app refused rejects with its words, as a plain error", async () => {
+    const words = "A file that Pi Studio did not make is at ~/.local/bin/pi-studio. Pi Studio never replaces it.";
+    const error = await rejection(harness(() => Promise.reject(words)).daemons.cliTool.install());
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toHaveProperty("code");
+    expect((error as Error).message).toBe(words);
+  });
+
+  it("an answer that is not a state rejects", async () => {
+    await expect(harness(() => ({ state: "nope" })).daemons.cliTool.state()).rejects.toThrow("unexpected shape");
+    await expect(harness(() => ({ state: "shadowed" })).daemons.cliTool.install()).rejects.toThrow("unexpected shape");
+    await expect(harness(() => null).daemons.cliTool.state()).rejects.toThrow("unexpected shape");
+  });
+});

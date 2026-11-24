@@ -48,6 +48,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod cli_answers;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli_tool;
 pub mod control;
 pub mod daemons;
 #[cfg(not(target_arch = "wasm32"))]
@@ -122,7 +124,8 @@ pub struct AppShell {
 }
 
 impl AppShell {
-    pub fn new(session: Session, services: Services) -> Self {
+    pub fn new(mut session: Session, services: Services) -> Self {
+        session.set_cli_tool(services.cli_tool.clone());
         let update = Arc::new(update::Updater::new(services.updater.clone(), update::Manifest::Default));
         Self {
             session,

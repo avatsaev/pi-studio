@@ -89,6 +89,8 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "update.check",
             "update.install",
             "update.restart",
+            "cli_tool.state",
+            "cli_tool.install",
         ]
     );
 }
@@ -481,4 +483,31 @@ mod updates {
             assert!(!without_release.contains("://") && !without_release.contains('/'), "{name}: {without_release}");
         }
     }
+}
+
+#[test]
+fn the_services_cli_tool_is_what_the_session_runs_the_commands_through() {
+    use std::sync::Arc;
+
+    use pistudiodesktop_engine::CliToolHost;
+    use pistudiodesktop_model::CliToolState;
+
+    struct Fixed;
+    impl CliToolHost for Fixed {
+        fn state(&self) -> CliToolState {
+            CliToolState::NotOnPath
+        }
+
+        fn install(&self) -> Result<CliToolState, String> {
+            Err("a file is in the way".into())
+        }
+    }
+    let mut with_host = AppShell::new(Session::new(), Services { cli_tool: Some(Arc::new(Fixed)), ..Services::default() });
+    assert_eq!(with_host.run("cli_tool.state", Value::Null), Ok(json!({"state": "not_on_path"})));
+    assert_eq!(with_host.run("cli_tool.install", Value::Null), Err("a file is in the way".to_owned()));
+    assert_eq!(with_host.ui.status, "a file is in the way");
+    let mut without = app();
+    assert_eq!(without.run("cli_tool.state", Value::Null), Ok(json!({"state": "unavailable"})));
+    assert!(without.run("cli_tool.install", Value::Null).unwrap_err().contains("not available"));
+    assert!(crate::daemons::page_may_run("cli_tool.state") && crate::daemons::page_may_run("cli_tool.install"));
 }

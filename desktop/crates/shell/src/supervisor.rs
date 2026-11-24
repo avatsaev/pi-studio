@@ -18,15 +18,16 @@
 //! `pairingUrl` never leaves [`crate::cli_answers`], and no address of a download is known here.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pistudiodesktop_engine::{Dial, LocalRequest, Session};
+use pistudiodesktop_engine::{CliToolHost, Dial, LocalRequest, Session};
 use pistudiodesktop_model::pin::this_target;
-use pistudiodesktop_model::{FailReason, LocalState};
+use pistudiodesktop_model::{CliToolState, FailReason, LocalState};
 use serde_json::Value;
 
 use crate::cli_answers::{self, Answer, Command, Failure, Version};
+use crate::cli_tool::{self, Files, StdFiles};
 use crate::daemons::{self, Batch};
 use crate::services::{InstallFailure, InstallProgress, RunFailure, RunSpec, Services};
 use crate::shell_env::{self, ShellEnv};
@@ -132,6 +133,8 @@ pub struct Supervisor {
     /// The last sign of life of a request (its start, a downloaded piece): what
     /// [`Self::resolve_current`]'s patience counts from, so a download is waited for however long it takes.
     activity: Mutex<Instant>,
+    /// The file system the command-line tool's link is looked at and made in.
+    files: Arc<dyn Files>,
 }
 
 fn failed(reason: FailReason) -> LocalState {
@@ -154,12 +157,18 @@ struct Work<'a> {
 impl Supervisor {
     /// A supervisor that reads the shell environment on first use.
     pub fn new(services: Services, limits: Limits) -> Self {
-        Self { services, env: ShellEnv::default(), limits, gate: Mutex::new(()), activity: Mutex::new(Instant::now()) }
+        Self { services, env: ShellEnv::default(), limits, gate: Mutex::new(()), activity: Mutex::new(Instant::now()), files: Arc::new(StdFiles) }
     }
 
     /// A supervisor that runs the binary in `env` without asking the shell for one.
     pub fn with_env(services: Services, limits: Limits, env: Vec<(String, String)>) -> Self {
-        Self { services, env: ShellEnv::preset(env), limits, gate: Mutex::new(()), activity: Mutex::new(Instant::now()) }
+        Self { services, env: ShellEnv::preset(env), limits, gate: Mutex::new(()), activity: Mutex::new(Instant::now()), files: Arc::new(StdFiles) }
+    }
+
+    /// The same supervisor looking at `files` for the command-line tool (tests).
+    pub fn with_files(mut self, files: Arc<dyn Files>) -> Self {
+        self.files = files;
+        self
     }
 
     /// Carry out one request and say what state it reached. Blocks until the binary answers, its
@@ -407,6 +416,35 @@ impl Supervisor {
             }
             std::thread::sleep(SETTLE_POLL);
         }
+    }
+}
+
+/// The command-line tool, over the login shell's environment this supervisor holds. Both methods block: the install
+/// asks the shell for its environment again, so the page runs them off the thread that owns the session.
+impl CliToolHost for Supervisor {
+    fn state(&self) -> CliToolState {
+        let env = self.env.get(&self.services);
+        let state = cli_tool::state(&*self.files, &env, self.home_dir());
+        log::info!("command-line tool: {}", cli_tool::state_name(&state));
+        state
+    }
+
+    fn install(&self) -> Result<CliToolState, String> {
+        let env = self.env.get(&self.services);
+        // The shell's environment is read again once the link is there: `~/.local/bin` is on a login shell's
+        // `PATH` only when the folder exists when it starts (the usual `~/.profile`).
+        let answer = cli_tool::install(&*self.files, &env, self.home_dir(), &|| self.env.refresh(&self.services));
+        match &answer {
+            Ok(state) => log::info!("command-line tool: install gave {}", cli_tool::state_name(state)),
+            Err(refusal) => log::warn!("command-line tool: install refused ({refusal:?})"),
+        }
+        answer.map_err(|refusal| refusal.to_string())
+    }
+}
+
+impl Supervisor {
+    fn home_dir(&self) -> Option<PathBuf> {
+        self.services.home_dir.as_ref().and_then(|home| home())
     }
 }
 

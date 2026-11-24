@@ -5,6 +5,7 @@
  */
 
 import {
+  type CliToolState,
   type ConnectIntent,
   type DaemonEntryView,
   type DaemonError as DaemonErrorShape,
@@ -47,6 +48,10 @@ export interface TestDaemonsOptions {
   remote?: RemoteDaemonState;
   /** What `sshHosts()` answers. */
   sshHosts?: SshHostSuggestion[];
+  /** The state `cliTool.state()` starts as (default: `absent`). */
+  cliTool?: CliToolState;
+  /** What `cliTool.install()` ends in: a state (default: `installed`) or the error it rejects with. */
+  cliToolInstall?: CliToolState | Error;
   /** The state a remote `start` ends in (default: `running`). */
   remoteStartOutcome?: RemoteDaemonState;
   /** The state a remote `update` ends in (default: `running`). */
@@ -60,6 +65,10 @@ export interface TestDaemons extends HostDaemons {
   setLocalState(state: LocalDaemonState): void;
   /** Replace the remote state and notify. */
   setRemoteState(state: RemoteDaemonState): void;
+  /** One entry per `cliTool.install()` call. */
+  cliToolInstalls: string[];
+  /** Replace what `cliTool.state()` answers (no notification: the state is not part of the snapshot). */
+  setCliToolState(state: CliToolState): void;
   /** Fire every `onManageRequest` listener. */
   requestManage(): void;
   /** Resolves when the scripted local action in flight has reached its outcome. */
@@ -243,6 +252,8 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     pending = runAction();
   };
 
+  let cliTool: CliToolState = { ...(options.cliTool ?? { state: "absent" }) };
+  const cliToolInstalls: string[] = [];
   const resolveLocal = async (entry: StoredEntry): Promise<ConnectIntent> => {
     const intent = (state: Extract<LocalDaemonState, { state: "running" }>): ConnectIntent => ({
       url: `ws://${state.host}:${state.port}`,
@@ -272,6 +283,10 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     },
     settled: () => pending,
     listenerCount: () => listeners.size,
+    cliToolInstalls,
+    setCliToolState: (state) => {
+      cliTool = { ...state };
+    },
     snapshot: () => ({
       currentId,
       entries: entries.map(view),
@@ -455,6 +470,16 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
           await new Promise((resolve) => setTimeout(resolve, 0));
           setRemote(options.remoteUpdateOutcome ?? { state: "running" });
         })();
+      },
+    },
+    cliTool: {
+      state: async () => ({ ...cliTool }),
+      install: async () => {
+        cliToolInstalls.push("install");
+        const outcome = options.cliToolInstall ?? { state: "installed" };
+        if (outcome instanceof Error) throw outcome;
+        cliTool = { ...outcome };
+        return { ...cliTool };
       },
     },
     sshHosts: async () => (options.sshHosts ?? []).map((host) => ({ ...host })),

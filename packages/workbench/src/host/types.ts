@@ -196,6 +196,24 @@ export interface DaemonSettings {
 }
 
 /**
+ * Whether the `pi-studio` command-line tool is on this machine and a new terminal finds it
+ * (`swe/features/single-binary-daemon.md` § The command-line tool).
+ */
+export type CliToolState =
+  /** Nothing is at `~/.local/bin/pi-studio`. */
+  | { state: "absent" }
+  /** The app's link is there and `pi-studio` in the login shell is it. */
+  | { state: "installed" }
+  /** The app's link is there, but `~/.local/bin` is not on the login shell's `PATH`. */
+  | { state: "not_on_path" }
+  /** The app's link is there, but another `pi-studio` comes first on `PATH`: its path. */
+  | { state: "shadowed"; path: string }
+  /** A file that is not the app's link is at `~/.local/bin/pi-studio`. */
+  | { state: "occupied" }
+  /** No daemon binary is installed yet, or this is Windows: nothing is offered. */
+  | { state: "unavailable" };
+
+/**
  * Optional. The daemon registry of a host that owns one (the desktop app). Absent: the workbench
  * keeps its address and password fields.
  */
@@ -247,6 +265,21 @@ export interface HostDaemons {
     refresh(): Promise<void>;
     /** Updates `pi-studio` on the host, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
     update(): Promise<void>;
+  };
+  /**
+   * The `pi-studio` command-line tool on this machine: a link `~/.local/bin/pi-studio` to the daemon's installed
+   * binary, so a new terminal runs it. Never edits a shell file.
+   */
+  cliTool: {
+    /** Looks now (the file system and the login shell's `PATH`); not part of `snapshot()`. */
+    state(): Promise<CliToolState>;
+    /**
+     * Makes the link, reads the login shell's `PATH` again, and answers the state after it. Over the app's own
+     * link it makes nothing and only reads again (how the screen checks again after the person edited a start-up
+     * file). Rejects with an `Error` whose message says, in words for the person, why nothing was done (a file the
+     * app did not make is at the link's place, and is never replaced).
+     */
+    install(): Promise<CliToolState>;
   };
   /** The hosts of `~/.ssh/config`. Rejects `ssh_config` when the file does not parse. */
   sshHosts(): Promise<SshHostSuggestion[]>;

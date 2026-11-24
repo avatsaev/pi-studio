@@ -90,6 +90,8 @@ fn commands_lists_the_registry() {
             "update.check",
             "update.install",
             "update.restart",
+            "cli_tool.state",
+            "cli_tool.install",
         ]
     );
     let (ok, out, _) = cli(&["commands", "--filter", "settings.set"]);
@@ -187,6 +189,62 @@ fn local_daemon_commands_without_a_binary_in_place_fail_and_download_nothing() {
     let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "failed", "reason": "spawn_failed"}), "{stdout}");
     assert!(!home.join("bin").exists(), "nothing was installed");
+}
+
+/// `cli_tool.*` from the headless CLI: the link in `~/.local/bin`, the shell's `PATH`, nothing replaced.
+#[cfg(unix)]
+#[test]
+fn the_command_line_tool_is_linked_from_the_cli_and_a_file_in_the_way_is_never_replaced() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let write_exec = |path: std::path::PathBuf, body: &str| {
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let home = dir.path().join("home");
+    let ps_home = home.join(".pi-studio");
+    let version = ps_home.join("bin").join("versions").join("fake");
+    std::fs::create_dir_all(&version).unwrap();
+    write_exec(version.join("pi-studio"), "#!/bin/sh\necho 0.0.131\n");
+    std::os::unix::fs::symlink("versions/fake", ps_home.join("bin").join("current")).unwrap();
+    // A shell that prints the environment the way the app asks for it, without start-up files.
+    let shell = write_exec(dir.path().join("shell"), "#!/bin/sh\neval \"$4\"\n");
+    let run = |cmds: &[&str]| {
+        let mut args = vec!["run"];
+        for cmd in cmds {
+            args.extend(["--cmd", cmd]);
+        }
+        let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &home)
+            .env("SHELL", &shell)
+            .args(args)
+            .output()
+            .unwrap();
+        (out.status.success(), String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
+    };
+    let answers = |out: &str| -> Vec<Value> { out.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["result"].clone()).collect() };
+
+    let (ok, out, err) = run(&["cli_tool.state", "cli_tool.install", "cli_tool.state"]);
+    assert!(ok, "{err}");
+    let states = answers(&out);
+    assert_eq!(states[0], serde_json::json!({"state": "absent"}));
+    // `~/.local/bin` is not on the PATH this shell prints: the link is made, and a new terminal would not find it.
+    assert_eq!(states[1], serde_json::json!({"state": "not_on_path"}));
+    assert_eq!(states[2], serde_json::json!({"state": "not_on_path"}));
+    let link = home.join(".local/bin/pi-studio");
+    assert_eq!(std::fs::read_link(&link).unwrap(), ps_home.join("bin/current/pi-studio"));
+
+    std::fs::remove_file(&link).unwrap();
+    std::fs::write(&link, "mine").unwrap();
+    let (ok, out, err) = run(&["cli_tool.state"]);
+    assert!(ok, "{err}");
+    assert_eq!(answers(&out)[0], serde_json::json!({"state": "occupied"}));
+    let (ok, out, err) = run(&["cli_tool.install"]);
+    assert!(!ok && out.is_empty() && err.contains("never replaces"), "{out}{err}");
+    assert_eq!(std::fs::read_to_string(&link).unwrap(), "mine");
 }
 
 #[test]

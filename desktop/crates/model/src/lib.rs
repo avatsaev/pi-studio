@@ -6,11 +6,13 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod address_rule;
+mod cli_tool;
 pub mod pairing;
 pub mod pin;
 mod registry;
 
 pub use address_rule::{address_matches, normalize_daemon_url};
+pub use cli_tool::CliToolState;
 pub use registry::{
     DEFAULT_DAEMON_PORT, EntryV3, EntryView, FailReason, Kind, LocalState, MAX_ADDRESS_CHARS, MAX_ENTRIES, MAX_HOST_CHARS, MAX_IDENTITY_FILE_CHARS,
     MAX_JUMP_CHARS, MAX_LINK_CHARS, MAX_NAME_CHARS, MAX_PASSWORD_CHARS, MAX_USER_CHARS, MigratedSecret, NewEntry, REGISTRY_V3, RegistryError, RegistryV3,

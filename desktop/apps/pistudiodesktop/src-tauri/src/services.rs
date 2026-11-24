@@ -203,6 +203,8 @@ pub fn native<R: Runtime>(native: &Arc<Native<R>>) -> Services {
         remote_run: None,
         // Filled by `main` with the updater plug-in's hook (`update.rs`).
         updater: None,
+        // Filled by `main` with the local supervisor, which looks at `~/.local/bin` (`cli_tool.*`).
+        cli_tool: None,
     }
 }
 

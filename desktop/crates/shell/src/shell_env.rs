@@ -58,7 +58,7 @@ fn split_assignment(line: &str) -> Option<(&str, &str)> {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_').then_some((name, value))
 }
 
-fn lookup<'a>(env: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(crate) fn lookup<'a>(env: &'a [(String, String)], name: &str) -> Option<&'a str> {
     env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
 }
 
@@ -126,8 +126,12 @@ pub fn pi_studio_home(env: &[(String, String)], home_dir: Option<PathBuf>) -> Op
     if let Some(set) = lookup(env, "PI_STUDIO_HOME").map(str::trim).filter(|s| !s.is_empty()) {
         return Some(PathBuf::from(set)).filter(|p| p.is_absolute());
     }
-    let home = lookup(env, "HOME").filter(|h| !h.is_empty()).map(PathBuf::from).or(home_dir)?;
-    Some(home.join(".pi-studio"))
+    Some(home_of(env, home_dir)?.join(".pi-studio"))
+}
+
+/// The user's home directory: `HOME` of `env` (the shell environment), else `home_dir`.
+pub fn home_of(env: &[(String, String)], home_dir: Option<PathBuf>) -> Option<PathBuf> {
+    lookup(env, "HOME").filter(|h| !h.is_empty()).map(PathBuf::from).or(home_dir)
 }
 
 /// Where the installed binaries are: `bin/` of [`pi_studio_home`].

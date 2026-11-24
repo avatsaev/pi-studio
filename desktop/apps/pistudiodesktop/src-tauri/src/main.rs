@@ -280,6 +280,9 @@ fn main() {
     // the same local supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
+    // `cli_tool.state` and `cli_tool.install` (the control socket's and the CLI's copies) run on the same supervisor, which
+    // holds the login shell's environment; the page runs them off the owner thread through `engine_command`.
+    services.cli_tool = Some(supervisor.clone());
     // The launch's daemon pin (the compiled-in one or `--daemon-pin`), held in the app's state.
     app.manage(Arc::new(pin));
     // After a Start left the remote daemon running the page connects again.

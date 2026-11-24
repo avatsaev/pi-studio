@@ -1,4 +1,5 @@
 import {
+  type CliToolState,
   type DaemonEntryView,
   type DaemonSettings,
   type LocalDaemonState,
@@ -158,6 +159,26 @@ export function parseEntryView(value: unknown): DaemonEntryView | null {
     ...(ssh === undefined ? {} : { ssh }),
     hasPassword: value.hasPassword,
   };
+}
+
+/**
+ * The answer of `cli_tool.state` and `cli_tool.install`: `{ state, path? }` with one of the six states, and a `path`
+ * (text) for `shadowed` only. `null` for anything else, so that a page never draws a state it was not told.
+ */
+export function parseCliToolState(value: unknown): CliToolState | null {
+  if (!isRecord(value)) return null;
+  switch (value.state) {
+    case "absent":
+    case "installed":
+    case "not_on_path":
+    case "occupied":
+    case "unavailable":
+      return { state: value.state };
+    case "shadowed":
+      return typeof value.path === "string" ? { state: "shadowed", path: value.path } : null;
+    default:
+      return null;
+  }
 }
 
 function parseSettings(value: unknown): DaemonSettings | null {

@@ -175,4 +175,7 @@ pub struct Services {
     /// The self-update: the plug-in behind [`crate::update::Updater`]. Missing in the browser
     /// build and in tests that do not drive an update: every update action is then refused.
     pub updater: Option<Arc<dyn crate::update::UpdaterHook>>,
+    /// The command-line tool behind `cli_tool.state` and `cli_tool.install`: the app fills it with the local
+    /// supervisor. Missing in the headless CLI and in tests: the state is then `unavailable` and the install is refused.
+    pub cli_tool: Option<Arc<dyn pistudiodesktop_engine::CliToolHost>>,
 }

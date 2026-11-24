@@ -282,6 +282,21 @@ reasons `not_healthy`, `timeout`, `bad_output`, `spawn_failed`, `download_failed
 `install_failed` (`snake_case` JSON, pinned by tests; the page reads it). The settings are
 `autoStartLocalDaemon` and `checkForUpdates`: an old file's `cliPath` is an unknown field, ignored and kept.
 
+**The command-line tool.** `cli_tool.state` and `cli_tool.install` (`engine/src/cli_tool_cmds.rs`; ids and answers in
+`control-protocol.md` § Command-line tool commands) are the one pair of commands that answer with what the machine
+looks like now rather than queue work: the engine holds a `CliToolHost` (`Session::set_cli_tool`, which `AppShell::new`
+fills from `Services::cli_tool`) and the commands run it; `shell::supervisor::Supervisor` is the host. The rules are
+`shell/src/cli_tool.rs`: pure functions over a `Files` seam (the real one is `StdFiles`; tests use an in-memory
+file system with every state, `occupied` included) and the login shell's environment (`PATH` is what `command -v
+pi-studio` searches: the first absolute folder with an executable `pi-studio`), `model::CliToolState` is the JSON
+(`absent`, `installed`, `not_on_path`, `shadowed {path}`, `occupied`, `unavailable`, pinned by a test). A link is ours
+only when it is a symbolic link to `$PI_STUDIO_HOME/bin/current/pi-studio` (a relative target is read from the link's
+folder); anything else at `~/.local/bin/pi-studio`, a dangling link included, is `occupied`, and nothing is ever replaced.
+The install makes `~/.local/bin`, links, and has the supervisor read the login shell's environment again
+(`ShellEnv::refresh`, so the daemon's next run has it too). The page's `engine_command` runs these two ids on a worker
+thread, on the supervisor (`src-tauri/src/commands.rs`): the install may wait for the shell. The app never edits a shell
+file; the Daemons screen shows the line to add. Windows is `unavailable`.
+
 **The SSH entry's daemon.** The engine keeps the `RemoteState` of the current SSH entry's daemon in
 memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`, `updating`,
 `failed`; reset when another entry is opened) and a queue of requests (`daemon.remote.start`,

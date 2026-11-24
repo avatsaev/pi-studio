@@ -17,7 +17,8 @@ use crate::cli_answers;
 
 /// The engine commands the page may run (`engine_command`). `daemon.switch` is not here: a switch
 /// needs a confirm, a flush and a reload, which the app does itself. The `update.*` commands are:
-/// they take no params, and the state decides what they do.
+/// they take no params, and the state decides what they do. The `cli_tool.*` commands are too, but the app runs them
+/// on a worker thread (they look at the file system and ask the login shell), not on the thread that owns the session.
 pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.list",
     "daemon.add",
@@ -33,6 +34,8 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.remote.update",
     "settings.get",
     "settings.set",
+    "cli_tool.state",
+    "cli_tool.install",
     "update.check",
     "update.install",
     "update.restart",

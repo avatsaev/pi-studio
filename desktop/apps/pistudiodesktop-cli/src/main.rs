@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use clap::{Parser, Subcommand};
 use pistudiodesktop_engine::Session;
@@ -105,7 +105,9 @@ fn run(cli: Cli) -> Result<(), String> {
             // the app does, but without an installer (this tool never downloads: no binary in
             // place is `failed(spawn_failed)`): the state is probed before the first of them, and
             // every request is run to completion before the next step.
-            let supervisor = Supervisor::new(native_services(), Limits::default());
+            let supervisor = Arc::new(Supervisor::new(native_services(), Limits::default()));
+            // `cli_tool.state` and `cli_tool.install` look at `~/.local/bin` and the shell's `PATH` through the same supervisor.
+            session.set_cli_tool(Some(supervisor.clone()));
             session.set_local_supported(cfg!(unix));
             let session = Mutex::new(session);
             let mut probed = false;

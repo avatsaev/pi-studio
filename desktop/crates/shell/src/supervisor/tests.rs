@@ -640,3 +640,66 @@ fn the_command_runs_through_the_pump_with_the_progress_stored_on_the_way() {
     assert_eq!(*session.lock().unwrap().local_state(), running());
     assert!(session.request("daemon.local.update").unwrap_err().contains("update_not_offered"));
 }
+
+#[test]
+fn the_command_line_tool_is_linked_and_the_login_shell_is_asked_again_to_find_it() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use pistudiodesktop_engine::CliToolHost as _;
+    use pistudiodesktop_model::CliToolState;
+
+    use crate::services::RunSpec;
+
+    let f = fixture();
+    place(f.dir.path());
+    let home = tempfile::tempdir().unwrap();
+    let (dir, home_path, bin) = (f.dir.path().display().to_string(), home.path().display().to_string(), home.path().join(".local/bin"));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&asked);
+    let on_path = format!("{}:/usr/bin", bin.display());
+    let (shell_home, shell_dir) = (home_path.clone(), dir.clone());
+    // A login shell that has `~/.local/bin` on its `PATH` only from the second time it is asked (once the folder is there).
+    let run = move |spec: &RunSpec| {
+        let n = counted.fetch_add(1, Ordering::SeqCst);
+        let marks: Vec<&str> = spec.args[3].split('\'').filter(|part| part.starts_with("__PISTUDIO_ENV_")).collect();
+        let path = if n == 0 { "/usr/bin" } else { on_path.as_str() };
+        Ok(format!("{}\nHOME={shell_home}\nPI_STUDIO_HOME={shell_dir}\nPATH={path}\n{}\n", marks[0], marks[1]))
+    };
+    let services =
+        Services { run: Some(Arc::new(run)), env: Some(Arc::new(|| vec![("SHELL".to_owned(), "/bin/some-shell".to_owned())])), ..Services::default() };
+    let sup = Supervisor::new(services, Limits::default());
+    assert_eq!(sup.state(), CliToolState::Absent);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+
+    assert_eq!(sup.install(), Ok(CliToolState::Installed));
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "the shell's environment was read again after the link was made");
+    assert_eq!(std::fs::read_link(bin.join("pi-studio")).unwrap(), f.dir.path().join("bin/current/pi-studio"));
+    assert_eq!(sup.state(), CliToolState::Installed, "the answer is from the new environment, kept");
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+
+    // A file of the user's where the link goes is refused and kept.
+    std::fs::remove_file(bin.join("pi-studio")).unwrap();
+    std::fs::write(bin.join("pi-studio"), "mine").unwrap();
+    assert_eq!(sup.state(), CliToolState::Occupied);
+    assert!(sup.install().unwrap_err().contains("never replaces"));
+    assert_eq!(std::fs::read_to_string(bin.join("pi-studio")).unwrap(), "mine");
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "a refusal does not ask the shell");
+}
+
+#[test]
+fn a_supervisor_with_no_binary_is_unavailable_and_installs_nothing() {
+    use pistudiodesktop_engine::CliToolHost as _;
+    use pistudiodesktop_model::CliToolState;
+
+    let f = fixture();
+    let home = tempfile::tempdir().unwrap();
+    let env = vec![
+        ("HOME".to_owned(), home.path().display().to_string()),
+        ("PI_STUDIO_HOME".to_owned(), f.dir.path().display().to_string()),
+        ("PATH".to_owned(), "/usr/bin".to_owned()),
+    ];
+    let sup = Supervisor::with_env(Services::default(), Limits::default(), env);
+    assert_eq!(sup.state(), CliToolState::Unavailable);
+    assert!(sup.install().is_err());
+    assert!(!home.path().join(".local").exists());
+}

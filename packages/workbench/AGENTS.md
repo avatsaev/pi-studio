@@ -54,6 +54,13 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `remote.start/refresh/update`, `local.update`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
+  `HostDaemons.cliTool` (single-binary daemon, task 143/005; required on `HostDaemons`): `state()` and `install()`, each
+  answering a `CliToolState` (`absent`, `installed`, `not_on_path`, `shadowed {path}`, `occupied`, `unavailable`; the type is
+  exported) for the `pi-studio` link `~/.local/bin/pi-studio` → the daemon's installed binary. The state is not in
+  `snapshot()`: the host looks when asked. `install()` over the app's own link makes nothing and reads the login shell
+  again (the screen's "Check again"); it rejects with an `Error` whose message is the words for the person (a file the
+  app did not make is at the link: refused, never replaced). The in-memory `createTestDaemons` has `cliTool`,
+  `cliToolInstall` (a state or an `Error`), `cliToolInstalls` and `setCliToolState`.
   Optional `updates` (`HostUpdates`: `current()`, `subscribe`, `check`/`install`/`restart`; types
   `AppUpdateState` — idle, checking, up_to_date, available, downloading, restart_needed,
   cannot_install, failed — `AppUpdateUnavailableReason`, `AppUpdateFailureCode`): read only by the
@@ -587,6 +594,19 @@ src/
                             "The daemon could not be run" / "The daemon printed something unexpected".
                             There is no CLI-missing view and no `cliPath` setting; the switcher shows
                             the same labels (an error with Retry for `failed`/`outdated`).
+                            The command-line tool (single-binary daemon, D11/S11): `CliToolBlock.tsx` in the
+                            local daemon's settings, under the auto-start switch. `DaemonsScreen` reads
+                            `host.daemons.cliTool.state()` once per opening and again when the local daemon's state
+                            changes (`readCliTool`: a host that cannot say is `unavailable`, nothing drawn), and holds
+                            it in component state; `cli-tool-presentation.ts` (pure, + test: `cliToolView(state)`:
+                            one sentence per state, `null` for `unavailable` and before the first answer; `absent`
+                            the button "Install the command-line tool" (`install`); `not_on_path` the sentence, the
+                            line `export PATH="$HOME/.local/bin:$PATH"` with a Copy button and "Check again" (`install`,
+                            which reads the login shell's PATH again); `shadowed` the other pi-studio's path and "Check
+                            again"; `occupied` that a file is in the way and is never replaced, and "Check again"
+                            (`state`, which only looks); `installed` a confirmation, no button;
+                            `cliToolFailureText`), `cli-tool-actions.ts` (`readCliTool`, `runCliTool(daemons, call)` →
+                            `{state}` or `{failure}`, never throw) (+ test). The app never edits a shell file.
                             `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
                             entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
                             (`remoteNeedsScreen`, also on mount); the workbench still never starts a

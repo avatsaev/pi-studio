@@ -19,8 +19,9 @@ import { Plus } from "lucide-react";
 import { Button, Dialog, Spinner, Switch } from "@av-pi-studio/ui-library";
 import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
-import { type DaemonSettings, type HostDaemons } from "../../host/types.js";
+import { type CliToolState, type DaemonSettings, type HostDaemons } from "../../host/types.js";
 import { type FormMode } from "./daemon-form.js";
+import { readCliTool } from "./cli-tool-actions.js";
 import { type LocalAction, type RemoteAction } from "./daemon-presentation.js";
 import {
   copyCommand,
@@ -41,6 +42,7 @@ import {
   type LocalRowView,
   type RemoteRowView,
 } from "./daemons-screen-view.js";
+import { CliToolBlock } from "./CliToolBlock.js";
 import { DaemonForm } from "./DaemonForm.js";
 import { useDaemonsStore } from "./daemons-store.js";
 import { useDaemons } from "./use-daemons.js";
@@ -63,11 +65,26 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
   const snapshot = useDaemons();
   const [form, setForm] = useState<FormMode | null>(null);
   const [reconnectOffered, setReconnectOffered] = useState(false);
+  const [cliTool, setCliTool] = useState<CliToolState | null>(null);
 
   // The state shown is current when the screen opens; a probe's outcome arrives as a state change.
   useEffect(() => {
     if (open) void runLocalAction(daemons, "refresh");
   }, [open, daemons]);
+
+  // The command-line tool is not in the snapshot: it is looked at once per opening, again when the local daemon
+  // changes state (a binary that has just been installed is what makes it available), and after each of its buttons.
+  const localState = snapshot?.local.state;
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void readCliTool(daemons).then((state) => {
+      if (current) setCliTool(state);
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, daemons, localState]);
 
   if (!snapshot) return null;
   const view = buildDaemonsScreenView(snapshot, error, invalidLinks);
@@ -165,7 +182,13 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
                 />
               ))}
             </ul>
-            <SettingsSection daemons={daemons} settings={snapshot.settings} />
+            <SettingsSection
+              daemons={daemons}
+              settings={snapshot.settings}
+              cliTool={cliTool}
+              onCliTool={setCliTool}
+              onCopy={(command) => void run(() => copyCommand(getHost().clipboard, command))}
+            />
             {view.secretStoreNote && (
               <p className={styles.secretStoreNote}>{view.secretStoreNote}</p>
             )}
@@ -317,9 +340,15 @@ function StateBlock({
 function SettingsSection({
   daemons,
   settings,
+  cliTool,
+  onCliTool,
+  onCopy,
 }: {
   daemons: HostDaemons;
   settings: DaemonSettings;
+  cliTool: CliToolState | null;
+  onCliTool: (state: CliToolState) => void;
+  onCopy: (command: string) => void;
 }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -346,6 +375,7 @@ function SettingsSection({
           onCheckedChange={(enabled) => void save(saveAutoStart(daemons, enabled))}
         />
       </div>
+      <CliToolBlock daemons={daemons} state={cliTool} onState={onCliTool} onCopy={onCopy} />
       {failure && (
         <div className={styles.settingError} role="alert">
           {failure}

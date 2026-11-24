@@ -261,6 +261,21 @@
   min-width: 0;
 }
 
+.cliTool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-4);
+  min-width: 0;
+}
+
+.cliTool .notice[data-tone="ok"] {
+  color: var(--pi-color-statusSuccess);
+}
+
+.cliTool .notice[data-tone="warn"] {
+  color: var(--pi-color-statusWarning);
+}
+
 .settingError {
   font-size: var(--pi-font-size-xs);
   color: var(--pi-color-statusDanger);

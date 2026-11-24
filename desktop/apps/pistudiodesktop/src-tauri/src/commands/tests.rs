@@ -921,6 +921,43 @@ fn the_page_runs_the_listed_engine_commands_and_is_refused_the_rest() {
     assert!(invoke(&window, "engine_command", json!({})).is_err(), "an id is required");
 }
 
+#[cfg(unix)]
+#[test]
+fn the_page_runs_the_command_line_tool_commands_on_the_supervisor_in_the_shell_environment() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+    let (config, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let env = vec![("HOME".to_owned(), home.path().display().to_string()), ("PATH".to_owned(), "/usr/bin:/bin".to_owned())];
+    let services = Services { env: Some(Arc::new(move || env.clone())), ..Services::default() };
+    let (_app, window) = app_with(config.path(), services);
+    let run = |id: &str| invoke(&window, "engine_command", json!({"id": id}));
+    assert_eq!(run("cli_tool.state").unwrap(), json!({"state": "unavailable"}));
+    assert!(run("cli_tool.install").unwrap_err().as_str().is_some_and(|e| e.contains("not installed yet")));
+    assert!(!home.path().join(".local").exists());
+
+    // The binary is in place, as an install leaves it.
+    let version = home.path().join(".pi-studio/bin/versions/0.0.131");
+    std::fs::create_dir_all(&version).unwrap();
+    std::fs::write(version.join("pi-studio"), "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(version.join("pi-studio"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    symlink("versions/0.0.131", home.path().join(".pi-studio/bin/current")).unwrap();
+    assert_eq!(run("cli_tool.state").unwrap(), json!({"state": "absent"}));
+    // `~/.local/bin` is not on this shell's `PATH`: the link is made and a new terminal would not find it.
+    assert_eq!(run("cli_tool.install").unwrap(), json!({"state": "not_on_path"}));
+    let link = home.path().join(".local/bin/pi-studio");
+    assert_eq!(std::fs::read_link(&link).unwrap(), home.path().join(".pi-studio/bin/current/pi-studio"));
+    assert_eq!(run("cli_tool.state").unwrap(), json!({"state": "not_on_path"}));
+
+    // A file the app did not make is refused and kept.
+    std::fs::remove_file(&link).unwrap();
+    std::fs::write(&link, "mine").unwrap();
+    assert_eq!(run("cli_tool.state").unwrap(), json!({"state": "occupied"}));
+    assert!(run("cli_tool.install").unwrap_err().as_str().is_some_and(|e| e.contains("never replaces")));
+    assert_eq!(std::fs::read_to_string(&link).unwrap(), "mine");
+    // Other ids of the area are refused like any id that is not listed.
+    assert!(run("cli_tool.nothing").unwrap_err().as_str().is_some_and(|e| e.contains("may not run")));
+}
+
 fn added_entry(window: &WebviewWindow<MockRuntime>) -> String {
     let added = invoke(window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1"}})).unwrap();
     added["id"].as_str().unwrap().to_owned()

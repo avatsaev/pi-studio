@@ -48,6 +48,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::query_cmds::specs());
     v.extend(crate::settings_cmds::specs());
     v.extend(crate::update_cmds::specs());
+    v.extend(crate::cli_tool_cmds::specs());
     #[cfg(test)]
     v.extend(tests::specs());
     v

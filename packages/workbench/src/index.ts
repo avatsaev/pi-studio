@@ -37,6 +37,7 @@ export type {
   AppUpdateFailureCode,
   AppUpdateState,
   AppUpdateUnavailableReason,
+  CliToolState,
   ConnectIntent,
   ConnectTarget,
   DaemonEntryView,
