@@ -368,7 +368,15 @@ export async function smoke({ folder, expectVersion }) {
     daemon?.close();
     const pid = daemonPid ?? (await readPid(pidFile));
     failed = (await ensureDaemonGone(binary, env, pid)) || failed;
-    await rm(home, { recursive: true, force: true });
+    // The daemon's boot-time extension sync can leave a `bun install` still writing its cache a
+    // moment after the daemon stops (seen on CI): retry, and never fail the test over a temp folder.
+    try {
+      await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (error) {
+      console.log(
+        `warn temporary folder not removed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
   }
 
   console.log(failed ? "binary smoke test FAILED" : "binary smoke test passed");
