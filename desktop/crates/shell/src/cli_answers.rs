@@ -1,4 +1,4 @@
-//! Reading what the `pi-studio` CLI prints: pure functions, no process in sight.
+//! Reading what the `pi-studio` binary prints: pure functions, no process in sight.
 //!
 //! The app drives the local daemon only through `pi-studio --json daemon ...`. The exit code is
 //! never used to decide anything (`status` exits 1 while the daemon is down, `start` exits non-zero
@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-/// Time limit of `--version`.
-pub const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Time limit of `--version` (a cold start of the binary on a slow disk).
+pub const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 /// Time limit of `daemon status`.
 pub const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 /// Time limit of `daemon start`.
@@ -19,14 +19,12 @@ pub const START_TIMEOUT: Duration = Duration::from_secs(90);
 pub const RESTART_TIMEOUT: Duration = Duration::from_secs(90);
 /// Time limit of `daemon stop`.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(15);
-/// Time limit of `update`: it downloads and installs a package.
-pub const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
-/// How many of the last lines of a failed `update` are kept.
+/// How many of the last lines of what a host or a binary printed are kept.
 const TAIL_LINES: usize = 20;
 /// The most characters kept of them (the end is kept).
 const TAIL_CHARS: usize = 2000;
 
-/// The last lines of what a failed `update` printed, for a person to read: blank lines dropped,
+/// The last lines of what a failed install printed, for a person to read: blank lines dropped,
 /// control characters (colors, carriage returns) removed, at most [`TAIL_LINES`] lines and
 /// [`TAIL_CHARS`] characters, the end kept. Never parsed.
 pub fn output_tail(output: &str) -> String {
@@ -40,8 +38,8 @@ pub fn output_tail(output: &str) -> String {
     tail.chars().skip(skip).collect()
 }
 
-/// The oldest CLI the app drives: the release that carries the daemon's upload changes (a temporary
-/// file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
+/// The oldest daemon (and, over SSH, CLI) the app works with: the release that carries the daemon's upload changes (a
+/// temporary file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
 pub const MIN_CLI_VERSION: Version = Version { major: 0, minor: 0, patch: 127 };
 
 /// Which `daemon` command printed the answer.
@@ -136,32 +134,21 @@ pub fn parse_version(stdout: &str) -> Option<Version> {
     parts.next().is_none().then_some(version)
 }
 
-/// Whether the CLI is recent enough.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum VersionCheck {
-    Ok,
-    Outdated { version: String },
-    BadOutput,
-}
-
-/// Compares the output of `--version` with [`MIN_CLI_VERSION`].
-pub fn check_version(stdout: &str) -> VersionCheck {
-    match parse_version(stdout) {
-        None => VersionCheck::BadOutput,
-        Some(v) if v < MIN_CLI_VERSION => VersionCheck::Outdated { version: v.to_string() },
-        Some(_) => VersionCheck::Ok,
-    }
-}
-
-/// The WebSocket address to dial for a daemon bound to `host:port`: an unspecified bind address
-/// is dialled as the loopback of the same family, and an IPv6 host is bracketed.
-pub fn dial_address(host: &str, port: u16) -> String {
+/// The host a client connects to for a daemon bound to `host`: an unspecified bind address is the
+/// loopback of the same family, and the brackets of an IPv6 host are dropped.
+pub fn connect_host(host: &str) -> &str {
     let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
-    let host = match bare {
+    match bare {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
         other => other,
-    };
+    }
+}
+
+/// The WebSocket address to dial for a daemon bound to `host:port` ([`connect_host`]); an IPv6
+/// host is bracketed.
+pub fn dial_address(host: &str, port: u16) -> String {
+    let host = connect_host(host);
     if host.contains(':') { format!("ws://[{host}]:{port}") } else { format!("ws://{host}:{port}") }
 }
 
@@ -225,13 +212,13 @@ mod tests {
 
     #[test]
     fn versions() {
-        let out = |s| check_version(s);
-        assert_eq!(out("0.0.126\n"), VersionCheck::Outdated { version: "0.0.126".into() });
+        let parse = |s| parse_version(s);
+        assert_eq!(parse("0.0.126\n").map(|v| v < MIN_CLI_VERSION), Some(true));
         for ok in ["0.0.127", " 0.0.130 \n", "0.1.0", "v1.2.3", "warn\nv0.0.127\n"] {
-            assert_eq!(out(ok), VersionCheck::Ok, "{ok}");
+            assert_eq!(parse(ok).map(|v| v >= MIN_CLI_VERSION), Some(true), "{ok}");
         }
         for bad in ["banana", "", "1.2", "1.2.3.4", "1.x.3", "-1.0.0"] {
-            assert_eq!(out(bad), VersionCheck::BadOutput, "{bad}");
+            assert_eq!(parse(bad), None, "{bad}");
         }
     }
 
@@ -249,7 +236,6 @@ mod tests {
     fn limits() {
         assert_eq!(START_TIMEOUT, Duration::from_secs(90));
         assert_eq!(STOP_TIMEOUT, Duration::from_secs(15));
-        assert_eq!(UPDATE_TIMEOUT, Duration::from_secs(300));
     }
 
     #[test]

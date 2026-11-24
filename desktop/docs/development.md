@@ -105,8 +105,9 @@ released. A failed Desktop CI run releases nothing.
   reads `daemon-updates/latest.json`, retries every 60 s while its version is below `MIN_CLI_VERSION`,
   fails with `no daemon binary ≥ <min> is published`, and writes `{version, assets}` for the four
   targets; a developer runs it without `--wait-minutes` to refresh the committed `desktop/daemon-pin.json`).
-  In a release run the job `version` runs it, only when `desktop/daemon-pin.json` is committed, and
-  `bundle-release` writes the result into its checkout before the build.
+  In a release run the job `version` runs it (every publishing run, before the build), and
+  `bundle-release` writes the result into its checkout before the build, which compiles it in
+  (`model::pin::BUILT_IN_JSON`; the gate parses the committed file, so an invalid pin fails a build and a test).
 
 The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
 app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.
@@ -237,15 +238,21 @@ directory is `default`), so the CLI sees the app's keychain secrets only when `-
 the app's directory the same way, and not at all for the app's default directory: use
 `--secret-store file` on both or neither.
 
-### Pointing the app at a scratch CLI and home
+### Pointing the app at a scratch binary and home
 
-The local daemon is run through the `pi-studio` CLI. Set `cliPath` (`settings.set`, or the Daemons
-screen) to a script of your own to choose which CLI runs, for example one that execs the repository's
-build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`). The CLI inherits
+The local daemon is the `pi-studio` binary the app installs: `$PI_STUDIO_HOME/bin/current/pi-studio`, where
+`PI_STUDIO_HOME` is read from the login shell's environment (default `~/.pi-studio`; there is no `cliPath` setting and
+no search for an installed CLI). The first local action downloads the version the build pins (`daemon-pin.json`;
+`--daemon-pin <file>` replaces it for a launch) into `bin/versions/<version>/`; a binary there at or above the pin is
+used as it is. To run a binary of your own, put it at `$PI_STUDIO_HOME/bin/versions/<v>/pi-studio` with a link
+`bin/current -> versions/<v>`, for example a script that execs the repository's
+build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`), whose `--version` is at or above the pin; the
+app's tests do it with a `SHELL` that prints a chosen environment (`apps/pistudiodesktop-cli/tests/cli.rs`; the headless CLI
+never downloads: with no binary in place the local daemon is `failed(spawn_failed)`). The binary inherits
 the app's environment, so start the app with `PI_STUDIO_HOME=<scratch dir>` to keep the daemon's state
-out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
+and the installed binaries out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
 starts a daemon on launch. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply),
-so nothing else may hold that port. A fake CLI for failure cases is
+so nothing else may hold that port. A fake binary for failure cases is
 `crates/shell/tests/fixtures/fake-pi-studio.sh` (modes in its header). Quitting the app leaves the
 daemon it started running: stop it with `pi-studio daemon stop` under the same `PI_STUDIO_HOME`.
 
@@ -275,8 +282,9 @@ docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-de
 ```
 
 Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
-`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"cli_missing"},"settings":{"autoStartLocalDaemon":true,"cliPath":null}},"menus":[…],"settings":{…},"ui":{…}}}`
-(the image has no `pi-studio` CLI, hence `cli_missing`).
+`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{…},"settings":{"autoStartLocalDaemon":true,"checkForUpdates":true}},"menus":[…],"settings":{…},"ui":{…}}}`
+(`local` depends on the image: it has no binary under `PI_STUDIO_HOME`, so the first probe downloads the pinned one (`downloading`), or is
+`failed` with `download_failed` when the image has no network. The answer's shape is what this checks; the sprint-143 task-003 change was tested with fake services, not in this image.)
 This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
 for the webview itself WebKitWebDriver, as below.
 
@@ -479,7 +487,7 @@ Scratch and cleanup: `docker rm -f` the container, kill the relay, the daemons a
 
 1. **Connect and login.** After the reload the page's `connection.transports` has one `open` entry with `via: "ssh"` and `connection.ssh` is `{state: "open", hops, channels}` (`hops` 1 through the jump host, `channels` 1 for the page, 2 while the engine has its own). The login is read from the sshd logs (above). Chat and terminal as in § The relay entry (the page restores the workspace's tabs, so click the tab you want: the composer and the terminal's `textarea` are the **visible** ones; a toast "This daemon is 0.0.126; this app expects 0.0.127 or newer" overlaps the tab bar and intercepts the `New tab` click: close its button first).
 2. **The host-key dialog** is a native GTK window named `Pi Studio` of 614×282 (the main window has the same name and 1280×800: tell them by geometry, `xdotool getwindowgeometry --shell`). Without a window manager there is no focus, so press its buttons with the mouse: `xdotool mousemove <x+¾ of the width> <y+height−18> click 1` for OK (¼ for Cancel); `scrot` to see it. The dialog is shown a few hundred ms after the page's first connect failed with `host_key_unknown`; the key lands in `known_hosts` as `[host]:port` (a bare `host` for port 22) with mode 600. A changed key: stop sshd A, replace `/etc/ssh-live/hostA{,.pub}` (keep the old pair), start it, reload the page: `host_key_changed`, no window, and sshd's log has `Connection closed … [preauth]` with no authentication attempted.
-3. **The Daemons screen and its rows.** The screen opens by itself when the current entry's state is `stopped`, `not_installed` or `cli_outdated`. Rows are not addressable by id: find the row's button as the one whose **tightest** ancestor containing the row's text (`tester@127.0.0.1:2222`, `cfgalias`, `pi-studio is not installed`) is the shortest, because a wider ancestor also holds the local entry's own `Start` and `Retry`. Start (`daemon.remote.start` through the button) takes about 1 s; the page then connects by itself (it did not before this task's fix: see the traps).
+3. **The Daemons screen and its rows.** The screen opens by itself when the current entry's state is `stopped`, `not_installed`, `outdated`, `unsupported` or `failed`. Rows are not addressable by id: find the row's button as the one whose **tightest** ancestor containing the row's text (`tester@127.0.0.1:2222`, `cfgalias`, `pi-studio is not installed`) is the shortest, because a wider ancestor also holds the local entry's own `Start` and `Retry`. Start (`daemon.remote.start` through the button) takes about 1 s; the page then connects by itself (it did not before this task's fix: see the traps). Since milestone 6 a host with nothing installed shows Install, not an npm command (not yet run live: sprint-145/task-001).
 4. **Copy** uses `navigator.clipboard`, which needs a user gesture: a script's `element.click()` leaves the clipboard empty, a WebDriver click on the button works. Read it with `DISPLAY=:99 xclip -selection clipboard -o` inside the container (`target STRING not available` is an empty clipboard).
 5. **The Add form.** `select#daemon-form-kind` (set `ssh` with the native value setter and a bubbling `change`, as React controls it), then `select#daemon-form-config-host` lists the config's hosts; the text inputs are `#daemon-form-name`, `-host`, `-user`, `-port`, `-key`, `-jump`, `-daemon-port`, `-ssh-password`, `-passphrase`, `-password`.
 6. **1 GiB through SSH.** The relay run's script (§ above, "A 1 GiB upload and save"), with: the source file on the scratch disk, the explorer's `Refresh` clicked after the old copy is removed **and before the upload** (a stale listing opens the native "Overwrite this file?" confirm, which blocks every later dialog), the terminal typer started after the dialog is answered, `ui.inspect` `transfers` every 500 ms (`peakHeld` is the engine's maximum **since launch**, so read it as a bound, not per transfer), `VmRSS` of `pistudiodesktop`, `WebKitWebProces`, `WebKitNetworkPr` and the daemon (`pgrep -u 2001 -f input-type=module`) every 250 ms against a baseline taken before each transfer, and the number of new `Accepted` lines in the sshd logs during the transfer (0 shows that the engine shares the page's SSH session).
@@ -557,6 +565,19 @@ Run in sprint-138/task-004 (rows D-U1 … D-U7 of `docs/platform-checks.md`): th
 **Traps this run met.** (1) A zombie old daemon (above). (2) A `kill -9` or a slow restart used to leave the page on "Stopped" for good (the drop-time probe, now skipped for an announced restart); a genuine crash must still show "Stopped" with Start (checked with `kill -9` and an 8 s outage). (3) A manual disconnect used to end `closed` when the old socket's close arrived late, so the next Start or Update did not connect. (4) A bash `PATH` set only in `~/.bashrc` is invisible to the `-lic` shell: use `~/.bash_profile`. (5) Update on a `failed(update_failed)` row used to be refused by the engine.
 
 Scratch and cleanup: `docker rm -f` the app and registry containers, `docker network rm`, `docker rmi` the derived image, `git worktree remove --force /tmp/wt-dudesk`, its target directory and the scratch directory (key, control token, copies of the builds, screenshots).
+
+### Milestone 6 in the real webview (the pinned binary, the install over SSH)
+
+Run in sprint-145/task-001 (rows L1 … L9 and the SSH rows 1 … 11 of `docs/platform-checks.md` § Milestone 6). The recipes of the two sections above, with these differences:
+
+- **Nothing installed.** The image has no `node`, `npm` or `pi-studio`; a copy of the host's `node` sits in the scratch directory for the check scripts only and never on `PATH`. Run `docker run --init`; one container per scenario (a new one every time, never `docker restart`). `--network none` for the no-network rows; the container's loopback holds the archive server.
+- **The pin.** A copy of `desktop/daemon-pin.json` whose `linux-x64` `url` points at a local server (`http://127.0.0.1:<port>/pi-studio-<version>-linux-x64.tar.gz`; the size and sha256 of the published archive stay), given to the app as `--daemon-pin <file>`. Without the option the app uses its built-in pin and the real GitHub download. The archive is `gh release download daemon-v<version> -p 'pi-studio-<version>-linux-x64.tar.gz' -p SHA256SUMS`. A small Node server that sends at a set rate (read from a file) makes the download and send stages last long enough to sample; a copy with one byte flipped and the pin's sha is the corrupted-archive row.
+- **What to sample.** `ui.inspect` `daemons.local` / `daemons.remote` every 60 to 120 ms from the moment the control socket answers, plus the connection bar's text and the open dialog's text; the app's log is the WebDriver's output with `PISTUDIODESKTOP_LOG=debug`.
+- **SSH hosts.** One container per kind of host: sshd with a user per scenario (`useradd`, key login, the app's `known_hosts` pre-seeded), Alpine for musl, `--network none` for a host without internet, a `noexec` tmpfs for `~/.pi-studio`, `ForceCommand` lines in `sshd_config` (pass-through, ignoring the command, `internal-sftp`, refusing `cat >`), a throttling TCP proxy with a cut-at-byte file in front of sshd for the cut send. Use `--init`: without it a killed daemon stays a zombie and `daemon stop` says `still_running`.
+- **A stand-in for an old daemon** (below 0.0.127): a Node HTTP server answering `GET /api/health` with an old version and writing its pid to `$PI_STUDIO_HOME/pi-studio.pid`, so `daemon stop` finds it.
+- **The command-line tool.** `~/.profile` decides the states: a snippet putting `~/.local/bin` on `PATH` (installed), none (`not_on_path`), another `pi-studio` earlier on `PATH` (`shadowed`), a regular file at `~/.local/bin/pi-studio` (`occupied`); `cli_tool.state` / `cli_tool.install` over the control socket and the screen's buttons.
+
+Scratch and cleanup: `docker rm -f` every container (stop each daemon with `pi-studio --json daemon stop` under its own `PI_STUDIO_HOME` first), remove the scratch directory (the throwaway keys, the control token, the archive copies) and the temporary build's target directory.
 
 ## The IPC benchmark
 

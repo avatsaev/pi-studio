@@ -25,6 +25,8 @@ packages/
   client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
   server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
+               It is also released as one compiled binary (`pi-studio`: CLI, daemon, Pi and the `skills` CLI, no Node
+               needed; `npm run build:binary`, `npm run test:binary`; `swe/architecture/single-binary-daemon.md`).
   relay/       Relay protocol 2: standalone relay server (control/data/client sockets, pairing, limits) + E2EE channel (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  The browser shell: a thin Vite SPA rendering `@av-pi-studio/workbench` with a browser host (`main.tsx`,
                build-time brand title/favicon override, pdf.js worker, `vite.config.ts`). Ships only the prebuilt
@@ -59,15 +61,17 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     also runs when workbench, ui-library, client, relay or protocol change; its Rust crates
                     (`model`, `store`, `secrets`, `engine`, `shell`, `net`, `transfer`, `relay`, `ssh`) hold the daemon registry, the settings,
                     the stored workbench state, the command registry, the secret store (OS keychain, else a 0600
-                    file; no secret in daemons.json) and the sockets, and run this machine's daemon through the
-                    installed `pi-studio` CLI (or a remote SSH host's). Milestones 1 to 4 are built; milestones 1 to 3 were checked on Linux
+                    file; no secret in daemons.json) and the sockets, and run this machine's daemon from the `pi-studio` binary
+                    the app downloads and checks on first use (`crates/install`; pinned in `desktop/daemon-pin.json`, compiled in;
+                    no CLI to install) or a remote SSH host's (the app sends the same binary over the SSH session). Milestones 1 to 4 are built; milestones 1 to 3 were checked on Linux
                     (milestone 3 on 2026-11-22); on macOS and Windows only the automated
                     checks of milestones 1 and 2 have run, and milestones 3 and 4 are not checked there (desktop/docs/platform-checks.md). The app's
                     `minDaemonVersion` is 0.0.127, the release that carries the daemon's upload changes. Milestone 5, the
                     app's own self-update (the Tauri updater plug-in; update files signed with the key of the GitHub
                     environment `desktop-release`; the release's `update-check` job and `promote` in desktop-release.yml),
                     is built and was checked live on Linux and in a pull request's run on all three systems; the first
-                    publishing run follows the merge.
+                    publishing run follows the merge. Milestone 6, the daemon as one compiled binary the app installs
+                    locally and over SSH, and the optional command-line tool install from the daemon's Settings, is built.
 swe/                Technical specifications (MAIN-SCOPE.md is the entry point).
 specs/              Additional spec documents.
 docs/               Monorepo-wide documentation (build layering, validation conventions, agent
@@ -126,6 +130,7 @@ container; real agent turn, `pi install`, a failing extension) was checked live;
 |---------|--------|
 | Language | TypeScript 7 (ESM, `"type": "module"`) |
 | Runtime | Node.js ≥ 22.20 (Node 24 in active development) |
+| Single binary | Bun (`bun` 1.4.5, a root dev dependency; `bun build --compile` in `scripts/build-binary.mjs`) compiles the CLI, daemon, Pi and the `skills` CLI into one `pi-studio` executable for linux-x64, linux-arm64, darwin-arm64 and darwin-x64. The Linux ones need glibc ≥ 2.17 (seen live: CentOS 7 runs it, 2.12 does not; Alpine is not supported). Node stays the development and npm runtime |
 | Build | `tsc -b` per package; root `npm run build` chains them in dependency order |
 | Testing | Vitest (`npm test` at root) |
 | Lint | oxlint (`npm run lint`) |
@@ -228,6 +233,9 @@ npm run lint                  # oxlint
 npm run fmt:check             # oxfmt --check
 npm run fmt                   # oxfmt (auto-fix)
 npm run clean                 # rm dist/ and *.tsbuildinfo everywhere
+npm run build:binary          # the single binary for one target (`-- --target <t>`, `--version`, `--out-dir`) -> dist-binary/
+npm run test:binary           # smoke-test a built binary (daemon, mock turn, terminal, 1 MiB transfer, `__pi`)
+node --test 'scripts/release/*-test.mjs'   # the root release scripts (daemon-manifest); the desktop's run from desktop/apps/pistudiodesktop
 
 # Run the production daemon (real Pi provider, disk persistence, full RPC surface; builds server first)
 npm start
@@ -268,6 +276,19 @@ A manual run builds the installers as workflow artifacts only; a pull request th
 workflow, its action or the update scripts builds test builds and runs the update check against a
 local server, and publishes nothing. The installers are not signed with a real identity. Runbook
 (including the updater key): `desktop/docs/development.md` § Releasing.
+
+**The daemon binary is released by the `binaries` job** of `release.yml` (it calls
+`.github/workflows/daemon-binaries.yml` with `publish: true` on the commit the release job pushed; npm, Docker and
+the deploy never wait for it). The workflow builds and smoke-tests `pi-studio` on four systems
+(linux-x64 and linux-arm64 on Ubuntu 24.04, darwin-arm64 on macos-15, darwin-x64 on macos-15-intel); when all four pass it
+publishes the GitHub release `daemon-v<version>` (the four `pi-studio-<version>-<target>.tar.gz` and `SHA256SUMS`;
+never marked "latest", which stays the desktop's) and uploads `latest.json` to the release `daemon-updates`
+(`scripts/release/daemon-manifest.mjs`). `latest.json` is what daemons (`PI_STUDIO_DAEMON_UPDATE_URL`) and the desktop
+release read. A pull request that changes `packages/**` or the build scripts runs the same builds and publishes nothing.
+The desktop release's `version` job then runs the pin step (`desktop/apps/pistudiodesktop/scripts/release/daemon-pin.mjs`):
+it waits up to 30 minutes for a published daemon at or above the app's minimum and writes `desktop/daemon-pin.json`
+(the version and each target's address, SHA-256 and size), which the installers compile in; the app downloads exactly that
+binary on first use.
 
 ```bash
 npm run release                    # full pipeline: publish npm -> publish docker -> deploy
@@ -369,7 +390,8 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
 | `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
-| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`). `docker/daemon.Dockerfile` sets `docker` |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`); a compiled binary is detected as `binary` without it. `docker/daemon.Dockerfile` sets `docker` |
+|`PI_STUDIO_DAEMON_UPDATE_URL`|`https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json`|Where a single-binary daemon, and `pi-studio update` of one, reads the newest release (`update/binary-manifest.ts`); for tests and private release channels only (`scripts/binary-update-check/` serves one locally)|
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
@@ -452,7 +474,7 @@ All communication uses a **single WebSocket connection** per client.
   `runDaemon` (SIGINT/SIGTERM close then exit, plus the self-update restart hook), and `daemon stop`/`restart`
   wait up to 10 s for the exit and report `still_running`. **Shipped and live-verified**: the workbench pill,
   dialog and Settings → Daemon switch; the desktop Daemons screen's Update for a stopped or too-old local or
-  SSH daemon (`pi-studio -H 127.0.0.1:<port> update 2>&1` over SSH). Seen live in a real `npm i -g` in
+  SSH daemon (milestone 6: both install the app's pinned binary and restart on it; over SSH the app sends the archive through the session, `desktop/docs/architecture.md`). Seen live in a real `npm i -g` in
   containers against a local registry (`packages/server/docs/daemon-update-live-results.md`: update with
   clients reconnecting, rollback of a broken version, a rollback with the registry stopped, read-only folder,
   auto-check off) and in the desktop app's webview on Linux (`desktop/docs/platform-checks.md` § Daemon
@@ -734,6 +756,9 @@ config.json           Daemon config (password hash, provider overrides, relay, s
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
 update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
+bin/                  The single binary's own folders (only where the binary was installed here, by the app or a binary update):
+                       `versions/<x.y.z>/pi-studio` one folder per installed version, `current` a symbolic link to the one in use
+                       (switched by rename; the app and the optional `~/.local/bin/pi-studio` link run through it), `tmp/` downloads and unpacking
 logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;

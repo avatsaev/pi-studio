@@ -28,6 +28,12 @@ This exposes the `pi-studio` binary on your `PATH`. Without a global install, ru
 npx @av-pi-studio/cli [options] [command] [args]
 ```
 
+No Node or npm on the machine? Every release also publishes `pi-studio` as one executable per system (macOS
+arm64 and x64, Linux x64 and arm64) on the `daemon-v<version>` releases of this repository: the CLI, the daemon,
+Pi and the `skills` CLI together. The Linux ones need glibc 2.17 or newer (CentOS 7 works; Alpine does not).
+`git` must be on the machine for `skills add owner/repo` and `pi install git:…`, with either install. The desktop
+app downloads this binary by itself, so it does not need the CLI installed.
+
 ## Quick start
 
 ```bash

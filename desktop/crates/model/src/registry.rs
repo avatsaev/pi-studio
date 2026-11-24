@@ -790,8 +790,13 @@ pub enum FailReason {
     Timeout,
     BadOutput,
     SpawnFailed,
-    /// `pi-studio update` failed; the state carries the output's last lines.
-    UpdateFailed,
+    /// The daemon's archive could not be fetched (no answer, a refused request, a stall, a wrong size).
+    DownloadFailed,
+    /// The archive's SHA-256 is not the pin's; the file is deleted.
+    ChecksumMismatch,
+    /// The archive could not be unpacked, or the binary in it does not answer `--version` with the
+    /// pinned version; the state carries the output's last lines.
+    InstallFailed,
 }
 
 impl FailReason {
@@ -802,28 +807,35 @@ impl FailReason {
             FailReason::Timeout => "timeout",
             FailReason::BadOutput => "bad_output",
             FailReason::SpawnFailed => "spawn_failed",
-            FailReason::UpdateFailed => "update_failed",
+            FailReason::DownloadFailed => "download_failed",
+            FailReason::ChecksumMismatch => "checksum_mismatch",
+            FailReason::InstallFailed => "install_failed",
         }
     }
 }
 
-/// The local daemon's state. JSON form: `{ "state": "...", ... }`.
+/// The local daemon's state (S10 of `swe/features/single-binary-daemon.md`). JSON form:
+/// `{ "state": "...", ... }`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum LocalState {
     Unsupported,
-    CliMissing {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-    },
-    CliOutdated {
+    /// The running daemon is older than the app's minimum version.
+    Outdated {
         version: String,
     },
     Checking,
+    /// The pinned binary's archive is being fetched: bytes received so far and the pin's size.
+    Downloading {
+        received: u64,
+        total: u64,
+    },
+    /// The archive is being checked, unpacked and put in place.
+    Installing,
     Stopped,
     Starting,
     Stopping,
-    /// `pi-studio update` is running, then the version is read again and the daemon started.
+    /// The pinned binary is being installed over an outdated one, then the daemon started.
     Updating,
     Running {
         host: String,
@@ -831,8 +843,8 @@ pub enum LocalState {
     },
     Failed {
         reason: FailReason,
-        /// The last lines `pi-studio update` printed, for `update_failed`: shown to the user,
-        /// never parsed.
+        /// The last lines of what a failed install printed, for `install_failed`: shown to the
+        /// user, never parsed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
     },
@@ -849,8 +861,16 @@ pub enum RemoteFailReason {
     ExecFailed,
     /// The account runs no commands.
     NoShell,
-    /// `pi-studio update` failed on the host; the state carries the output's last lines.
-    UpdateFailed,
+    /// The app could not fetch the daemon's archive (no network, a refused or stalled download).
+    DownloadFailed,
+    /// The archive is not the pinned file (in the app's copy, or on the host after the send); it is deleted.
+    ChecksumMismatch,
+    /// The file could not be sent: no channel, a stall, a lost connection, or the host could not write it
+    /// (the state carries what the host said, when it said anything).
+    SendFailed,
+    /// The host could not unpack the archive or run what is in it (no `tar`, a `noexec` home, a C library too
+    /// old); the state carries the host's last lines.
+    InstallFailed,
 }
 
 impl RemoteFailReason {
@@ -861,9 +881,31 @@ impl RemoteFailReason {
             RemoteFailReason::BadOutput => "bad_output",
             RemoteFailReason::ExecFailed => "exec_failed",
             RemoteFailReason::NoShell => "no_shell",
-            RemoteFailReason::UpdateFailed => "update_failed",
+            RemoteFailReason::DownloadFailed => "download_failed",
+            RemoteFailReason::ChecksumMismatch => "checksum_mismatch",
+            RemoteFailReason::SendFailed => "send_failed",
+            RemoteFailReason::InstallFailed => "install_failed",
         }
     }
+
+    /// Whether the failure came from an install: Install is what a retry runs again.
+    pub fn is_install(self) -> bool {
+        matches!(self, RemoteFailReason::DownloadFailed | RemoteFailReason::ChecksumMismatch | RemoteFailReason::SendFailed | RemoteFailReason::InstallFailed)
+    }
+}
+
+/// Where an install on an SSH host is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteInstallStage {
+    /// The app fetches the archive (`done` and `total` count its bytes).
+    Downloading,
+    /// The archive goes over the SSH connection (`done` and `total` count its bytes).
+    Sending,
+    /// The host checks the file, unpacks it and switches `current`.
+    Unpacking,
+    /// The daemon is being started (or restarted) from the installed binary.
+    Starting,
 }
 
 /// The state of the current SSH entry's daemon, in memory only. JSON form: `{ "state": "...", ... }`.
@@ -876,16 +918,28 @@ pub enum RemoteState {
     Running,
     Stopped,
     NotInstalled,
-    CliOutdated {
+    Starting,
+    /// The running daemon is older than the app's minimum version.
+    Outdated {
         version: String,
     },
-    Starting,
-    /// `pi-studio update` is running on the host, then the version is read again and the daemon started.
-    Updating,
+    /// No binary is published for the host's system (Windows, musl, another processor): `system` names it as the
+    /// host said, for the screen.
+    Unsupported {
+        system: String,
+    },
+    /// The binary is being installed on the host.
+    Installing {
+        stage: RemoteInstallStage,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        done: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+    },
     Failed {
         reason: RemoteFailReason,
-        /// The last lines `pi-studio update` printed, for `update_failed`: shown to the user,
-        /// never parsed.
+        /// The last lines the host printed, for `install_failed` and `send_failed`: shown to the user,
+        /// never parsed, never logged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
     },
@@ -1066,9 +1120,9 @@ mod tests {
     fn local_state_json() {
         let cases = [
             (LocalState::Unsupported, json!({"state":"unsupported"})),
-            (LocalState::CliMissing { path: None }, json!({"state":"cli_missing"})),
-            (LocalState::CliMissing { path: Some("/x".into()) }, json!({"state":"cli_missing","path":"/x"})),
-            (LocalState::CliOutdated { version: "0.0.118".into() }, json!({"state":"cli_outdated","version":"0.0.118"})),
+            (LocalState::Outdated { version: "0.0.118".into() }, json!({"state":"outdated","version":"0.0.118"})),
+            (LocalState::Downloading { received: 1024, total: 67_980_464 }, json!({"state":"downloading","received":1024,"total":67_980_464})),
+            (LocalState::Installing, json!({"state":"installing"})),
             (LocalState::Checking, json!({"state":"checking"})),
             (LocalState::Stopped, json!({"state":"stopped"})),
             (LocalState::Starting, json!({"state":"starting"})),
@@ -1079,9 +1133,12 @@ mod tests {
             (LocalState::Failed { reason: FailReason::Timeout, output: None }, json!({"state":"failed","reason":"timeout"})),
             (LocalState::Failed { reason: FailReason::BadOutput, output: None }, json!({"state":"failed","reason":"bad_output"})),
             (LocalState::Failed { reason: FailReason::SpawnFailed, output: None }, json!({"state":"failed","reason":"spawn_failed"})),
+            (LocalState::Failed { reason: FailReason::DownloadFailed, output: None }, json!({"state":"failed","reason":"download_failed"})),
+            (LocalState::Failed { reason: FailReason::ChecksumMismatch, output: None }, json!({"state":"failed","reason":"checksum_mismatch"})),
+            (LocalState::Failed { reason: FailReason::InstallFailed, output: None }, json!({"state":"failed","reason":"install_failed"})),
             (
-                LocalState::Failed { reason: FailReason::UpdateFailed, output: Some("npm ERR! x".into()) },
-                json!({"state":"failed","reason":"update_failed","output":"npm ERR! x"}),
+                LocalState::Failed { reason: FailReason::InstallFailed, output: Some("unpack: refused".into()) },
+                json!({"state":"failed","reason":"install_failed","output":"unpack: refused"}),
             ),
         ];
         for (state, value) in cases {
@@ -1091,33 +1148,85 @@ mod tests {
     }
 
     #[test]
+    fn the_removed_local_states_and_reasons_are_unknown() {
+        for gone in [json!({"state":"cli_missing"}), json!({"state":"cli_outdated","version":"0.0.1"}), json!({"state":"failed","reason":"update_failed"})] {
+            assert!(serde_json::from_value::<LocalState>(gone.clone()).is_err(), "{gone}");
+        }
+        assert!(serde_json::from_value::<LocalState>(json!({"state":"downloading","received":1})).is_err());
+        let codes = [
+            (FailReason::NotHealthy, "not_healthy"),
+            (FailReason::Timeout, "timeout"),
+            (FailReason::BadOutput, "bad_output"),
+            (FailReason::SpawnFailed, "spawn_failed"),
+            (FailReason::DownloadFailed, "download_failed"),
+            (FailReason::ChecksumMismatch, "checksum_mismatch"),
+            (FailReason::InstallFailed, "install_failed"),
+        ];
+        for (reason, code) in codes {
+            assert_eq!(reason.code(), code);
+            assert_eq!(serde_json::to_value(reason).unwrap(), json!(code));
+        }
+    }
+
+    #[test]
     fn remote_state_json() {
         let failed = |reason| RemoteState::Failed { reason, output: None };
+        let installing = |stage, done, total| RemoteState::Installing { stage, done, total };
         let cases = [
             (RemoteState::Unknown, json!({"state":"unknown"})),
             (RemoteState::Checking, json!({"state":"checking"})),
             (RemoteState::Running, json!({"state":"running"})),
             (RemoteState::Stopped, json!({"state":"stopped"})),
             (RemoteState::NotInstalled, json!({"state":"not_installed"})),
-            (RemoteState::CliOutdated { version: "0.0.100".into() }, json!({"state":"cli_outdated","version":"0.0.100"})),
+            (RemoteState::Outdated { version: "0.0.100".into() }, json!({"state":"outdated","version":"0.0.100"})),
+            (RemoteState::Unsupported { system: "Linux x86_64 (musl)".into() }, json!({"state":"unsupported","system":"Linux x86_64 (musl)"})),
             (RemoteState::Starting, json!({"state":"starting"})),
+            (installing(RemoteInstallStage::Downloading, None, None), json!({"state":"installing","stage":"downloading"})),
+            (installing(RemoteInstallStage::Downloading, Some(5), Some(10)), json!({"state":"installing","stage":"downloading","done":5,"total":10})),
+            (installing(RemoteInstallStage::Sending, Some(0), Some(40)), json!({"state":"installing","stage":"sending","done":0,"total":40})),
+            (installing(RemoteInstallStage::Unpacking, None, None), json!({"state":"installing","stage":"unpacking"})),
+            (installing(RemoteInstallStage::Starting, None, None), json!({"state":"installing","stage":"starting"})),
             (failed(RemoteFailReason::NotHealthy), json!({"state":"failed","reason":"not_healthy"})),
             (failed(RemoteFailReason::Timeout), json!({"state":"failed","reason":"timeout"})),
             (failed(RemoteFailReason::BadOutput), json!({"state":"failed","reason":"bad_output"})),
             (failed(RemoteFailReason::ExecFailed), json!({"state":"failed","reason":"exec_failed"})),
             (failed(RemoteFailReason::NoShell), json!({"state":"failed","reason":"no_shell"})),
-            (RemoteState::Updating, json!({"state":"updating"})),
+            (failed(RemoteFailReason::DownloadFailed), json!({"state":"failed","reason":"download_failed"})),
+            (failed(RemoteFailReason::ChecksumMismatch), json!({"state":"failed","reason":"checksum_mismatch"})),
+            (failed(RemoteFailReason::SendFailed), json!({"state":"failed","reason":"send_failed"})),
             (
-                RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some("npm ERR! x".into()) },
-                json!({"state":"failed","reason":"update_failed","output":"npm ERR! x"}),
+                RemoteState::Failed { reason: RemoteFailReason::SendFailed, output: Some("cat: write error: No space left on device".into()) },
+                json!({"state":"failed","reason":"send_failed","output":"cat: write error: No space left on device"}),
+            ),
+            (
+                RemoteState::Failed { reason: RemoteFailReason::InstallFailed, output: Some("tar: command not found".into()) },
+                json!({"state":"failed","reason":"install_failed","output":"tar: command not found"}),
             ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);
             assert_eq!(serde_json::from_value::<RemoteState>(value).unwrap(), state);
         }
+        // The npm-era states and reasons are gone.
+        for gone in [json!({"state":"cli_outdated","version":"0.0.1"}), json!({"state":"updating"}), json!({"state":"failed","reason":"update_failed"})] {
+            assert!(serde_json::from_value::<RemoteState>(gone).is_err());
+        }
         assert_eq!(RemoteFailReason::ExecFailed.code(), "exec_failed");
         assert_eq!(RemoteFailReason::NoShell.code(), "no_shell");
+        assert_eq!(RemoteFailReason::SendFailed.code(), "send_failed");
+        for (reason, install) in [
+            (RemoteFailReason::DownloadFailed, true),
+            (RemoteFailReason::ChecksumMismatch, true),
+            (RemoteFailReason::SendFailed, true),
+            (RemoteFailReason::InstallFailed, true),
+            (RemoteFailReason::NotHealthy, false),
+            (RemoteFailReason::Timeout, false),
+            (RemoteFailReason::BadOutput, false),
+            (RemoteFailReason::ExecFailed, false),
+            (RemoteFailReason::NoShell, false),
+        ] {
+            assert_eq!(reason.is_install(), install, "{reason:?}");
+        }
     }
 
     #[test]

@@ -1,12 +1,13 @@
 //! The user's shell environment. An app started from the dock or a launcher does not inherit the
-//! terminal's `PATH`, and the `pi-studio` CLI is a Node script, so both it and `node` have to be
-//! found the way a terminal would: the user's shell is run as a login, interactive shell that prints
-//! its environment between two marker lines, and that is the environment the CLI runs in.
+//! terminal's `PATH` or the variables its start-up files export (`PI_STUDIO_HOME` moves the daemon's
+//! folder), so the environment is read the way a terminal has it: the user's shell is run as a login,
+//! interactive shell that prints its environment between two marker lines, and that is the environment
+//! the daemon's binary runs in.
 //!
 //! The environment may hold tokens: it is never logged; a log line names the shell and the time it
 //! took, nothing more.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -57,7 +58,7 @@ fn split_assignment(line: &str) -> Option<(&str, &str)> {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_').then_some((name, value))
 }
 
-fn lookup<'a>(env: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(crate) fn lookup<'a>(env: &'a [(String, String)], name: &str) -> Option<&'a str> {
     env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
 }
 
@@ -115,6 +116,27 @@ impl ShellEnv {
         *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh.clone());
         fresh
     }
+}
+
+/// The folder the daemon keeps its state in, and its binaries under `bin/`: the `PI_STUDIO_HOME` of `env`
+/// (the shell environment), else `.pi-studio` in the home directory (`HOME` of `env`, else `home_dir`). The
+/// CLI resolves it the same way. `None` when `PI_STUDIO_HOME` is not an absolute path (a relative one would mean
+/// the folder of whoever runs the program) and there is no home directory to fall back on.
+pub fn pi_studio_home(env: &[(String, String)], home_dir: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(set) = lookup(env, "PI_STUDIO_HOME").map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(PathBuf::from(set)).filter(|p| p.is_absolute());
+    }
+    Some(home_of(env, home_dir)?.join(".pi-studio"))
+}
+
+/// The user's home directory: `HOME` of `env` (the shell environment), else `home_dir`.
+pub fn home_of(env: &[(String, String)], home_dir: Option<PathBuf>) -> Option<PathBuf> {
+    lookup(env, "HOME").filter(|h| !h.is_empty()).map(PathBuf::from).or(home_dir)
+}
+
+/// Where the installed binaries are: `bin/` of [`pi_studio_home`].
+pub fn bin_dir(home: &Path) -> PathBuf {
+    home.join("bin")
 }
 
 #[cfg(test)]
@@ -180,6 +202,27 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         cache.refresh(&services);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    }
+
+    #[test]
+    fn the_home_is_the_variable_or_dot_pi_studio_in_the_home_directory() {
+        let home = || Some(PathBuf::from("/home/me"));
+        assert_eq!(pi_studio_home(&env(&[("PI_STUDIO_HOME", "/data/ps")]), home()), Some(PathBuf::from("/data/ps")));
+        assert_eq!(pi_studio_home(&env(&[("PI_STUDIO_HOME", " /data/ps \n")]), None), Some(PathBuf::from("/data/ps")));
+        assert_eq!(pi_studio_home(&env(&[]), home()), Some(PathBuf::from("/home/me/.pi-studio")));
+        assert_eq!(pi_studio_home(&env(&[("PI_STUDIO_HOME", "  ")]), home()), Some(PathBuf::from("/home/me/.pi-studio")));
+        assert_eq!(pi_studio_home(&env(&[("HOME", "/shell/home")]), home()), Some(PathBuf::from("/shell/home/.pi-studio")));
+        assert_eq!(pi_studio_home(&env(&[]), None), None);
+    }
+
+    #[test]
+    fn a_relative_home_is_refused_not_resolved_against_the_apps_folder() {
+        assert_eq!(pi_studio_home(&env(&[("PI_STUDIO_HOME", "ps")]), Some(PathBuf::from("/home/me"))), None);
+        assert_eq!(bin_dir(Path::new("/h")), PathBuf::from("/h/bin"));
     }
 }
 

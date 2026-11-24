@@ -1,7 +1,7 @@
 # Task 004 — Daemons screen: the local entry's new states; the CLI views removed
 
 - **Sprint:** sprints/sprint-143-desktop-local-binary
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (daemons), desktop frontend host
 - **Priority:** P1

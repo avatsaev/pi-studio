@@ -4,7 +4,7 @@
 > Status: **built and verified on Linux 2026-11-24** (sprints 135–138) from the grill
 > [../grills/daemon-self-update.md](../grills/daemon-self-update.md)
 > (D1–D16 owner, P1–P15 agent). Roadmap step 5b. Replaces the text of 2026-08-26, which was never built.
-> **Amended 2026-11-24 for milestone 6, not built:** the `binary` install kind, the skipped version
+> **Amended 2026-11-24 for milestone 6, built and verified on Linux (sprint 142):** the `binary` install kind, the skipped version
 > after a rollback, and the desktop's Update (now the pinned binary), from the grill
 > [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (D7, D13, D14, P15). The
 > amended parts are marked "(milestone 6)".
@@ -432,17 +432,17 @@ sprint 137/t004 (headless Chromium, dark and light, two clients), and the unit t
 - [x] The browser client without the flag (an older daemon) shows no pill and no Daemon category.
       *(A scratch script stripped the flag; not a build of an older commit.)*
 
-Milestone 6 (not built; proof on Linux live, D16):
+Milestone 6 (built; proof on Linux live in a Node-less container, D16: `packages/server/docs/daemon-update-live-results.md`, `scripts/binary-update-check/`):
 
-- [ ] A binary daemon in the layout reports `binary`; with a newer `daemon-updates/latest.json` every
+- [x] A binary daemon in the layout reports `binary`; with a newer `daemon-updates/latest.json` every
       client shows the pill; Update downloads, checks, restarts on the new version on the same
       address, and clients reconnect.
-- [ ] A new binary that does not start is rolled back to the previous folder; clients show "failed,
+- [x] A new binary that does not start is rolled back to the previous folder; clients show "failed,
       back on Y"; the next automatic check does not offer it, "Check now" does, and a newer release
       is offered again (npm daemons too).
-- [ ] A binary outside `bin/versions` reports `cannot_update(unmanaged_binary)` when a newer version
+- [x] A binary outside `bin/versions` reports `cannot_update(unmanaged_binary)` when a newer version
       exists.
-- [ ] A corrupted asset ends in `failed` and the running daemon keeps running.
+- [x] A corrupted asset ends in `failed` and the running daemon keeps running.
 
 ## Resolved by the build (2026-11-23/24, sprints 135–138)
 
@@ -468,7 +468,7 @@ Milestone 6 (not built; proof on Linux live, D16):
   the app finds the CLI through the login shell's environment)? — a Mac is not available:
   [INFERENCE] until seen.
 - Resolved by the grill of 2026-11-24 (D14): a version that was rolled back is skipped by automatic
-  checks until a newer one appears (milestone 6, not built).
+  checks until a newer one appears (milestone 6, built and seen live).
 - macOS and Windows: no live run (owner's decision); Windows hosts report
   `cannot_update(unsupported_platform)`.
 - Not seen live: a hoisted npm layout; the 6 h timer; dialog counts with agents running in the real

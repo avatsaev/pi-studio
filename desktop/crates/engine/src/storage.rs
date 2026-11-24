@@ -302,12 +302,12 @@ impl Storage {
     /// Change one setting and write `settings.json` before returning. When the write fails the
     /// setting is as it was and the error says so.
     pub(crate) fn set_setting(&mut self, name: &str, value: &Value) -> Result<()> {
-        let before = (self.settings.auto_start_local_daemon, self.settings.check_for_updates, self.settings.cli_path.clone());
+        let before = (self.settings.auto_start_local_daemon, self.settings.check_for_updates);
         self.settings.set(name, value).map_err(|e| EngineError::BadParams(e.to_string()))?;
         let was_unwritten = self.settings_unwritten;
         self.mark_unwritten(Scope::Global);
         self.write(Scope::Global).inspect_err(|_| {
-            (self.settings.auto_start_local_daemon, self.settings.check_for_updates, self.settings.cli_path) = before;
+            (self.settings.auto_start_local_daemon, self.settings.check_for_updates) = before;
             self.settings_unwritten = was_unwritten;
         })
     }
@@ -475,7 +475,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, notices) = open(dir.path());
         assert!(notices.is_empty());
-        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
         assert!(s.storage_snapshot().is_empty());
         assert!(!s.storage_unwritten());
         s.storage_flush().unwrap();
@@ -487,34 +487,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, _) = open(dir.path());
         let answer = s.execute("settings.set", json!({"key": "autoStartLocalDaemon", "value": false})).unwrap();
-        assert_eq!(answer, json!({"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}));
+        assert_eq!(answer, json!({"autoStartLocalDaemon": false, "checkForUpdates": true}));
         let on_disk = decode_settings(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
         assert!(!on_disk.auto_start_local_daemon);
         assert!(!s.storage_unwritten());
-        s.execute("settings.set", json!({"key": "cliPath", "value": "/opt/pi"})).unwrap();
         s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).unwrap();
 
         let (mut again, notices) = open(dir.path());
         assert!(notices.is_empty());
-        assert_eq!(again.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": false, "cliPath": "/opt/pi"}));
+        assert_eq!(again.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": false}));
+    }
+
+    #[test]
+    fn an_old_cli_path_in_the_file_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), br#"{"version":1,"autoStartLocalDaemon":false,"cliPath":"/opt/pi-studio"}"#).unwrap();
+        let (mut s, notices) = open(dir.path());
+        assert!(notices.is_empty(), "{notices:?}");
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": true}));
+        assert!(matches!(s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})), Err(EngineError::BadParams(_))));
     }
 
     #[test]
     fn a_rejected_setting_leaves_the_file_alone() {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, _) = open(dir.path());
-        s.execute("settings.set", json!({"key": "cliPath", "value": "/ok"})).unwrap();
+        s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).unwrap();
         let before = std::fs::read(dir.path().join("settings.json")).unwrap();
-        for (key, value) in [("nope", json!(1)), ("autoStartLocalDaemon", json!("yes")), ("cliPath", json!(7)), ("cliPath", json!("a".repeat(4097)))] {
+        for (key, value) in [("nope", json!(1)), ("autoStartLocalDaemon", json!("yes")), ("cliPath", json!("/x")), ("checkForUpdates", json!(7))] {
             let e = s.execute("settings.set", json!({"key": key, "value": value})).unwrap_err();
             assert!(matches!(e, EngineError::BadParams(_)), "{key}: {e}");
         }
-        assert!(matches!(s.execute("settings.set", json!({"key": "cliPath"})), Err(EngineError::BadParams(_))));
+        assert!(matches!(s.execute("settings.set", json!({"key": "checkForUpdates"})), Err(EngineError::BadParams(_))));
         assert!(matches!(s.execute("settings.set", json!({"value": 1})), Err(EngineError::BadParams(_))));
         assert_eq!(std::fs::read(dir.path().join("settings.json")).unwrap(), before);
-        assert_eq!(s.settings().cli_path.as_deref(), Some("/ok"));
-        // The longest path is accepted.
-        s.execute("settings.set", json!({"key": "cliPath", "value": "a".repeat(4096)})).unwrap();
+        assert!(!s.settings().check_for_updates);
     }
 
     #[test]
@@ -578,7 +585,7 @@ mod tests {
         let mut s = Session::new();
         s.storage_set("pi-studio-appearance", "dark").unwrap();
         s.storage_set("other", "v").unwrap();
-        s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})).unwrap();
+        s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).unwrap();
         assert!(!s.storage_unwritten());
         s.storage_flush().unwrap();
         assert_eq!(s.storage_snapshot().len(), 2);
@@ -589,7 +596,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("settings.json"), b"{ not json").unwrap();
         let (mut s, notices) = open(dir.path());
-        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
         let [Notice::FileReset { file, kept_as: Some(kept) }] = notices.as_slice() else { panic!("one notice with a kept name: {notices:?}") };
         assert_eq!(file, "settings.json");
         assert!(kept.starts_with("settings.json.corrupt-"), "{kept}");
@@ -650,8 +657,8 @@ mod tests {
         let (mut s, _) = open(dir.path());
         std::fs::create_dir_all(dir.path().join("settings.json")).unwrap();
         std::fs::write(dir.path().join("settings.json/keep"), b"k").unwrap();
-        assert!(s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})).is_err());
-        assert_eq!(s.settings().cli_path, None);
+        assert!(s.execute("settings.set", json!({"key": "autoStartLocalDaemon", "value": false})).is_err());
+        assert!(s.settings().auto_start_local_daemon);
         assert!(!s.storage_unwritten());
     }
 
@@ -672,7 +679,7 @@ mod tests {
         std::fs::write(dir.path().join("settings.json"), br#"{"version":1,"future":{"a":1}}"#).unwrap();
         let (mut s, notices) = open(dir.path());
         assert!(notices.is_empty());
-        s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})).unwrap();
+        s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).unwrap();
         let on_disk: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
         assert_eq!(on_disk["future"], json!({"a": 1}));
     }

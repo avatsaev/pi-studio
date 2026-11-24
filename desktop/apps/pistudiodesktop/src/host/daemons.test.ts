@@ -13,7 +13,7 @@ const BOOT: DaemonsView = {
   ],
   local: { state: "checking" },
   remote: null,
-  settings: { autoStartLocalDaemon: true, cliPath: null },
+  settings: { autoStartLocalDaemon: true },
 };
 const NEXT: DaemonsView = { ...BOOT, currentId: "d1", local: { state: "running", host: "127.0.0.1", port: 6767 } };
 const ENTRY = { id: "d2", kind: "relay", name: "Office", hasPassword: false };
@@ -239,14 +239,11 @@ describe("registry commands", () => {
     await expect(harness(() => ({ id: 1 })).daemons.add({ kind: "relay", name: "x", pairingLink: "y" })).rejects.toThrow(/unexpected entry/);
   });
 
-  it("setSettings writes each given key and no other", async () => {
+  it("setSettings writes the given key", async () => {
     const h = harness();
-    await h.daemons.setSettings({ cliPath: "/opt/pi-studio" });
-    await h.daemons.setSettings({ autoStartLocalDaemon: false, cliPath: null });
+    await h.daemons.setSettings({ autoStartLocalDaemon: false });
     expect(h.engineCalls().map((c) => c.args)).toEqual([
-      { id: "settings.set", params: { key: "cliPath", value: "/opt/pi-studio" } },
       { id: "settings.set", params: { key: "autoStartLocalDaemon", value: false } },
-      { id: "settings.set", params: { key: "cliPath", value: null } },
     ]);
   });
 
@@ -366,11 +363,21 @@ describe("remote daemon and ssh hosts", () => {
     expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.remote.start" }, { id: "daemon.remote.refresh" }]);
   });
 
-  it("update goes through engine_command, for the local entry and the current ssh entry", async () => {
+  it("install and update go through engine_command, update for the local entry and the current ssh entry", async () => {
     const h = harness(() => ({ accepted: true }));
+    await h.daemons.remote.install();
     await h.daemons.local.update();
     await h.daemons.remote.update();
-    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.local.update" }, { id: "daemon.remote.update" }]);
+    expect(h.engineCalls().map((c) => c.args)).toEqual([
+      { id: "daemon.remote.install" },
+      { id: "daemon.local.update" },
+      { id: "daemon.remote.update" },
+    ]);
+  });
+
+  it("a refused install rejects with its code", async () => {
+    const refused = await rejection(harness(() => Promise.reject("install_not_offered")).daemons.remote.install());
+    expect(refused).toMatchObject({ code: "install_not_offered" });
   });
 
   it("a refused remote action rejects with its code", async () => {
@@ -387,5 +394,30 @@ describe("remote daemon and ssh hosts", () => {
 
   it("sshHosts rejects an unexpected shape", async () => {
     await expect(harness(() => ({ nope: 1 })).daemons.sshHosts()).rejects.toThrow("unexpected shape");
+  });
+});
+
+describe("command-line tool", () => {
+  it("state and install go through engine_command and answer the parsed state", async () => {
+    const h = harness((_command, args) =>
+      args?.id === "cli_tool.install" ? { state: "not_on_path" } : { state: "shadowed", path: "/usr/local/bin/pi-studio" },
+    );
+    expect(await h.daemons.cliTool.state()).toEqual({ state: "shadowed", path: "/usr/local/bin/pi-studio" });
+    expect(await h.daemons.cliTool.install()).toEqual({ state: "not_on_path" });
+    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "cli_tool.state" }, { id: "cli_tool.install" }]);
+  });
+
+  it("an install the app refused rejects with its words, as a plain error", async () => {
+    const words = "A file that Pi Studio did not make is at ~/.local/bin/pi-studio. Pi Studio never replaces it.";
+    const error = await rejection(harness(() => Promise.reject(words)).daemons.cliTool.install());
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toHaveProperty("code");
+    expect((error as Error).message).toBe(words);
+  });
+
+  it("an answer that is not a state rejects", async () => {
+    await expect(harness(() => ({ state: "nope" })).daemons.cliTool.state()).rejects.toThrow("unexpected shape");
+    await expect(harness(() => ({ state: "shadowed" })).daemons.cliTool.install()).rejects.toThrow("unexpected shape");
+    await expect(harness(() => null).daemons.cliTool.state()).rejects.toThrow("unexpected shape");
   });
 });

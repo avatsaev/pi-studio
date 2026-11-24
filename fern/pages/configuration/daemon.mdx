@@ -18,8 +18,9 @@ All are optional.
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt in to dialing out to a relay — see [E2EE relay](/configuration/relay) |
 | `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay `host:port` to dial |
 | `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` to reach the relay |
-| `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Check npm for a newer daemon at start and every 6 h (`config.json` `daemon.update.autoCheck`); `false` or `0` turns the automatic check off, "Check now" still works. The environment wins over `config.json` |
-| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; decides whether the daemon can update itself. The Docker image sets `docker` |
+| `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Check for a newer daemon (npm, or the `daemon-updates` release for the single binary) at start and every 6 h (`config.json` `daemon.update.autoCheck`); `false` or `0` turns the automatic check off, "Check now" still works. The environment wins over `config.json` |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection and decides whether the daemon can update itself. The Docker image sets `docker`; the single binary is detected as `binary` |
+| `PI_STUDIO_DAEMON_UPDATE_URL` | the `daemon-updates` release's `latest.json` | Where a single-binary daemon reads the newest release; for tests and private release channels |
 
 Example — run on a different port with a password and an isolated home:
 
@@ -51,21 +52,31 @@ your password and relay settings are untouched.
 
 ## Updating the daemon
 
-A daemon installed with `npm i -g @av-pi-studio/cli` can be updated from any client that is connected to
-it: the web UI shows a "Daemon X" pill when a newer version is on npm (Settings → Daemon has "Check now"
-and the automatic-check switch). The desktop app's Daemons screen also has an Update button for a local or
-SSH daemon that is stopped or older than the app expects; it runs `pi-studio update` on that machine and
-then starts the daemon.
+A daemon installed with `npm i -g @av-pi-studio/cli`, or the single `pi-studio` binary (the desktop app's own
+daemon, or one downloaded from a `daemon-v<version>` release), can be updated from any client that is
+connected to it: the web UI shows a "Daemon X" pill when a newer version is available (on npm for the package;
+in the `daemon-updates` release of the Pi-Studio repository for the binary). Settings → Daemon has "Check now"
+and the automatic-check switch. The desktop app's Daemons screen also has an Update button for a local or SSH
+daemon that is stopped or older than the app expects; it installs the binary the app was built with and then
+starts the daemon.
 
-The update installs the new CLI and daemon with `npm install -g`, updates the installed extensions, restarts
-the daemon on the same address and waits for it to answer with the new version (`GET /api/health` carries
-`version`). If the new version does not start, the previous one is installed again (from npm's cache) and
-started, and the client says so. Clients reconnect by themselves; agents and terminals on the old daemon
-end, and the update dialog counts them first. The helper's log is `$PI_STUDIO_HOME/logs/update-restart.log`.
+For the npm package, the update installs the new CLI and daemon with `npm install -g`, updates the installed
+extensions, restarts the daemon on the same address and waits for it to answer with the new version
+(`GET /api/health` carries `version`). If the new version does not start, the previous one is installed again
+(from npm's cache) and started, and the client says so. For the binary, the update downloads the archive,
+checks its SHA-256, unpacks it into `$PI_STUDIO_HOME/bin/versions/<version>`, updates the extensions, points
+`$PI_STUDIO_HOME/bin/current` at it and restarts the daemon; if the new version does not start, `current` goes
+back to the old one, and that version is not offered again until a newer one appears (Check now still
+offers it). Clients reconnect by themselves; agents and terminals on the old daemon end, and the update dialog
+counts them first. The helper's log is `$PI_STUDIO_HOME/logs/update-restart.log`.
 
 The daemon cannot update itself in Docker (replace the image), from a source checkout, when npm's global
-folder is not writable or `npm` is not on the `PATH` (it shows the command to run by hand), or on Windows.
-From a terminal, `pi-studio update` updates the CLI and restarts a running local daemon.
+folder is not writable or `npm` is not on the `PATH` (it shows the command to run by hand), for a binary run
+from outside `$PI_STUDIO_HOME/bin/versions/` (it names the releases page), or on Windows. From a terminal,
+`pi-studio update` updates the CLI or the binary and restarts a running local daemon.
+
+`PI_STUDIO_DAEMON_UPDATE_URL` replaces the address of the binary's release manifest; it is meant for tests and
+private release channels.
 
 ## Remote status and logs
 

@@ -54,6 +54,13 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   `remote.start/refresh/update`, `local.update`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
+  `HostDaemons.cliTool` (single-binary daemon, task 143/005; required on `HostDaemons`): `state()` and `install()`, each
+  answering a `CliToolState` (`absent`, `installed`, `not_on_path`, `shadowed {path}`, `occupied`, `unavailable`; the type is
+  exported) for the `pi-studio` link `~/.local/bin/pi-studio` → the daemon's installed binary. The state is not in
+  `snapshot()`: the host looks when asked. `install()` over the app's own link makes nothing and reads the login shell
+  again (the screen's "Check again"); it rejects with an `Error` whose message is the words for the person (a file the
+  app did not make is at the link: refused, never replaced). The in-memory `createTestDaemons` has `cliTool`,
+  `cliToolInstall` (a state or an `Error`), `cliToolInstalls` and `setCliToolState`.
   Optional `updates` (`HostUpdates`: `current()`, `subscribe`, `check`/`install`/`restart`; types
   `AppUpdateState` — idle, checking, up_to_date, available, downloading, restart_needed,
   cannot_install, failed — `AppUpdateUnavailableReason`, `AppUpdateFailureCode`): read only by the
@@ -519,14 +526,16 @@ src/
                             `connectCurrent()` once; the secret never reaches the UI store's
                             host/password fields; a rejection dials nothing and opens the screen.
                             DaemonsScreen.tsx (modal, mounted once in WorkspaceShell; open state and
-                            banner from `useDaemonsStore`; `local.refresh()` once per opening),
+                            banner from `useDaemonsStore`; `local.refresh()` once per opening, except after a
+                            failed install, `refreshesOnOpen`: the refresh installs too, so it would download the
+                            archive again before Retry is pressed),
                             daemons-screen-view.ts (pure: rows and their actions, the local row's
-                            state/actions/notice, `bannerView`, CLI-path field rules, and
+                            state/actions/notice, `truncateOutput`, `bannerView`, and
                             `secretStoreNote` — `FILE_SECRET_STORE_NOTE` when `snapshot.secretStore`
                             is `"file"`, `null` for `"keychain"` or an absent field; drawn as one
                             muted line under the settings) (+ test),
                             daemons-screen-actions.ts (host calls → failure code or `null`: open,
-                            local actions, remove after `dialogs.confirm`, settings) (+ test),
+                            local actions, `refreshesOnOpen`, remove after `dialogs.confirm`, settings) (+ test),
                             DaemonForm.tsx (add/edit, swapped in for the list; values in component
                             state only, secrets in `type="password"` fields and never pre-filled;
                             "Reconnect now" after a saved address/password/link change on the current
@@ -540,7 +549,8 @@ src/
                             link no longer valid" on `wrong_key`, clear it on connect or a saved new
                             link; `local.refresh()` once per dropped local connection, except while a
                             restart is expected (`restartExpected`); the page connects when the local
-                            entry reaches `running` from `starting` or `updating`; a restart
+                            entry reaches `running` from `starting`, `updating`, `downloading` or
+                            `installing`; a restart
                             changes nothing; `watchDaemonLifecycle` applies it and opens the screen on
                             `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
                             WorkspaceShell). Stop on the current local entry while connected asks
@@ -557,24 +567,52 @@ src/
                             `needsReconnect`: saving the current entry offers "Reconnect now" for any
                             change but a rename (a secret-only change too). The row of an SSH entry shows
                             `user@host:port`; for the current one `remoteStateView` (daemon-presentation.ts:
-                            label/tone/actions per `RemoteDaemonState`): `stopped` Start and Update; `failed` Start
-                            and Retry (`update_failed`: Update and Retry); `unknown`, `not_installed`
-                            Retry (`remote.refresh`); `cli_outdated` Update and Retry; `updating` nothing;
-                            `not_installed` shows "pi-studio is not installed on this host" with
-                            `REMOTE_INSTALL_COMMAND` (`npm install -g @av-pi-studio/cli`) and a Copy
-                            button (`copyCommand`, through `getHost().clipboard`); `cli_outdated` shows the
-                            installed version and `MIN_REMOTE_CLI_VERSION` ("0.0.127"), a constant that
-                            DUPLICATES the Rust `MIN_CLI_VERSION` (`desktop/crates/shell/src/cli_answers.rs`):
-                            change both together. `runRemoteAction` calls `remote.start/refresh/update`.
-                            Update (daemon self-update, desktop only): the local row offers Update
-                            beside Retry for `cli_outdated` (the npm command stays) and beside Start for
-                            `stopped`; an SSH row the same (`REMOTE_UPDATE`); `updating` is a busy row
-                            with a spinner and no actions; `failed`/`update_failed` reads "The update
-                            failed", offers Update and Retry, and shows the command to run by hand plus
-                            the update's last lines (`LocalNotice.output`, a `<pre>`, from the state's
-                            `output`). `runLocalAction(daemons, "update")` calls `local.update()`.
+                            label/tone/actions per `RemoteDaemonState`): `stopped` Start and Update (SSH only); `not_installed`
+                            "pi-studio is not installed on this host" with Install (`remote.install()`) and a
+                            line saying nothing is installed until the click; `outdated` "The pi-studio daemon X
+                            on this host is too old" with Update and Retry (`remote.refresh`); `unsupported`
+                            "This system is not supported (<system>)" with no button; `installing` the stage
+                            ("Downloading the daemon", "Sending the daemon to the host", "Unpacking the daemon on the
+                            host", "Starting the daemon", with " · 42 %" while `done`/`total` are known), busy with no
+                            actions; `failed` Retry only: `remote.install()` for `download_failed`,
+                            `checksum_mismatch`, `send_failed`, `install_failed` (`isRemoteInstallFailure`; a line
+                            saying what Retry does, and the host's last lines in `LocalNotice.output`, a `<pre>`, cut by
+                            `truncateOutput` to the last 8 lines and 600 characters), `remote.start()` for the others;
+                            `unknown` Retry (`remote.refresh`). No row or banner shows a shell command or an npm
+                            instruction (`copyCommand` stays for the command-line tool block only).
+                            `runRemoteAction` calls `remote.start/refresh/install/update`. Update (daemon self-update,
+                            desktop only): the local row offers Update beside Retry for `outdated` only (a `stopped` row has Start,
+                            which installs the pin when it is missing; Update there did nothing with a newer binary); an SSH row
+                            offers it for `outdated` and `stopped` (`REMOTE_UPDATE`; it installs
+                            the app's binary on the host and restarts the daemon on it).
+                            `runLocalAction(daemons, "update")` calls `local.update()`.
+                            The local row's install states (single-binary daemon, S10): `downloading`
+                            "Downloading the daemon · 42 %" (no percentage while `total` is 0),
+                            `installing` "Installing the daemon", both busy with no actions;
+                            `outdated` "The pi-studio daemon X is too old" with Update and Retry
+                            (probe); every `failed` reason has Retry only (`local.start()`, which
+                            installs the pinned binary first when it is missing): `download_failed`
+                            "The download failed", `checksum_mismatch` "The file did not match its
+                            checksum and was deleted", `install_failed` "Installing the daemon failed"
+                            with the install's last lines under it; `spawn_failed`/`bad_output` read
+                            "The daemon could not be run" / "The daemon printed something unexpected".
+                            There is no CLI-missing view and no `cliPath` setting; the switcher shows
+                            the same labels (an error with Retry for `failed`/`outdated`).
+                            The command-line tool (single-binary daemon, D11/S11): `CliToolBlock.tsx` in the
+                            local daemon's settings, under the auto-start switch. `DaemonsScreen` reads
+                            `host.daemons.cliTool.state()` once per opening and again when the local daemon's state
+                            changes (`readCliTool`: a host that cannot say is `unavailable`, nothing drawn), and holds
+                            it in component state; `cli-tool-presentation.ts` (pure, + test: `cliToolView(state)`:
+                            one sentence per state, `null` for `unavailable` and before the first answer; `absent`
+                            the button "Install the command-line tool" (`install`); `not_on_path` the sentence, the
+                            line `export PATH="$HOME/.local/bin:$PATH"` with a Copy button and "Check again" (`install`,
+                            which reads the login shell's PATH again); `shadowed` the other pi-studio's path and "Check
+                            again"; `occupied` that a file is in the way and is never replaced, and "Check again"
+                            (`state`, which only looks); `installed` a confirmation and "Check again" (`install`: a later `shadowed` or `not_on_path` shows without a restart);
+                            `cliToolFailureText`), `cli-tool-actions.ts` (`readCliTool`, `runCliTool(daemons, call)` →
+                            `{state}` or `{failure}`, never throw) (+ test). The app never edits a shell file.
                             `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
-                            entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
+                            entry's state becomes `stopped`, `not_installed`, `outdated`, `unsupported` or `failed`
                             (`remoteNeedsScreen`, also on mount); the workbench still never starts a
                             daemon by itself, Start is the user's button.
     connection/            With `host.daemons`, ConnectionBar draws DaemonSwitcher.tsx instead of the

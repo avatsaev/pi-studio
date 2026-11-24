@@ -1,7 +1,7 @@
 # Task 003 — The local supervisor runs the app's binary
 
 - **Sprint:** sprints/sprint-143-desktop-local-binary
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (shell, engine, app)
 - **Priority:** P1

@@ -1,4 +1,5 @@
 import {
+  type CliToolState,
   type ConnectIntent,
   type DaemonEntryView,
   type DaemonError,
@@ -8,7 +9,13 @@ import {
   type SshHostSuggestion,
 } from "@av-pi-studio/workbench";
 
-import { isRecord, parseDaemonsView, parseEntryView, type DaemonsView } from "./daemons-view.js";
+import {
+  isRecord,
+  parseCliToolState,
+  parseDaemonsView,
+  parseEntryView,
+  type DaemonsView,
+} from "./daemons-view.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
 
 /** The events the app emits (`desktop-daemon-registry.md`, `commands.rs`). */
@@ -26,8 +33,8 @@ const CODES: Record<DaemonErrorCode, true> = {
   wrong_kind: true,
   local_not_removable: true,
   unsupported: true,
-  cli_missing: true,
-  cli_outdated: true,
+  outdated: true,
+  install_not_offered: true,
   busy: true,
   no_current: true,
   local_stopped: true,
@@ -35,6 +42,9 @@ const CODES: Record<DaemonErrorCode, true> = {
   timeout: true,
   bad_output: true,
   spawn_failed: true,
+  download_failed: true,
+  checksum_mismatch: true,
+  install_failed: true,
   secret_missing: true,
   secret_unavailable: true,
   secret_store_failed: true,
@@ -77,7 +87,7 @@ function entryOf(answer: unknown): DaemonEntryView {
 }
 
 /** The settings, in the order they are written; `settings.set` changes one key per call. */
-const SETTING_KEYS = ["autoStartLocalDaemon", "cliPath"] as const satisfies ReadonlyArray<keyof DaemonSettings>;
+const SETTING_KEYS = ["autoStartLocalDaemon"] as const satisfies ReadonlyArray<keyof DaemonSettings>;
 
 function isIntent(value: unknown): value is ConnectIntent {
   return isRecord(value) && typeof value.connect === "boolean";
@@ -129,6 +139,13 @@ export function createDesktopDaemons(
   };
   const engine = (id: string, params?: Record<string, unknown>): Promise<unknown> =>
     call("engine_command", params === undefined ? { id } : { id, params });
+
+  /** `cli_tool.state` and `cli_tool.install` answer the tool's state; a refusal rejects with the app's words. */
+  const cliToolState = async (id: string): Promise<CliToolState> => {
+    const state = parseCliToolState(await engine(id));
+    if (!state) throw new Error(`The app host answered ${id} with an unexpected shape.`);
+    return state;
+  };
 
   const accepted = async (id: string): Promise<void> => {
     await engine(id);
@@ -215,7 +232,12 @@ export function createDesktopDaemons(
     remote: {
       start: () => accepted("daemon.remote.start"),
       refresh: () => accepted("daemon.remote.refresh"),
+      install: () => accepted("daemon.remote.install"),
       update: () => accepted("daemon.remote.update"),
+    },
+    cliTool: {
+      state: () => cliToolState("cli_tool.state"),
+      install: () => cliToolState("cli_tool.install"),
     },
     async sshHosts() {
       const answer = await call("ssh_config_hosts");

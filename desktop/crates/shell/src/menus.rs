@@ -230,11 +230,11 @@ mod tests {
         assert_eq!(enabled(&stopped), [(LOCAL_START, true), (LOCAL_STOP, false), (LOCAL_RESTART, false)]);
         let failed = daemons_menu(&view(json!({"state": "failed", "reason": "timeout"}), "b"));
         assert_eq!(enabled(&failed), [(LOCAL_START, true), (LOCAL_STOP, false), (LOCAL_RESTART, false)]);
-        for state in ["unsupported", "cli_missing", "cli_outdated", "checking", "starting", "stopping"] {
+        for state in ["unsupported", "outdated", "downloading", "installing", "checking", "starting", "stopping"] {
             let menu = daemons_menu(&view(json!({"state": state}), "b"));
             assert_eq!(enabled(&menu), [(LOCAL_START, false), (LOCAL_STOP, false), (LOCAL_RESTART, false)], "{state}");
         }
-        assert_eq!(daemons_menu(&view(json!({"state": "cli_missing"}), "b")).items[0].label, "This machine (cli missing)");
+        assert_eq!(daemons_menu(&view(json!({"state": "installing"}), "b")).items[0].label, "This machine (installing)");
     }
 
     #[test]

@@ -1,0 +1,25 @@
+{
+  "version": "0.0.131",
+  "assets": {
+    "linux-x64": {
+      "url": "https://github.com/avatsaev/pi-studio/releases/download/daemon-v0.0.131/pi-studio-0.0.131-linux-x64.tar.gz",
+      "sha256": "b8823aaad47ace6365776afa7c1af25cce9e14050872f2cc2bf77f7cc4399a8f",
+      "size": 67980464
+    },
+    "linux-arm64": {
+      "url": "https://github.com/avatsaev/pi-studio/releases/download/daemon-v0.0.131/pi-studio-0.0.131-linux-arm64.tar.gz",
+      "sha256": "6d1a75e9319ba66b813f0313fd60724dd1449d51f11c1d49edbf6c47af9888ea",
+      "size": 67803343
+    },
+    "darwin-arm64": {
+      "url": "https://github.com/avatsaev/pi-studio/releases/download/daemon-v0.0.131/pi-studio-0.0.131-darwin-arm64.tar.gz",
+      "sha256": "43a550ac577ca37c4f49ec48ac8431a9ae6c357c6e1eae83ea9b60ab887816af",
+      "size": 57060938
+    },
+    "darwin-x64": {
+      "url": "https://github.com/avatsaev/pi-studio/releases/download/daemon-v0.0.131/pi-studio-0.0.131-darwin-x64.tar.gz",
+      "sha256": "f800d8967b5993d9bd192078987c1ae09e0132bbe6f663718f6514880b48bd0f",
+      "size": 60200759
+    }
+  }
+}

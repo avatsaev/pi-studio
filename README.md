@@ -13,6 +13,16 @@ pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
 pi-studio ui             # serve the browser UI, connected to that daemon
 ```
 
+**The desktop app needs none of this.** On macOS and Linux it downloads its own `pi-studio` daemon the first
+time it needs one, so there is no CLI to install for the app's sake, and it can install the same daemon on an
+SSH host from its Daemons screen. The daemon's Settings in the app can also put a `pi-studio` command on your
+`PATH` (`~/.local/bin/pi-studio`). The npm install above stays the way to get the CLI on a server.
+
+**Single binary.** Every release also publishes `pi-studio` as one executable per system (macOS arm64 and x64,
+Linux x64 and arm64) on the `daemon-v<version>` GitHub releases: the CLI, the daemon, Pi and the `skills` CLI
+together, with no Node needed. The Linux binaries need glibc 2.17 or newer (CentOS 7 works; Alpine does not).
+`git` must be on the machine for `skills add owner/repo` and `pi install git:…`.
+
 <p align="center">
   <img src="packages/cli/assets/screenshots/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" width="850">
 </p>
@@ -114,14 +124,18 @@ issued (e.g. one leaked), mint a fresh keypair: `pi-studio daemon rotate-key`.
 
 ### Updating the daemon
 
-Any connected client can update a daemon that was installed with `npm i -g @av-pi-studio/cli`: the web UI
-shows a "Daemon X" pill when a newer version is on npm (checked at start and every 6 h; Settings → Daemon
-has "Check now" and a switch, or set `PI_STUDIO_UPDATE_AUTOCHECK=false`), and the desktop app's Daemons
-screen offers Update for a local or SSH daemon that is stopped or too old. The update installs the new
+Any connected client can update a daemon that was installed with `npm i -g @av-pi-studio/cli` or that is the
+single binary (the desktop app's, or one downloaded from a `daemon-v*` release): the web UI shows a "Daemon X"
+pill when a newer version is available (npm for the package, the `daemon-updates` release of this repository for
+the binary; checked at start and every 6 h; Settings → Daemon has "Check now" and a switch, or set
+`PI_STUDIO_UPDATE_AUTOCHECK=false`). The desktop app's Daemons screen offers Update for a local or SSH daemon that
+is stopped or too old; it installs the binary the app was built with. The update installs the new
 version, restarts the daemon on the same address, and puts the previous version back if the new one does not
-start; clients reconnect by themselves. A daemon in Docker, a source checkout, a read-only npm folder or
-Windows does not update itself and says which command to run. From a terminal, `pi-studio update`
-updates the CLI and restarts a running local daemon.
+start (a version that was rolled back is not offered again until a newer one appears); clients reconnect by
+themselves. A daemon in Docker, a source checkout, a read-only npm folder, a binary run from outside
+`$PI_STUDIO_HOME/bin/versions/` or Windows does not update itself and says which command to run. From a
+terminal, `pi-studio update` updates the CLI or the binary and restarts a running local daemon
+(`PI_STUDIO_DAEMON_UPDATE_URL` points a binary at another release channel; for tests and private mirrors).
 
 ## Optional: E2EE relay (reaching a daemon behind NAT/firewall)
 

@@ -60,6 +60,14 @@ describe("lifecycleReactions", () => {
     expect(react(updating, { local: "failed" })).toEqual([]);
   });
 
+  it("connects when a download or an install ends in a running local daemon and the window is connected to nothing", () => {
+    for (const local of ["downloading", "installing"] as const) {
+      const installing: LifecycleFacts = { ...LOCAL_UP, local, status: "idle" };
+      expect(react(installing, { local: "running" }), local).toEqual([{ kind: "connect" }]);
+      expect(react(installing, { local: "failed" }), local).toEqual([]);
+    }
+  });
+
   it("does not connect for a restart, a daemon started elsewhere, or another entry kind", () => {
     expect(react({ ...LOCAL_UP, local: "starting" }, { local: "running" })).toEqual([]);
     expect(react({ ...LOCAL_UP, local: "stopped", status: "idle" }, { local: "running" })).toEqual(
@@ -353,14 +361,20 @@ describe("opening the screen for an SSH entry (S8)", () => {
   };
   const OPEN = [{ kind: "openScreen" }];
 
-  it("opens when the state becomes stopped, not_installed, cli_outdated or failed", () => {
-    for (const remote of ["stopped", "not_installed", "cli_outdated", "failed"] as const) {
+  it("opens when the state becomes stopped, not_installed, outdated, unsupported or failed", () => {
+    for (const remote of [
+      "stopped",
+      "not_installed",
+      "outdated",
+      "unsupported",
+      "failed",
+    ] as const) {
       expect(react(SSH, { remote })).toEqual(OPEN);
     }
   });
 
   it("does not open for any other state, nor when the state did not change", () => {
-    for (const remote of ["unknown", "checking", "starting", "running"] as const) {
+    for (const remote of ["unknown", "checking", "starting", "installing", "running"] as const) {
       expect(react({ ...SSH, remote: "stopped" }, { remote })).toEqual([]);
     }
     expect(react({ ...SSH, remote: "stopped" }, { remote: "stopped" })).toEqual([]);

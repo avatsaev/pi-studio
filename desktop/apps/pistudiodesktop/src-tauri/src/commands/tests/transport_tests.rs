@@ -85,6 +85,12 @@ pub(super) struct Daemon {
 impl Daemon {
     /// `password`: when set, an upgrade that does not offer `pi-studio.bearer.<password>` is answered 401.
     pub(super) fn start(password: Option<&'static str>) -> Daemon {
+        Daemon::start_with_version(password, None)
+    }
+
+    /// [`Self::start`], and `GET /api/health` is answered with `version` (a 404 when there is none). A health request is
+    /// no connection of the daemon's: it is not counted and appears in no event.
+    pub(super) fn start_with_version(password: Option<&'static str>, version: Option<&'static str>) -> Daemon {
         let events = Arc::new(Mutex::new(Vec::new()));
         let offered = Arc::new(Mutex::new(Vec::new()));
         let upgrades = Arc::new(AtomicUsize::new(0));
@@ -94,6 +100,15 @@ impl Daemon {
         let accepting = daemon.clone();
         tauri::async_runtime::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
+                if is_health_request(&tcp).await {
+                    let (status, body) = version.map_or(("404 Not Found", String::new()), |v| ("200 OK", format!("{{\"status\":\"ok\",\"version\":\"{v}\"}}")));
+                    let answer =
+                        format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    // One small answer on a fresh connection: written whole or not at all.
+                    let _ = tcp.writable().await;
+                    let _ = tcp.try_write(answer.as_bytes());
+                    continue;
+                }
                 let n = accepting.upgrades.fetch_add(1, Ordering::SeqCst);
                 tauri::async_runtime::spawn(accepting.clone().serve(n, tcp, password));
             }
@@ -155,12 +170,44 @@ impl Daemon {
     }
 }
 
+/// Whether the request that just arrived on `tcp` is the app's health read (`GET /api/health`): looked at, not consumed.
+/// The request comes in one piece over loopback; a few looks cover a slow start.
+async fn is_health_request(tcp: &TcpStream) -> bool {
+    const HEALTH: &[u8] = b"GET /api/health";
+    let mut head = [0_u8; HEALTH.len()];
+    for _ in 0..50 {
+        match tcp.peek(&mut head).await {
+            Ok(n) if n >= HEALTH.len() => return head.starts_with(HEALTH),
+            Ok(0) | Err(_) => return false,
+            Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+        }
+    }
+    false
+}
+
 pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + PATIENCE;
     while !condition() {
         assert!(Instant::now() < deadline, "never happened: {what}");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// A port nothing listens on, and that no test's server will listen on. A port that was bound and released is not
+/// one: `bind(0)` hands it to another test's server within the same millisecond, and the test that thinks it is closed
+/// then reaches that server. So it is taken from below the ephemeral ports (which start at 32768 on Linux and at 49152
+/// elsewhere), the first that refuses a connection, from a place that depends on the process.
+pub(super) fn closed_port() -> u16 {
+    const LOW: u16 = 10_000;
+    const SPAN: u16 = 20_000;
+    let start = u16::try_from(std::process::id() % u32::from(SPAN)).unwrap_or(0);
+    (0..SPAN)
+        .map(|step| LOW + (start + step) % SPAN)
+        .find(|port| {
+            let address = std::net::SocketAddr::from(([127, 0, 0, 1], *port));
+            matches!(std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)), Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused)
+        })
+        .expect("a port below the ephemeral ones that refuses connections")
 }
 
 // ---- the page stand-in

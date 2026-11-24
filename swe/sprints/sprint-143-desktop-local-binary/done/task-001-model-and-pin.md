@@ -1,7 +1,7 @@
 # Task 001 — Desktop model: the pin, the new local states, no `cliPath`
 
 - **Sprint:** sprints/sprint-143-desktop-local-binary
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (model, apps)
 - **Priority:** P1

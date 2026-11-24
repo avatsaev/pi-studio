@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDaemonsView } from "./daemons-view.js";
+import { parseCliToolState, parseDaemonsView } from "./daemons-view.js";
 
 const VIEW = {
   currentId: "local",
   entries: [{ id: "local", kind: "local", name: "This machine", hasPassword: false }],
   local: { state: "stopped" },
   remote: null,
-  settings: { autoStartLocalDaemon: true, cliPath: null },
+  settings: { autoStartLocalDaemon: true },
 };
 
 describe("parseDaemonsView secretStore", () => {
@@ -66,14 +66,42 @@ describe("parseDaemonsView remote", () => {
     expect(parseDaemonsView({ ...VIEW, remote: { state } })?.remote).toEqual({ state });
   });
 
-  it("keeps cli_outdated with its version", () => {
-    expect(parseDaemonsView({ ...VIEW, remote: { state: "cli_outdated", version: "0.9.0" } })?.remote).toEqual({
-      state: "cli_outdated",
+  it("keeps outdated with its version and unsupported with its system", () => {
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "outdated", version: "0.9.0" } })?.remote).toEqual({
+      state: "outdated",
       version: "0.9.0",
+    });
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "unsupported", system: "Linux x86_64 (musl)" } })?.remote).toEqual({
+      state: "unsupported",
+      system: "Linux x86_64 (musl)",
     });
   });
 
-  it.each(["not_healthy", "timeout", "bad_output", "exec_failed", "no_shell"])("keeps failed %s", (reason) => {
+  it.each(["downloading", "sending", "unpacking", "starting"])("keeps installing at the stage %s, with its counts or without", (stage) => {
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "installing", stage } })?.remote).toEqual({ state: "installing", stage });
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "installing", stage, done: 10, total: 20 } })?.remote).toEqual({
+      state: "installing",
+      stage,
+      done: 10,
+      total: 20,
+    });
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "installing", stage, done: null, total: null } })?.remote).toEqual({
+      state: "installing",
+      stage,
+    });
+  });
+
+  it.each([
+    "not_healthy",
+    "timeout",
+    "bad_output",
+    "exec_failed",
+    "no_shell",
+    "download_failed",
+    "checksum_mismatch",
+    "send_failed",
+    "install_failed",
+  ])("keeps failed %s", (reason) => {
     expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason } })?.remote).toEqual({ state: "failed", reason });
   });
 
@@ -81,32 +109,113 @@ describe("parseDaemonsView remote", () => {
     expect(parseDaemonsView({ ...VIEW, remote: null })?.remote).toBeNull();
   });
 
-  it.each([{ state: "bogus" }, { state: "failed", reason: "nope" }, { state: "cli_outdated" }])(
-    "reads the bad remote %j as null and keeps the view",
-    (remote) => {
-      expect(parseDaemonsView({ ...VIEW, remote })?.remote).toBeNull();
-    },
-  );
+  it.each([
+    { state: "bogus" },
+    { state: "failed", reason: "nope" },
+    { state: "failed", reason: "update_failed" },
+    { state: "outdated" },
+    { state: "cli_outdated", version: "0.9.0" },
+    { state: "updating" },
+    { state: "unsupported" },
+    { state: "installing" },
+    { state: "installing", stage: "nowhere" },
+    { state: "installing", stage: "sending", done: "1" },
+  ])("reads the bad remote %j as null and keeps the view", (remote) => {
+    expect(parseDaemonsView({ ...VIEW, remote })?.remote).toBeNull();
+  });
 });
 
-describe("parseDaemonsView updating and update_failed", () => {
-  it("keeps updating for the local and the remote state", () => {
+describe("parseDaemonsView local states", () => {
+  it("keeps updating for the local state", () => {
     expect(parseDaemonsView({ ...VIEW, local: { state: "updating" } })?.local).toEqual({ state: "updating" });
-    expect(parseDaemonsView({ ...VIEW, remote: { state: "updating" } })?.remote).toEqual({ state: "updating" });
   });
 
-  it("keeps update_failed with its output, or without", () => {
-    const output = "npm ERR! EACCES";
-    const failed = { state: "failed", reason: "update_failed" };
+  it("keeps outdated with its version, downloading with its counts and installing", () => {
+    expect(parseDaemonsView({ ...VIEW, local: { state: "outdated", version: "0.0.100" } })?.local).toEqual({
+      state: "outdated",
+      version: "0.0.100",
+    });
+    expect(parseDaemonsView({ ...VIEW, local: { state: "downloading", received: 10, total: 20 } })?.local).toEqual({
+      state: "downloading",
+      received: 10,
+      total: 20,
+    });
+    expect(parseDaemonsView({ ...VIEW, local: { state: "installing" } })?.local).toEqual({ state: "installing" });
+  });
+
+  it.each([
+    { state: "outdated" },
+    { state: "downloading", received: 1 },
+    { state: "downloading", received: "1", total: 2 },
+    { state: "cli_missing" },
+    { state: "cli_outdated", version: "0.0.1" },
+    { state: "failed", reason: "update_failed" },
+  ])("drops the view for the local state %j", (local) => {
+    expect(parseDaemonsView({ ...VIEW, local })).toBeNull();
+  });
+
+  it.each([
+    { state: "unsupported" },
+    { state: "checking" },
+    { state: "stopped" },
+    { state: "starting" },
+    { state: "stopping" },
+    { state: "running", host: "127.0.0.1", port: 7777 },
+    { state: "downloading", received: 1024, total: 67_980_464 },
+    { state: "installing" },
+    { state: "outdated", version: "0.0.118" },
+    ...["not_healthy", "timeout", "bad_output", "spawn_failed", "download_failed", "checksum_mismatch", "install_failed"].map(
+      (reason) => ({ state: "failed", reason }),
+    ),
+  ])("keeps the local state %j exactly as the app serializes it", (local) => {
+    expect(parseDaemonsView({ ...VIEW, local })?.local).toEqual(local);
+  });
+
+  it("keeps a failed install with its output, or without", () => {
+    const output = "unpack: refused";
+    const failed = { state: "failed", reason: "install_failed" };
     expect(parseDaemonsView({ ...VIEW, local: { ...failed, output } })?.local).toEqual({ ...failed, output });
     expect(parseDaemonsView({ ...VIEW, local: failed })?.local).toEqual(failed);
-    expect(parseDaemonsView({ ...VIEW, remote: { ...failed, output } })?.remote).toEqual({ ...failed, output });
-    expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toEqual(failed);
+    for (const reason of ["download_failed", "checksum_mismatch"]) {
+      expect(parseDaemonsView({ ...VIEW, local: { state: "failed", reason } })?.local).toEqual({ state: "failed", reason });
+    }
+  });
+
+  it("keeps a failed remote install with the host's output, or without", () => {
+    const output = "tar: command not found";
+    for (const reason of ["send_failed", "install_failed"]) {
+      const failed = { state: "failed", reason };
+      expect(parseDaemonsView({ ...VIEW, remote: { ...failed, output } })?.remote).toEqual({ ...failed, output });
+      expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toEqual(failed);
+    }
+    for (const reason of ["download_failed", "checksum_mismatch"]) {
+      expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason } })?.remote).toEqual({ state: "failed", reason });
+    }
   });
 
   it("reads a non-string output as a bad state", () => {
-    const failed = { state: "failed", reason: "update_failed", output: 3 };
-    expect(parseDaemonsView({ ...VIEW, local: failed })).toBeNull();
-    expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toBeNull();
+    expect(parseDaemonsView({ ...VIEW, local: { state: "failed", reason: "install_failed", output: 3 } })).toBeNull();
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason: "install_failed", output: 3 } })?.remote).toBeNull();
   });
+});
+
+describe("parseCliToolState", () => {
+  it.each(["absent", "installed", "not_on_path", "occupied", "unavailable"])("reads %s", (state) => {
+    expect(parseCliToolState({ state })).toEqual({ state });
+  });
+
+  it("reads shadowed with its path, and nothing else of the answer", () => {
+    expect(parseCliToolState({ state: "shadowed", path: "/opt/bin/pi-studio", extra: 1 })).toEqual({
+      state: "shadowed",
+      path: "/opt/bin/pi-studio",
+    });
+    expect(parseCliToolState({ state: "installed", path: "/opt/bin/pi-studio" })).toEqual({ state: "installed" });
+  });
+
+  it.each([null, undefined, "absent", [], {}, { state: "cli_missing" }, { state: "shadowed" }, { state: "shadowed", path: 3 }])(
+    "refuses %j",
+    (value) => {
+      expect(parseCliToolState(value)).toBeNull();
+    },
+  );
 });

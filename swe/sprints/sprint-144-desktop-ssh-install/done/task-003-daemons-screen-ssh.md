@@ -1,7 +1,7 @@
 # Task 003 — Daemons screen: Install on an SSH row
 
 - **Sprint:** sprints/sprint-144-desktop-ssh-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (daemons), desktop frontend host
 - **Priority:** P1

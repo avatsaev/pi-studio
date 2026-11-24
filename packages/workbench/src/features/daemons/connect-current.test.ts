@@ -33,10 +33,10 @@ describe("connectCurrent", () => {
 
   it("reports the code of a refusal and dials nothing", async () => {
     const { deps, run } = setup(() =>
-      Promise.reject(Object.assign(new Error("cli_missing"), { code: "cli_missing" })),
+      Promise.reject(Object.assign(new Error("outdated"), { code: "outdated" })),
     );
     await run();
-    expect(deps.rejected).toHaveBeenCalledWith("cli_missing");
+    expect(deps.rejected).toHaveBeenCalledWith("outdated");
     expect(deps.connect).not.toHaveBeenCalled();
     expect(deps.resolved).not.toHaveBeenCalled();
   });

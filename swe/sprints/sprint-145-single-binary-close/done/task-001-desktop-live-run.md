@@ -1,7 +1,7 @@
 # Task 001 — Live desktop run on Linux: first launch, takeover, SSH installs
 
 - **Sprint:** sprints/sprint-145-single-binary-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop, binary
 - **Priority:** P1
@@ -32,7 +32,7 @@ With a local server for the archives and `--daemon-pin`, record rows (new sectio
 Screenshots of the Daemons screen states.
 
 ## Acceptance criteria
-- [ ] Every row recorded with outcome; defects fixed with tests.
+- [x] Every row recorded with outcome; defects fixed with tests.
 
 ## Test / verification plan
 - As above; results linked in the summary.

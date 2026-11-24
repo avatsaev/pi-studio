@@ -16,6 +16,7 @@
 
 use std::sync::Arc;
 
+use pistudiodesktop_engine::{is_cli_tool_command, run_cli_tool};
 use pistudiodesktop_shell::picked::{PickError, Picked, PickedFile};
 use pistudiodesktop_shell::preview::{self, Previews};
 use pistudiodesktop_shell::saves::{MAX_WRITE_BYTES, SaveError, Saves};
@@ -63,8 +64,16 @@ pub async fn boot(
 /// [`pistudiodesktop_shell::daemons::PAGE_COMMANDS`]; any other is refused (`daemon.switch` is not
 /// on the list: a switch needs a confirm, a flush and a reload). Answers the command's result, or
 /// its error text. `params` is an object, or absent for none.
+///
+/// `cli_tool.state` and `cli_tool.install` run on a thread of the blocking pool, on the local supervisor
+/// ([`pistudiodesktop_engine::run_cli_tool`]): they look at the file system, and the install asks the login shell
+/// for its environment again, which may take seconds; the thread that owns the session is never held up.
 #[tauri::command]
-pub async fn engine_command(bridge: State<'_, Bridge>, id: String, params: Option<Value>) -> Result<Value, String> {
+pub async fn engine_command(bridge: State<'_, Bridge>, supervisor: State<'_, Arc<Supervisor>>, id: String, params: Option<Value>) -> Result<Value, String> {
+    if daemons::page_may_run(&id) && is_cli_tool_command(&id) {
+        let supervisor = Arc::clone(&supervisor);
+        return off_thread(move || run_cli_tool(Some(&*supervisor), &id).map_err(|e| e.to_string())).await?;
+    }
     unwrap_reply(bridge.ask(Request::Engine { id, params: params.unwrap_or(Value::Null) }).await?)
 }
 

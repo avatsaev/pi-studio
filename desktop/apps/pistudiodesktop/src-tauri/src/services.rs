@@ -190,18 +190,24 @@ pub fn native<R: Runtime>(native: &Arc<Native<R>>) -> Services {
         pick_save_path: Some(Arc::new(move |name: &str, folder: Option<&Path>| for_save.pick_save_path(name, folder))),
         pick_files: Some(Arc::new(move |folder: Option<&Path>| for_pick.pick_files(folder))),
         run: Some(Arc::new(process::run)),
-        run_checked: Some(Arc::new(process::run_checked)),
-        is_executable: Some(Arc::new(process::is_executable)),
         env: Some(Arc::new(process::process_env)),
         home_dir: Some(Arc::new(process::home_dir)),
-        list_dir: Some(Arc::new(process::list_dir)),
+        // The version of a running local daemon (`GET /api/health`), to tell an outdated one.
+        daemon_version: Some(Arc::new(crate::daemon_health::version)),
+        // Filled by `main` with the launch's pin and the archive cache (`daemon_install.rs`): the same object is both.
+        installer: None,
+        archives: None,
         // Filled by `main` once the transport state and the SSH sessions exist (`Transport::inspector`,
-        // `TransferEngine::inspector`, `SshSessions::remote_run_hook`).
+        // `TransferEngine::inspector`, `SshSessions::remote_run_hook`, `remote_send_hook`, `remote_daemon_version_hook`).
         transports: None,
         transfers: None,
         remote_run: None,
+        remote_send: None,
+        remote_daemon_version: None,
         // Filled by `main` with the updater plug-in's hook (`update.rs`).
         updater: None,
+        // Filled by `main` with the local supervisor, which looks at `~/.local/bin` (`cli_tool.*`).
+        cli_tool: None,
     }
 }
 

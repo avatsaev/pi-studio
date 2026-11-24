@@ -17,7 +17,8 @@ use crate::cli_answers;
 
 /// The engine commands the page may run (`engine_command`). `daemon.switch` is not here: a switch
 /// needs a confirm, a flush and a reload, which the app does itself. The `update.*` commands are:
-/// they take no params, and the state decides what they do.
+/// they take no params, and the state decides what they do. The `cli_tool.*` commands are too, but the app runs them
+/// on a worker thread (they look at the file system and ask the login shell), not on the thread that owns the session.
 pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.list",
     "daemon.add",
@@ -30,9 +31,12 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.local.update",
     "daemon.remote.start",
     "daemon.remote.refresh",
+    "daemon.remote.install",
     "daemon.remote.update",
     "settings.get",
     "settings.set",
+    "cli_tool.state",
+    "cli_tool.install",
     "update.check",
     "update.install",
     "update.restart",
@@ -46,7 +50,7 @@ pub fn page_may_run(id: &str) -> bool {
     PAGE_COMMANDS.contains(&id)
 }
 
-/// The oldest `pi-studio` CLI (and so daemon) the app works with, as the page is told it.
+/// The oldest daemon the app works with, as the page is told it.
 pub fn min_daemon_version() -> String {
     cli_answers::MIN_CLI_VERSION.to_string()
 }
@@ -94,9 +98,8 @@ pub fn page_command(app: &mut AppShell, id: &str, params: Value) -> Result<Value
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     pub requests: Vec<LocalRequest>,
-    /// The `cliPath` setting.
-    pub cli_path: Option<String>,
-    /// The CLI was missing or outdated: the user may have installed it since, so the shell
+    /// The binary could not be run, its install failed, or the daemon is outdated: the user may have fixed
+    /// the cause since (a start-up file that sets `PI_STUDIO_HOME`), so the shell
     /// environment is read again (the Retry of the Daemons screen).
     pub refresh_env: bool,
 }
@@ -106,6 +109,8 @@ pub struct Batch {
 pub enum LocalOp {
     /// Take the queued requests and the settings they need.
     Take,
+    /// Store a state a request passes through (`downloading`, `installing`); the session stays busy.
+    Progress(LocalState),
     /// Store the state a request reached.
     Apply(LocalState),
     /// What to dial for the current entry: a [`DialPlan`], which names the secret to read and
@@ -139,6 +144,10 @@ pub enum SshOp {
 pub fn local_op(app: &mut AppShell, op: &LocalOp) -> Value {
     crate::control::reply(match op {
         LocalOp::Take => Ok(batch_to_json(&take_batch(&mut app.session))),
+        LocalOp::Progress(state) => {
+            app.session.apply_local_progress(state.clone());
+            Ok(Value::Null)
+        }
         LocalOp::Apply(state) => {
             app.session.apply_local_outcome(state.clone());
             Ok(Value::Null)
@@ -162,8 +171,12 @@ fn ssh_op(app: &mut AppShell, op: &SshOp) -> Result<Value, String> {
 /// Take the queued local requests and what they need from the session.
 pub fn take_batch(s: &mut Session) -> Batch {
     let requests = s.take_local_requests();
-    let refresh_env = matches!(s.local_state(), LocalState::CliMissing { .. } | LocalState::CliOutdated { .. });
-    Batch { requests, cli_path: s.settings().cli_path.clone(), refresh_env }
+    // The binary could not be run, its install failed, or the daemon is outdated: the cause may be fixed since
+    // (a start-up file that sets `PI_STUDIO_HOME`), so the shell environment is read again (the Retry of the
+    // Daemons screen).
+    let refresh_env =
+        matches!(s.local_state(), LocalState::Outdated { .. } | LocalState::Failed { reason: FailReason::SpawnFailed | FailReason::InstallFailed, .. });
+    Batch { requests, refresh_env }
 }
 
 fn request_name(request: LocalRequest) -> &'static str {
@@ -190,7 +203,6 @@ fn request_of(name: &str) -> Option<LocalRequest> {
 fn batch_to_json(batch: &Batch) -> Value {
     json!({
         "requests": batch.requests.iter().map(|r| request_name(*r)).collect::<Vec<_>>(),
-        "cliPath": batch.cli_path,
         "refreshEnv": batch.refresh_env,
     })
 }
@@ -199,7 +211,6 @@ fn batch_to_json(batch: &Batch) -> Value {
 pub fn batch_from_json(value: &Value) -> Batch {
     Batch {
         requests: value["requests"].as_array().map(|names| names.iter().filter_map(|n| request_of(n.as_str()?)).collect()).unwrap_or_default(),
-        cli_path: value["cliPath"].as_str().map(str::to_owned),
         refresh_env: value["refreshEnv"].as_bool().unwrap_or(false),
     }
 }
@@ -295,6 +306,7 @@ fn remote_request_to_json(request: &RemoteRequest) -> Value {
     let action = match request.action {
         RemoteAction::Start => "start",
         RemoteAction::Probe => "probe",
+        RemoteAction::Install => "install",
         RemoteAction::Update => "update",
     };
     json!({"entry": request.entry.as_str(), "action": action})
@@ -306,6 +318,7 @@ pub fn remote_requests_from_json(value: &Value) -> Vec<RemoteRequest> {
         let action = match item["action"].as_str()? {
             "start" => RemoteAction::Start,
             "probe" => RemoteAction::Probe,
+            "install" => RemoteAction::Install,
             "update" => RemoteAction::Update,
             _ => return None,
         };
@@ -331,8 +344,7 @@ pub fn static_code(code: &str) -> &'static str {
         "no_current",
         "not_found",
         "unsupported",
-        "cli_missing",
-        "cli_outdated",
+        "outdated",
         "local_stopped",
         "local_not_ready",
         "invalid_link",
@@ -341,7 +353,15 @@ pub fn static_code(code: &str) -> &'static str {
         "secret_missing",
         "secret_unavailable",
     ];
-    const FAILS: [FailReason; 4] = [FailReason::NotHealthy, FailReason::Timeout, FailReason::BadOutput, FailReason::SpawnFailed];
+    const FAILS: [FailReason; 7] = [
+        FailReason::NotHealthy,
+        FailReason::Timeout,
+        FailReason::BadOutput,
+        FailReason::SpawnFailed,
+        FailReason::DownloadFailed,
+        FailReason::ChecksumMismatch,
+        FailReason::InstallFailed,
+    ];
     KNOWN.iter().copied().find(|known| *known == code).or_else(|| FAILS.iter().map(|f| f.code()).find(|known| *known == code)).unwrap_or("internal")
 }
 
@@ -403,7 +423,7 @@ mod tests {
 
     #[test]
     fn batches_and_dial_plans_survive_the_trip_to_the_owner_thread() {
-        let batch = Batch { requests: vec![LocalRequest::Probe, LocalRequest::Start], cli_path: Some("/x/pi".into()), refresh_env: true };
+        let batch = Batch { requests: vec![LocalRequest::Probe, LocalRequest::Start], refresh_env: true };
         assert_eq!(batch_from_json(&batch_to_json(&batch)), batch);
         assert_eq!(batch_from_json(&Value::Null), Batch::default());
         let entry = EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();
@@ -443,6 +463,7 @@ mod tests {
         assert_eq!(ssh_plan_from_json(&json!({"entry": "../x"})), Err("internal"));
         let requests = vec![
             RemoteRequest { entry: entry.clone(), action: RemoteAction::Start },
+            RemoteRequest { entry: entry.clone(), action: RemoteAction::Install },
             RemoteRequest { entry: entry.clone(), action: RemoteAction::Update },
             RemoteRequest { entry, action: RemoteAction::Probe },
         ];

@@ -7,18 +7,12 @@
  * (`swe/features/desktop-daemon-registry.md` § Public contract 4, § Error handling & edge cases).
  */
 
+import { type DaemonEntryView, type RemoteDaemonState } from "../../host/types.js";
 import {
-  type DaemonEntryView,
-  type DaemonSettings,
-  type RemoteDaemonState,
-} from "../../host/types.js";
-import {
-  INSTALL_CLI_COMMAND,
-  MIN_REMOTE_CLI_VERSION,
-  REMOTE_INSTALL_COMMAND,
-  UPDATE_CLI_COMMAND,
   daemonErrorView,
+  isRemoteInstallFailure,
   daemonFailureOf,
+  isInstallFailure,
   localStateView,
   remoteStateView,
   type DaemonFailure,
@@ -32,21 +26,51 @@ export type EntryAction = "open" | "replaceLink" | "edit" | "remove";
 
 export const LINK_INVALID_LABEL = "Pairing link no longer valid";
 
-/** A short explanation under the local entry's state, with a command the user can run. */
+/** A short explanation under an entry's state. */
 export interface LocalNotice {
   text: string;
-  command?: string;
-  /** The last lines `pi-studio update` printed; shown as is. */
+  /** The last lines of what a failed update or install printed; shown as is. */
   output?: string;
 }
 
-/** What the row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
-function updateFailedNotice(command: string, output: string | undefined): LocalNotice {
-  const lines = output?.trim();
+export const OUTPUT_MAX_LINES = 8;
+export const OUTPUT_MAX_CHARS = 600;
+
+/**
+ * The tail of what a failed install or update printed, as plain text for the row: the last
+ * `OUTPUT_MAX_LINES` non-empty lines, and at most the last `OUTPUT_MAX_CHARS` characters (cut with
+ * a leading "…"). `undefined` when nothing is left.
+ */
+export function truncateOutput(output: string | undefined): string | undefined {
+  const lines = (output ?? "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "")
+    .slice(-OUTPUT_MAX_LINES);
+  if (lines.length === 0) return undefined;
+  const text = lines.join("\n");
+  return text.length <= OUTPUT_MAX_CHARS ? text : `…${text.slice(-OUTPUT_MAX_CHARS)}`;
+}
+
+const INSTALL_FAILED_TEXTS: Record<
+  "download_failed" | "checksum_mismatch" | "send_failed" | "install_failed",
+  string
+> = {
+  download_failed: "Check the internet connection, then retry.",
+  checksum_mismatch: "The file was not unpacked. Retry downloads it again.",
+  send_failed: "Retry sends the daemon to the host again.",
+  install_failed: "Retry installs the daemon again.",
+};
+
+/** What a row says under a failed download, send or install: what Retry does, and what the host printed. */
+function installFailedNotice(
+  reason: keyof typeof INSTALL_FAILED_TEXTS,
+  output: string | undefined,
+): LocalNotice {
+  const lines = truncateOutput(output);
   return {
-    text: "Run the update yourself, then retry.",
-    command,
-    ...(lines ? { output: lines } : {}),
+    text: INSTALL_FAILED_TEXTS[reason],
+    ...(lines === undefined ? {} : { output: lines }),
   };
 }
 
@@ -61,7 +85,7 @@ export interface RemoteRowView {
   label: string;
   tone: LocalTone;
   actions: RemoteAction[];
-  /** For a missing or outdated CLI: the text and the command to copy. */
+  /** An explanation under the state and, for a failed install, the last lines the host printed. */
   notice: LocalNotice | null;
 }
 
@@ -86,7 +110,6 @@ export interface EntryRowView {
 export interface BannerView {
   message: string;
   detail?: string;
-  command?: string;
   /** `info`: a plain state (the local daemon is stopped by choice), not drawn as an error. */
   tone: "error" | "info";
 }
@@ -116,21 +139,13 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
       const detail = daemonErrorView("unsupported").detail;
       return detail === undefined ? null : { text: detail };
     }
-    case "cli_missing":
+    case "outdated":
       return {
-        text: local.path
-          ? "Fix the path below or clear it to look for the CLI, or install it (it needs Node.js), then retry."
-          : "Install it (it needs Node.js), then retry.",
-        command: INSTALL_CLI_COMMAND,
-      };
-    case "cli_outdated":
-      return {
-        text: `Found version ${local.version}. Update it, then retry.`,
-        command: UPDATE_CLI_COMMAND,
+        text: `Found version ${local.version}. Update installs the version this app was built with and starts it; Retry looks again.`,
       };
     case "failed":
-      return local.reason === "update_failed"
-        ? updateFailedNotice(UPDATE_CLI_COMMAND, local.output)
+      return isInstallFailure(local.reason)
+        ? installFailedNotice(local.reason, local.output)
         : null;
     default:
       return null;
@@ -145,22 +160,20 @@ function entryAddress(entry: DaemonEntryView): string | null {
   return `${user === undefined ? "" : `${user}@`}${host}${port === undefined ? "" : `:${port}`}`;
 }
 
-/** The SSH entry's explanation under its state; the command is offered with a Copy button (D22). */
+/** The SSH entry's explanation under its state: what the button does, and what the host printed. */
 export function remoteNotice(remote: RemoteDaemonState): LocalNotice | null {
   switch (remote.state) {
     case "not_installed":
       return {
-        text: "Install it on the host (it needs Node.js), then retry.",
-        command: REMOTE_INSTALL_COMMAND,
+        text: "Install copies the pi-studio daemon to the host and starts it. Nothing is installed until you click.",
       };
-    case "cli_outdated":
+    case "outdated":
       return {
-        text: `Found version ${remote.version}; version ${MIN_REMOTE_CLI_VERSION} or newer is needed. Update it on the host, then retry.`,
-        command: REMOTE_INSTALL_COMMAND,
+        text: `Found version ${remote.version}. Update installs the version this app was built with and restarts the daemon on it; Retry looks again.`,
       };
     case "failed":
-      return remote.reason === "update_failed"
-        ? updateFailedNotice(REMOTE_INSTALL_COMMAND, remote.output)
+      return isRemoteInstallFailure(remote.reason)
+        ? installFailedNotice(remote.reason, remote.output)
         : null;
     default:
       return null;
@@ -222,13 +235,12 @@ export function bannerView(
   if (error === null) return null;
   const view = daemonErrorView(error);
   let detail = view.detail;
-  if (error === "cli_outdated" && local.state === "cli_outdated") {
+  if (error === "outdated" && local.state === "outdated") {
     detail = `Found version ${local.version}. ${detail ?? ""}`.trim();
   }
   return {
     message: view.message,
     ...(detail === undefined ? {} : { detail }),
-    ...(view.command === undefined ? {} : { command: view.command }),
     tone: view.isError ? "error" : "info",
   };
 }
@@ -243,22 +255,6 @@ export function buildDaemonsScreenView(
     banner: bannerView(error, snapshot.local),
     secretStoreNote: snapshot.secretStore === "file" ? FILE_SECRET_STORE_NOTE : null,
   };
-}
-
-/** The value `setSettings` gets for the CLI path field: trimmed, and `null` when empty ("find it"). */
-export function cliPathFromField(input: string): string | null {
-  const trimmed = input.trim();
-  return trimmed === "" ? null : trimmed;
-}
-
-/** What the CLI path field shows for a saved setting. */
-export function cliPathToField(settings: Pick<DaemonSettings, "cliPath">): string {
-  return settings.cliPath ?? "";
-}
-
-/** Saving is offered only when the field would change the setting. */
-export function cliPathChanged(input: string, settings: Pick<DaemonSettings, "cliPath">): boolean {
-  return cliPathFromField(input) !== settings.cliPath;
 }
 
 /** The message under a settings field when the host refused the value. */

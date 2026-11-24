@@ -57,10 +57,12 @@ export type LocalDaemonState =
   | { state: "checking" }
   /** Windows: no local daemon. */
   | { state: "unsupported" }
-  /** No CLI found. Carries the configured path when one was set and is not an executable file. */
-  | { state: "cli_missing"; path?: string }
-  /** A CLI too old for `--json daemon start`. */
-  | { state: "cli_outdated"; version: string }
+  /** The running daemon is older than the minimum the desktop app drives. */
+  | { state: "outdated"; version: string }
+  /** The daemon's archive is being fetched: bytes received so far, and the archive's size. */
+  | { state: "downloading"; received: number; total: number }
+  /** The fetched archive is being checked, unpacked and put in place. */
+  | { state: "installing" }
   | { state: "stopped" }
   | { state: "starting" }
   | { state: "stopping" }
@@ -68,10 +70,20 @@ export type LocalDaemonState =
   | { state: "updating" }
   | {
       state: "failed";
-      reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" | "update_failed";
-      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+      reason:
+        | "not_healthy"
+        | "timeout"
+        | "bad_output"
+        | "spawn_failed"
+        | "download_failed"
+        | "checksum_mismatch"
+        | "install_failed";
+      /** With `install_failed`: the last lines of what the install printed. Shown, never parsed. */
       output?: string;
     };
+
+/** Where an install on an SSH host is. */
+export type RemoteInstallStage = "downloading" | "sending" | "unpacking" | "starting";
 
 /**
  * The daemon behind the current `ssh` entry, as the host last probed or drove it. In memory; reset
@@ -79,17 +91,14 @@ export type LocalDaemonState =
  */
 export type RemoteDaemonState =
   | {
-      state:
-        | "unknown"
-        | "checking"
-        | "running"
-        | "stopped"
-        | "not_installed"
-        | "starting"
-        | "updating";
+      state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting";
     }
-  /** The host's `pi-studio` is older than the minimum the desktop app drives. */
-  | { state: "cli_outdated"; version: string }
+  /** The host's daemon (running) is older than the minimum the desktop app drives. */
+  | { state: "outdated"; version: string }
+  /** The host cannot run the daemon: `system` is how the host names itself, e.g. "Linux x86_64 (musl)". */
+  | { state: "unsupported"; system: string }
+  /** The daemon is being put on the host; `done` and `total` are bytes while one is being moved. */
+  | { state: "installing"; stage: RemoteInstallStage; done?: number; total?: number }
   | {
       state: "failed";
       reason:
@@ -98,8 +107,11 @@ export type RemoteDaemonState =
         | "bad_output"
         | "exec_failed"
         | "no_shell"
-        | "update_failed";
-      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+        | "download_failed"
+        | "checksum_mismatch"
+        | "send_failed"
+        | "install_failed";
+      /** With `send_failed` or `install_failed`: the last lines the host printed. Shown, never parsed. */
       output?: string;
     };
 
@@ -150,8 +162,8 @@ export type DaemonErrorCode =
   | "wrong_kind"
   | "local_not_removable"
   | "unsupported"
-  | "cli_missing"
-  | "cli_outdated"
+  | "outdated"
+  | "install_not_offered"
   | "busy"
   | "no_current"
   | "local_stopped"
@@ -159,6 +171,9 @@ export type DaemonErrorCode =
   | "timeout"
   | "bad_output"
   | "spawn_failed"
+  | "download_failed"
+  | "checksum_mismatch"
+  | "install_failed"
   | "secret_missing"
   | "secret_unavailable"
   | "secret_store_failed"
@@ -181,9 +196,25 @@ export interface DaemonError extends Error {
 export interface DaemonSettings {
   /** Opening the local entry starts its daemon when it is stopped. */
   autoStartLocalDaemon: boolean;
-  /** An explicit path of the `pi-studio` executable; `null` means "find it". */
-  cliPath: string | null;
 }
+
+/**
+ * Whether the `pi-studio` command-line tool is on this machine and a new terminal finds it
+ * (`swe/features/single-binary-daemon.md` § The command-line tool).
+ */
+export type CliToolState =
+  /** Nothing is at `~/.local/bin/pi-studio`. */
+  | { state: "absent" }
+  /** The app's link is there and `pi-studio` in the login shell is it. */
+  | { state: "installed" }
+  /** The app's link is there, but `~/.local/bin` is not on the login shell's `PATH`. */
+  | { state: "not_on_path" }
+  /** The app's link is there, but another `pi-studio` comes first on `PATH`: its path. */
+  | { state: "shadowed"; path: string }
+  /** A file that is not the app's link is at `~/.local/bin/pi-studio`. */
+  | { state: "occupied" }
+  /** No daemon binary is installed yet, or this is Windows: nothing is offered. */
+  | { state: "unavailable" };
 
 /**
  * Optional. The daemon registry of a host that owns one (the desktop app). Absent: the workbench
@@ -225,18 +256,38 @@ export interface HostDaemons {
     stop(): Promise<void>;
     restart(): Promise<void>;
     refresh(): Promise<void>;
-    /** Runs `pi-studio update`, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    /** Installs the version the app was built with, then starts the daemon. Offered for `outdated` or `stopped`. */
     update(): Promise<void>;
   };
   /**
    * The current `ssh` entry's daemon. Rejects `wrong_kind` for any other entry, `busy`, and (start)
-   * `not_installed` or `cli_outdated`.
+   * `not_installed` or `outdated`.
    */
   remote: {
     start(): Promise<void>;
     refresh(): Promise<void>;
-    /** Updates `pi-studio` on the host, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    /**
+     * Puts the daemon the app was built with on the host, then starts it. Offered for `not_installed`, `stopped`
+     * and a failed install.
+     */
+    install(): Promise<void>;
+    /** Installs the app's daemon on the host and restarts the daemon on it. Offered for `outdated` or `stopped`. */
     update(): Promise<void>;
+  };
+  /**
+   * The `pi-studio` command-line tool on this machine: a link `~/.local/bin/pi-studio` to the daemon's installed
+   * binary, so a new terminal runs it. Never edits a shell file.
+   */
+  cliTool: {
+    /** Looks now (the file system and the login shell's `PATH`); not part of `snapshot()`. */
+    state(): Promise<CliToolState>;
+    /**
+     * Makes the link, reads the login shell's `PATH` again, and answers the state after it. Over the app's own
+     * link it makes nothing and only reads again (how the screen checks again after the person edited a start-up
+     * file). Rejects with an `Error` whose message says, in words for the person, why nothing was done (a file the
+     * app did not make is at the link's place, and is never replaced).
+     */
+    install(): Promise<CliToolState>;
   };
   /** The hosts of `~/.ssh/config`. Rejects `ssh_config` when the file does not parse. */
   sshHosts(): Promise<SshHostSuggestion[]>;

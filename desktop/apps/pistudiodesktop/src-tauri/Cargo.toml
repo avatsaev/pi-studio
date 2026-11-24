@@ -23,6 +23,7 @@ tauri-build = { workspace = true }
 
 [dependencies]
 pistudiodesktop-engine = { workspace = true }
+pistudiodesktop-install = { workspace = true }
 pistudiodesktop-model = { workspace = true }
 pistudiodesktop-net = { workspace = true }
 pistudiodesktop-relay = { workspace = true }
@@ -42,7 +43,8 @@ serde_json = { workspace = true }
 getrandom = { workspace = true }
 if-addrs = { workspace = true }
 # The SSH session's shared connection attempt, its idle timer and the socket that carries a lease on it; the socket's message type is the library's.
-tokio = { workspace = true, features = ["sync", "time"] }
+# `rt`: the daemon download's runtime of its own (`daemon_install.rs`). `fs`: the archive the SSH install sends is opened with it.
+tokio = { workspace = true, features = ["rt", "sync", "time", "fs"] }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
 

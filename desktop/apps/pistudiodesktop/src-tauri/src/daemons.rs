@@ -124,8 +124,8 @@ pub fn switch_window<R: Runtime>(handle: &AppHandle<R>, window: &WebviewWindow<R
 }
 
 /// The remote supervisor's way to the session: the requests the engine queued, with the daemon's
-/// port and whether the app saw it up, and where the outcome goes. A successful Start tells the page
-/// to connect again.
+/// port and whether the app saw it up, the stages an install passes through, and where the outcome
+/// goes. A Start, an Install or an Update that leaves the daemon running tells the page to connect again.
 pub struct RemoteOwner {
     access: OwnerAccess,
     ssh: SshSessions,
@@ -154,12 +154,17 @@ impl RemoteAccess for RemoteOwner {
             .into_iter()
             .filter(|request| request.entry == plan.entry)
             .map(|request| {
-                if matches!(request.action, RemoteAction::Start | RemoteAction::Update) {
+                if matches!(request.action, RemoteAction::Start | RemoteAction::Install | RemoteAction::Update) {
                     starting.insert(request.entry.clone());
                 }
                 RemoteJob { daemon_port: plan.fields.daemon_port, seen_up: self.ssh.seen_up(&request.entry), request }
             })
             .collect()
+    }
+
+    fn progress(&self, entry: &EntryId, state: RemoteState) {
+        // Only a view of the Daemons screen: an install that moves on does not wait for it, and the entry may be gone.
+        self.access.set_remote(entry, state);
     }
 
     fn apply(&self, entry: &EntryId, state: RemoteState) {

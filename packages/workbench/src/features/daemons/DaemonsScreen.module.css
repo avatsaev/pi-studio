@@ -244,12 +244,6 @@
   gap: var(--pi-spacing-12);
 }
 
-.settingField {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pi-spacing-6);
-}
-
 .settingLabel {
   min-width: 0;
   font-size: var(--pi-font-size-xs);
@@ -265,6 +259,21 @@
 .pathRow > input {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.cliTool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-4);
+  min-width: 0;
+}
+
+.cliTool .notice[data-tone="ok"] {
+  color: var(--pi-color-statusSuccess);
+}
+
+.cliTool .notice[data-tone="warn"] {
+  color: var(--pi-color-statusWarning);
 }
 
 .settingError {

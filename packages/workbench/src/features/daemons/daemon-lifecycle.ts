@@ -90,10 +90,14 @@ export function lifecycleReactions(
 
   // `idle` is "never connected" or "left on purpose". A restart keeps the connection, so it is not
   // idle; a daemon started from a terminal appears as running without passing through `starting`.
-  // Update (`updating`) ends in a start, so it connects like one.
+  // Update (`updating`) ends in a start, so it connects like one; so does the install a first
+  // start begins with (`downloading`, `installing`).
   if (
     next.currentKind === "local" &&
-    (prev.local === "starting" || prev.local === "updating") &&
+    (prev.local === "starting" ||
+      prev.local === "updating" ||
+      prev.local === "downloading" ||
+      prev.local === "installing") &&
     next.local === "running" &&
     next.status === "idle"
   ) {

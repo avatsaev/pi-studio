@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod cli_tool_cmds;
 pub mod commands;
 mod daemon_cmds;
 mod error;
@@ -22,6 +23,7 @@ mod storage;
 mod test_store;
 mod update_cmds;
 
+pub use cli_tool_cmds::{CliToolHost, UNAVAILABLE as CLI_TOOL_UNAVAILABLE, is_cli_tool_command, run_cli_tool};
 pub use commands::{CommandSpec, command_specs, find};
 pub use error::{EngineError, Result};
 pub use local::{BridgePassword, BridgePlan, Dial, DialPlan, LocalRequest, relay_address};

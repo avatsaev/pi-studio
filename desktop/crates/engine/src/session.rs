@@ -57,6 +57,8 @@ pub struct Session {
     pub(crate) remote: RemoteState,
     pub(crate) remote_queue: RemoteQueue,
     pub(crate) update_queue: UpdateQueue,
+    /// What the `cli_tool.*` commands run through ([`Session::set_cli_tool`]).
+    pub(crate) cli_tool: Option<std::sync::Arc<dyn crate::CliToolHost>>,
     ssh_closed: Option<EntryId>,
     changed: bool,
 }
@@ -71,6 +73,7 @@ impl Default for Session {
             remote: RemoteState::Unknown,
             remote_queue: RemoteQueue::default(),
             update_queue: UpdateQueue::default(),
+            cli_tool: None,
             ssh_closed: None,
             changed: false,
         }

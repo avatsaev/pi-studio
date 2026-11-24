@@ -16,7 +16,7 @@ fn the_view_is_the_ui_state_the_settings_and_the_generated_menu_bar() {
     let mut app = app();
     let view = control::view(&mut app);
     assert_eq!(view["ui"], json!({"status": ""}));
-    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
     assert_eq!(view["menus"][0]["label"], "Daemons");
     assert_eq!(view["menus"].as_array().unwrap().len(), 2);
     assert_eq!(view["menus"][1]["label"], "Help");
@@ -38,7 +38,7 @@ fn a_failed_command_reaches_the_status_bar_and_a_success_clears_it() {
 fn the_control_protocol_drives_and_inspects_the_app() {
     let mut app = app();
     let changed = call(&mut app, "engine.execute", json!({"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}));
-    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}));
+    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true}}));
     let seen = call(&mut app, "ui.inspect", Value::Null);
     assert_eq!(seen["result"]["settings"]["autoStartLocalDaemon"], false);
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
@@ -82,6 +82,7 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "daemon.local.update",
             "daemon.remote.start",
             "daemon.remote.refresh",
+            "daemon.remote.install",
             "daemon.remote.update",
             "command.list",
             "settings.get",
@@ -89,6 +90,8 @@ fn the_control_protocol_drives_and_inspects_the_app() {
             "update.check",
             "update.install",
             "update.restart",
+            "cli_tool.state",
+            "cli_tool.install",
         ]
     );
 }
@@ -128,7 +131,7 @@ fn requests_from_a_channel_are_answered_in_order() {
     let (tx, rx) = std::sync::mpsc::channel();
     let (first, first_reply) = Envelope::new(Request::Control {
         method: "engine.execute".into(),
-        params: json!({"command": "settings.set", "params": {"key": "cliPath", "value": "/x"}}),
+        params: json!({"command": "settings.set", "params": {"key": "checkForUpdates", "value": false}}),
     });
     let (second, second_reply) = Envelope::new(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "{}".into() });
     let (third, third_reply) = Envelope::new(Request::Boot);
@@ -141,7 +144,7 @@ fn requests_from_a_channel_are_answered_in_order() {
         let reply = app.answer(&envelope.request);
         envelope.reply.send(reply).unwrap();
     }
-    assert_eq!(first_reply.try_recv().unwrap()["result"]["cliPath"], "/x");
+    assert_eq!(first_reply.try_recv().unwrap()["result"]["checkForUpdates"], false);
     assert_eq!(second_reply.try_recv().unwrap(), json!({"ok": true, "result": null}));
     let booted = third_reply.try_recv().unwrap();
     assert_eq!(booted["result"]["storage"], json!({"pi-studio-pane-layout": "{}"}), "the page's key is in the snapshot");
@@ -481,4 +484,31 @@ mod updates {
             assert!(!without_release.contains("://") && !without_release.contains('/'), "{name}: {without_release}");
         }
     }
+}
+
+#[test]
+fn the_services_cli_tool_is_what_the_session_runs_the_commands_through() {
+    use std::sync::Arc;
+
+    use pistudiodesktop_engine::CliToolHost;
+    use pistudiodesktop_model::CliToolState;
+
+    struct Fixed;
+    impl CliToolHost for Fixed {
+        fn state(&self) -> CliToolState {
+            CliToolState::NotOnPath
+        }
+
+        fn install(&self) -> Result<CliToolState, String> {
+            Err("a file is in the way".into())
+        }
+    }
+    let mut with_host = AppShell::new(Session::new(), Services { cli_tool: Some(Arc::new(Fixed)), ..Services::default() });
+    assert_eq!(with_host.run("cli_tool.state", Value::Null), Ok(json!({"state": "not_on_path"})));
+    assert_eq!(with_host.run("cli_tool.install", Value::Null), Err("a file is in the way".to_owned()));
+    assert_eq!(with_host.ui.status, "a file is in the way");
+    let mut without = app();
+    assert_eq!(without.run("cli_tool.state", Value::Null), Ok(json!({"state": "unavailable"})));
+    assert!(without.run("cli_tool.install", Value::Null).unwrap_err().contains("not available"));
+    assert!(crate::daemons::page_may_run("cli_tool.state") && crate::daemons::page_may_run("cli_tool.install"));
 }

@@ -18,6 +18,9 @@ mod bridge;
 mod commands;
 mod control_server;
 mod crash_guard;
+mod daemon_health;
+mod daemon_install;
+mod daemon_pin;
 mod daemons;
 mod logging;
 mod menu;
@@ -82,6 +85,13 @@ struct Args {
     /// installs a build that is not newer.
     #[arg(long, value_name = "URL")]
     update_manifest: Option<tauri::Url>,
+    /// A file in place of the daemon pin the app was built with (`desktop/daemon-pin.json`: the one
+    /// `pi-studio` binary version the app installs, with the address, SHA-256 and size of its archive for
+    /// each system), for a check that installs a binary of its own. An unreadable or invalid file
+    /// fails the launch with a message that names the option; the log holds the pin's version and
+    /// where it came from, never an address.
+    #[arg(long, value_name = "FILE")]
+    daemon_pin: Option<PathBuf>,
 }
 
 /// A startup error: say what, and leave.
@@ -109,6 +119,12 @@ fn main() {
     let args = Args::parse();
     logging::init();
     crash_guard::install_hook();
+    // The daemon pin of this launch: an invalid file is a startup error, as a bad `--control` port is.
+    let (pin, pin_source) = match daemon_pin::load(args.daemon_pin.as_deref()) {
+        Ok(loaded) => loaded,
+        Err(e) => fail(2, e),
+    };
+    log::info!("daemon pin: {} ({})", pin.version, pin_source.name());
     // Bind before the window opens: a port in use is a startup error, not a silent no-op.
     let control = match args.control.map(|port| control_server::bind(port, args.control_token_file.as_deref())) {
         Some(Ok(bound)) => Some(bound),
@@ -196,6 +212,16 @@ fn main() {
     // thread holds the same ones.
     let dialogs = services::Native::new(app.handle(), title.clone());
     let mut services = services::native(&dialogs);
+    // The daemon's binary: the launch's pin, and the archives kept in the app's data folder (S9; in the folder
+    // `--config-dir` names when one is given, so that a scripted run leaves the real folders alone).
+    let data_dir = match args.config_dir.clone().map_or_else(|| app.path().app_data_dir(), Ok) {
+        Ok(dir) => dir,
+        Err(e) => fail(2, format!("cannot find the data directory ({e}); pass --config-dir <DIR>")),
+    };
+    // The same object installs the local entry's binary and hands an SSH install the archive of the host's target.
+    let installer = Arc::new(daemon_install::LocalInstaller::new(pin.clone(), data_dir.join(daemon_install::ARCHIVE_DIR)));
+    services.installer = Some(installer.clone());
+    services.archives = Some(installer);
     // The self-update: the plug-in behind the shell's hook, the shell's state over it (it reads `--update-manifest`),
     // and the runner that begins what the `update.*` commands accept and carries out the schedule.
     services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), update::Env::detect())));
@@ -234,6 +260,9 @@ fn main() {
     // `ui.inspect` reads the proxied connections, the SSH session and the last connection error through this.
     services.transports = Some(app.state::<transport::Transport>().inspector(&ssh));
     services.remote_run = Some(ssh.remote_run_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    // The daemon's archive goes to an SSH host over this session, and a running remote daemon's version is read over it.
+    services.remote_send = Some(ssh.remote_send_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
+    services.remote_daemon_version = Some(ssh.remote_daemon_version_hook(OwnerAccess::new(requests.clone(), Arc::clone(&store))));
     app.manage(ssh.clone());
     // The file transfer engine takes the current entry from the owner thread and the password from
     // the store, as `transport_open` does; `ui.inspect` reads its snapshot through the hook.
@@ -257,6 +286,11 @@ fn main() {
     // the same local supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
+    // `cli_tool.state` and `cli_tool.install` (the control socket's and the CLI's copies) run on the same supervisor, which
+    // holds the login shell's environment; the page runs them off the owner thread through `engine_command`.
+    services.cli_tool = Some(supervisor.clone());
+    // The launch's daemon pin (the compiled-in one or `--daemon-pin`), held in the app's state.
+    app.manage(Arc::new(pin));
     // After a Start left the remote daemon running the page connects again.
     let started = move || resumed();
     let remote = RemoteSupervisor::new(services.clone(), RemoteLimits::default());
@@ -324,5 +358,13 @@ mod tests {
     fn an_update_manifest_that_is_not_an_address_names_the_option() {
         let message = Args::try_parse_from(["pistudiodesktop", "--update-manifest", "not a url"]).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(message.contains("--update-manifest"), "{message}");
+    }
+
+    #[test]
+    fn daemon_pin_is_a_file_and_defaults_to_none() {
+        assert!(Args::try_parse_from(["pistudiodesktop"]).unwrap().daemon_pin.is_none());
+        let given = Args::try_parse_from(["pistudiodesktop", "--daemon-pin", "/tmp/pin.json"]).unwrap();
+        assert_eq!(given.daemon_pin.as_deref(), Some(std::path::Path::new("/tmp/pin.json")));
+        assert!(Args::try_parse_from(["pistudiodesktop", "--daemon-pin"]).is_err());
     }
 }

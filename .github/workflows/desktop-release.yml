@@ -140,11 +140,10 @@ jobs:
       # The newest daemon binary the app installs (spec `swe/features/single-binary-daemon.md` § The pin):
       # a release run refreshes the committed `desktop/daemon-pin.json` from `daemon-updates/latest.json`,
       # waiting up to 30 minutes for a version at or above the app's minimum (`MIN_CLI_VERSION`, read from
-      # the Rust source), and hands it to `bundle-release` as the output `pin`. Without a committed
-      # `desktop/daemon-pin.json` the step does nothing: no binary is published before it exists.
+      # the Rust source), and hands it to `bundle-release` as the output `pin`, which compiles it in.
       - name: Pin the daemon binary
         id: pin
-        if: steps.version.outputs.publish == 'true' && hashFiles('desktop/daemon-pin.json') != ''
+        if: steps.version.outputs.publish == 'true'
         env:
           REPO: ${{ github.repository }}
         run: |
@@ -322,10 +321,8 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: bash "$APP/scripts/release/set-version.sh" "$VERSION"
-      # The pin the `version` job refreshed (empty until `desktop/daemon-pin.json` is committed); the
-      # build below compiles it in.
+      # The pin the `version` job refreshed; the build below compiles it in.
       - name: Write the daemon pin
-        if: needs.version.outputs.pin != ''
         env:
           PIN: ${{ needs.version.outputs.pin }}
         run: printf '%s\n' "$PIN" > desktop/daemon-pin.json

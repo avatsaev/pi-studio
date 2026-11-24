@@ -15,17 +15,18 @@ use pistudiodesktop_secrets::{MemoryStore, SecretStore};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::remote_supervisor::{RemoteLimits, RemoteSupervisor};
 use pistudiodesktop_shell::resume::{Reason, ResumeSignals};
+use pistudiodesktop_shell::services::{Archive, ArchiveSource, FetchFailure};
 use pistudiodesktop_shell::supervisor::{Limits, Supervisor};
 use pistudiodesktop_shell::transfer_mode::TransfersMode;
 use pistudiodesktop_shell::{Request, Services};
-use pistudiodesktop_ssh::testing::{Behavior, Server, Wire, ed25519, shell, write_key};
+use pistudiodesktop_ssh::testing::{Behavior, Exec, Server, Wire, ed25519, shell, write_key};
 use pistudiodesktop_ssh::{Limits as SshLimits, known_hosts};
 use serde_json::{Value, json};
 use tauri::test::MockRuntime;
 use tauri::{App, Manager as _, WebviewWindow, WebviewWindowBuilder};
 use tokio_tungstenite::tungstenite::Message;
 
-use super::transport_tests::{Daemon, Page, capture_logs, connect_page, logged, wait_until};
+use super::transport_tests::{Daemon, Page, capture_logs, closed_port, connect_page, logged, wait_until};
 use super::{built_app_ssh, invoke};
 use crate::bridge::{Bridge, Launch, idle_update};
 use crate::daemons::{Events, RemoteOwner, start_runner};
@@ -36,8 +37,9 @@ use crate::transport::origin_of;
 const USER: &str = "marker-user-7c1e";
 const SSH_PASSWORD: &str = "MARKER-ssh-pw-41d9";
 const DAEMON_PASSWORD: &str = "MARKER-daemon-pw-9a3b";
-/// What the host's `pi-studio --version` prints.
+/// What the host's installed `pi-studio --version` prints, and the folder it is installed in.
 const CLI_VERSION: &str = "0.0.130";
+const HOST_FOLDER: &str = "/home/host/.pi-studio";
 /// The seeds of the keys: the host's, the one the server accepts, and one it does not.
 const HOST_SEED: u8 = 100;
 const GOOD_SEED: u8 = 1;
@@ -64,6 +66,10 @@ struct Options {
     wired: bool,
     /// What the confirmation dialog answers, when there is one: `Some(true)` is Trust.
     answer: Option<bool>,
+    /// Whether nothing is installed on the host: its facts report no binary.
+    bare: bool,
+    /// The version the daemon reports on `/api/health` (what the app reads over the session), when it can be read.
+    daemon_version: Option<&'static str>,
 }
 
 impl Default for Options {
@@ -78,14 +84,29 @@ impl Default for Options {
             keepalive: None,
             wired: false,
             answer: None,
+            bare: false,
+            daemon_version: None,
         }
     }
 }
 
-/// A port nothing listens on.
-fn closed_port() -> u16 {
-    let listener = tauri::async_runtime::block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
-    listener.local_addr().unwrap().port()
+/// What the pinned archive holds in these tests: bytes the stand-in host takes without looking.
+const ARCHIVE: &[u8] = &[7_u8; 600 * 1024];
+
+/// The pinned archive of every target: one file on the app's disk.
+struct ServedArchive {
+    path: PathBuf,
+    size: u64,
+}
+
+impl ArchiveSource for ServedArchive {
+    fn version(&self) -> &str {
+        "0.0.200"
+    }
+
+    fn fetch(&self, _target: &str, _progress: &mut dyn FnMut(u64, u64)) -> Result<Archive, FetchFailure> {
+        Ok(Archive { path: self.path.clone(), size: self.size, sha256: "ab".repeat(32) })
+    }
 }
 
 struct Fixture {
@@ -116,7 +137,7 @@ impl Fixture {
         let (config, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let home = config.path().join("home");
         std::fs::create_dir_all(home.join(".ssh")).unwrap();
-        let daemon = Daemon::start(None);
+        let daemon = Daemon::start_with_version(None, options.daemon_version);
         let daemon_port = options.daemon_port.unwrap_or(daemon.port);
 
         // The server: logs in the one key, runs `pi-studio`, forwards to the daemon stand-in.
@@ -124,13 +145,25 @@ impl Fixture {
         let mut behavior = Behavior::new(host_key.clone(), USER);
         behavior.keys = vec![ed25519(GOOD_SEED).public_key().clone()];
         behavior.password = options.server_password.map(str::to_owned);
-        behavior.exec = Some(shell(move |command| match command {
-            "pi-studio --version" => (format!("{CLI_VERSION}\n").into_bytes(), 0),
-            start if start == format!("pi-studio --json -H 127.0.0.1:{daemon_port} daemon start") => {
+        let bare = options.bare;
+        let marked = shell(move |command| match command {
+            // The facts script: Linux on x86_64 with glibc, the app's binary installed at `CLI_VERSION` (or not at all).
+            facts if facts.contains("pi-studio-fact:os") => {
+                let version = if bare { "" } else { CLI_VERSION };
+                let text = format!(
+                    "pi-studio-fact:os=Linux\npi-studio-fact:cpu=x86_64\npi-studio-fact:musl=0\npi-studio-fact:dir={HOST_FOLDER}\npi-studio-fact:ver={version}\n"
+                );
+                (text.into_bytes(), 0)
+            }
+            start if start == format!("'{HOST_FOLDER}/bin/current/pi-studio' --json -H 127.0.0.1:{daemon_port} daemon start") => {
                 (format!("{{\"up\":true,\"host\":\"127.0.0.1\",\"port\":{daemon_port}}}\n").into_bytes(), 0)
             }
+            // The install's own steps (the folder, the check, the unpack, the prune) succeed on this host.
+            step if step.contains("-mmin") || step.contains("wc -c") || step.contains("tar -xzf") || step.contains("readlink") => (Vec::new(), 0),
             _ => (Vec::new(), 127),
-        }));
+        });
+        // The send's `cat` takes the archive on its standard input, as `/bin/sh -c 'cat > path'` does.
+        behavior.exec = Some(Arc::new(move |line| if line.starts_with("/bin/sh -c ") { Exec::Receive { status: 0 } } else { marked(line) }));
         let server = tauri::async_runtime::block_on(Server::start(behavior)).unwrap();
         let wire = options.wired.then(|| tauri::async_runtime::block_on(Wire::start(server.addr())).unwrap());
         let port = wire.as_ref().map_or_else(|| server.port(), |wire| wire.addr().port());
@@ -164,7 +197,14 @@ impl Fixture {
         let started = Arc::new(AtomicUsize::new(0));
         let picks = Arc::new(Mutex::new(Vec::new()));
         let for_picks = Arc::clone(&picks);
-        let services = Services { pick_files: Some(Arc::new(move |_| std::mem::take(&mut *for_picks.lock().unwrap()))), ..Services::default() };
+        let archive = work.path().join("pi-studio-linux-x64.tar.gz");
+        std::fs::write(&archive, ARCHIVE).unwrap();
+        let archives = ServedArchive { path: archive, size: ARCHIVE.len() as u64 };
+        let services = Services {
+            pick_files: Some(Arc::new(move |_| std::mem::take(&mut *for_picks.lock().unwrap()))),
+            archives: Some(Arc::new(archives)),
+            ..Services::default()
+        };
         let (for_launch, for_started, for_store) = (ssh.clone(), Arc::clone(&started), Arc::clone(&as_store));
         let app = built_app_ssh(
             config.path(),
@@ -303,7 +343,7 @@ fn an_ssh_entry_is_opened_through_the_session_and_the_pages_messages_reach_the_d
         page.send(Message::binary(bytes.clone())).await.unwrap();
         assert_eq!(page.next().await.unwrap().unwrap(), Message::binary(bytes));
     });
-    // The daemon was reached: the Daemons screen says so, with no probe.
+    // The daemon was reached: the app's own look at it (a probe) gives the Daemons screen its state.
     wait_remote(&f, "running");
     assert!(f.ssh.seen_up(&EntryId::parse(&f.entry).unwrap()));
     // Neither answer the page sees holds a secret.
@@ -323,6 +363,19 @@ fn an_ssh_entry_is_opened_through_the_session_and_the_pages_messages_reach_the_d
 }
 
 #[test]
+fn a_daemon_older_than_the_minimum_that_the_page_reaches_is_outdated_not_running() {
+    let f = Fixture::new(&Options { daemon_version: Some("0.0.100"), ..Options::default() });
+    let local = f.open().unwrap();
+    let _page = f.connect(&local);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.remote() != json!({ "state": "outdated", "version": "0.0.100" }) {
+        assert!(Instant::now() < deadline, "the remote state is {} and not outdated 0.0.100", f.remote());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_nothing_leaked(&f);
+}
+
+#[test]
 fn two_opens_at_once_share_one_connection_attempt_and_a_third_reuses_the_session() {
     let f = Fixture::new(&Options::default());
     let opens: Vec<_> = (0..2)
@@ -335,8 +388,10 @@ fn two_opens_at_once_share_one_connection_attempt_and_a_third_reuses_the_session
         assert!(open.join().unwrap().is_ok());
     }
     assert!(f.open().is_ok());
-    assert_eq!(f.connections(), 1, "one SSH connection for three channels");
-    assert_eq!(f.server.seen().forwards.len(), 3);
+    // The daemon's first answer makes the app read its version over the session: one more channel, after the three.
+    wait_remote(&f, "running");
+    assert_eq!(f.connections(), 1, "one SSH connection for every channel");
+    assert_eq!(f.server.seen().forwards.len(), 4, "the page's three and the app's one read of the version");
     assert!(f.ssh.is_open());
 }
 
@@ -345,8 +400,10 @@ fn the_page_and_the_engine_use_the_same_connection() {
     let f = Fixture::new(&Options::default());
     let local = f.open().unwrap();
     let _page = f.connect(&local);
+    // The daemon's first answer makes the app read its version over the session (the second channel); the engine's is the third.
+    wait_remote(&f, "running");
     let upload = f.upload("both-1");
-    wait_until("the engine's channel", || f.server.seen().forwards.len() == 2);
+    wait_until("the engine's channel", || f.server.seen().forwards.len() == 3);
     // The stand-in is no daemon: the upload ends however it ends.
     let _ = invoke(&f.window, "transfer_cancel", json!({"id": "both-1"}));
     let _ = settled(upload);
@@ -400,6 +457,8 @@ fn a_daemon_switch_closes_the_session_and_coming_back_opens_a_new_one() {
 fn editing_the_entry_closes_its_session_and_the_next_open_uses_the_new_values() {
     let f = Fixture::new(&Options::default());
     assert!(f.open().is_ok());
+    // The open queues the version probe; let it finish, or it may dial again right after the edit closed the session.
+    wait_remote(&f, "running");
     assert!(f.ssh.is_open());
     invoke(&f.window, "engine_command", json!({"id": "daemon.update", "params": {"id": f.entry, "name": "Renamed"}})).unwrap();
     wait_until("the edit closed the session", || !f.ssh.is_open());
@@ -427,7 +486,7 @@ fn a_daemon_nobody_listens_to_is_daemon_not_running_and_asks_the_host_once() {
     // The probe ran over the same session: the CLI is there and the daemon is not up.
     wait_remote(&f, "stopped");
     let commands = f.server.seen().commands;
-    assert_eq!(commands.iter().filter(|line| line.contains("pi-studio --version")).count(), 1, "one probe: {}", commands.len());
+    assert_eq!(commands.iter().filter(|line| line.contains("pi-studio-fact:os")).count(), 1, "one probe: {}", commands.len());
     assert_eq!(f.connections(), 1);
     // Another refusal in the same outage is no new probe.
     assert_eq!(code_of(&f.open()), "daemon_not_running");
@@ -451,14 +510,57 @@ fn a_stopped_daemon_is_started_over_the_same_session_and_the_page_is_told_to_con
 }
 
 #[test]
+fn an_install_sends_the_archive_over_the_session_the_page_uses_and_ends_with_the_daemon_running() {
+    let f = Fixture::new(&Options { daemon_port: Some(closed_port()), bare: true, ..Options::default() });
+    // The refused open asked the host once: nothing is installed on it.
+    assert_eq!(code_of(&f.open()), "daemon_not_running");
+    wait_remote(&f, "not_installed");
+    // Start has no binary to start.
+    let refused = invoke(&f.window, "engine_command", json!({"id": "daemon.remote.start", "params": {}}));
+    assert!(refused.unwrap_err().to_string().contains("not_installed"));
+    invoke(&f.window, "engine_command", json!({"id": "daemon.remote.install", "params": {}})).unwrap();
+    wait_remote(&f, "running");
+    wait_until("the page was told", || f.started.load(Ordering::SeqCst) == 1);
+    let seen = f.server.seen();
+    // The archive reached the host's `cat` byte for byte, in one channel of the same connection, under `bin/tmp`.
+    assert_eq!(seen.received.len(), 1);
+    assert!(seen.received[0] == ARCHIVE, "the host got other bytes than were sent");
+    let sends: Vec<&String> = seen.commands.iter().filter(|line| line.starts_with("/bin/sh -c ")).collect();
+    assert!(sends.len() == 1 && sends[0].contains(&format!("{HOST_FOLDER}/bin/tmp/")) && sends[0].contains(".tar.gz"), "{sends:?}");
+    // The host's steps, in order: facts, the folder, the check, the unpack, the start by the installed binary, the prune.
+    let steps: Vec<&str> = seen
+        .commands
+        .iter()
+        .filter_map(|line| match line {
+            line if line.contains("pi-studio-fact:os") => Some("facts"),
+            line if line.contains("-mmin") => Some("prepare"),
+            line if line.starts_with("/bin/sh -c ") => Some("send"),
+            line if line.contains("wc -c") => Some("check"),
+            line if line.contains("tar -xzf") => Some("unpack"),
+            line if line.contains("daemon start") => Some("start"),
+            line if line.contains("readlink") => Some("prune"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(steps.iter().skip_while(|step| **step != "prepare").copied().collect::<Vec<_>>(), ["prepare", "send", "check", "unpack", "start", "prune"]);
+    assert_eq!(f.connections(), 1, "everything ran over one session");
+    assert_nothing_leaked(&f);
+}
+
+#[test]
 fn a_start_that_leaves_the_daemon_running_tells_the_page_to_connect_again() {
     let f = Fixture::new(&Options::default());
     invoke(&f.window, "engine_command", json!({"id": "daemon.remote.start", "params": {}})).unwrap();
     wait_remote(&f, "running");
     wait_until("the page was told", || f.started.load(Ordering::SeqCst) == 1);
     let commands = f.server.seen().commands;
-    assert!(commands.iter().any(|line| line.contains("pi-studio --version")));
-    assert!(commands.iter().any(|line| line.contains(&format!("-H 127.0.0.1:{} daemon start", f.daemon.port))));
+    assert!(commands.iter().any(|line| line.contains("pi-studio-fact:os")), "the host's facts were read first");
+    // The installed binary by its absolute path (the wrapped line holds its quotes escaped).
+    assert!(
+        commands.iter().any(
+            |line| line.contains(&format!("{HOST_FOLDER}/bin/current/pi-studio")) && line.contains(&format!("-H 127.0.0.1:{} daemon start", f.daemon.port))
+        )
+    );
     assert_eq!(f.connections(), 1, "the commands ran over one session");
     assert_nothing_leaked(&f);
 }
@@ -606,6 +708,8 @@ fn inspect_shows_how_the_connection_goes_and_the_session_as_counts_and_nothing_t
     let local_url = f.open().unwrap();
     let _page = f.connect(&local_url);
     wait_until("the transport is open", || f.inspect()["connection"]["transports"][0]["state"] == "open");
+    // The daemon's first answer makes the app read its version over the session, on a channel of its own for a moment.
+    wait_remote(&f, "running");
     let seen = f.inspect();
     let connection = &seen["connection"];
     assert_eq!(connection["transports"][0]["via"], "ssh", "{connection}");

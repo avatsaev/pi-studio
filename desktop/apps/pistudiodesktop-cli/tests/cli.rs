@@ -33,26 +33,34 @@ fn run_changes_a_setting_in_a_config_dir_and_reads_it_back() {
 
 #[test]
 fn without_a_config_dir_nothing_is_written() {
-    let (ok, out, err) = cli(&["run", "--cmd", r#"settings.set {"key":"cliPath","value":"/x"}"#, "--cmd", "settings.get"]);
+    let (ok, out, err) = cli(&["run", "--cmd", r#"settings.set {"key":"checkForUpdates","value":false}"#, "--cmd", "settings.get"]);
     assert!(ok, "{err}");
     assert_eq!(out.lines().count(), 2);
     let (ok, out, _) = cli(&["run", "--cmd", "settings.get"]);
-    assert!(ok && out.contains(r#""cliPath":null"#), "a new run starts from defaults: {out}");
+    assert!(ok && out.contains(r#""checkForUpdates":true"#), "a new run starts from defaults: {out}");
 }
 
 #[test]
 fn a_failing_command_exits_1_and_a_bad_step_runs_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_str().unwrap();
-    let (ok, out, err) =
-        cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"cliPath","value":"/a"}"#, "--cmd", r#"settings.set {"key":"nope","value":1}"#]);
+    let (ok, out, err) = cli(&[
+        "run",
+        "--config-dir",
+        path,
+        "--cmd",
+        r#"settings.set {"key":"checkForUpdates","value":false}"#,
+        "--cmd",
+        r#"settings.set {"key":"nope","value":1}"#,
+    ]);
     assert!(!ok);
     assert_eq!(out.lines().count(), 1, "the step before the failure reported");
     assert!(err.contains("settings.set: "), "{err}");
-    let (ok, out, err) = cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"cliPath","value":"/b"}"#, "--cmd", "settings.get {not json"]);
+    let (ok, out, err) =
+        cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"checkForUpdates","value":true}"#, "--cmd", "settings.get {not json"]);
     assert!(!ok && out.is_empty() && err.contains("params are not JSON"), "{out}{err}");
     let saved: Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
-    assert_eq!(saved["cliPath"], "/a", "the step after a typo never ran");
+    assert_eq!(saved["checkForUpdates"], false, "the step after a typo never ran");
 }
 
 #[test]
@@ -75,6 +83,7 @@ fn commands_lists_the_registry() {
             "daemon.local.update",
             "daemon.remote.start",
             "daemon.remote.refresh",
+            "daemon.remote.install",
             "daemon.remote.update",
             "command.list",
             "settings.get",
@@ -82,6 +91,8 @@ fn commands_lists_the_registry() {
             "update.check",
             "update.install",
             "update.restart",
+            "cli_tool.state",
+            "cli_tool.install",
         ]
     );
     let (ok, out, _) = cli(&["commands", "--filter", "settings.set"]);
@@ -122,48 +133,119 @@ fn daemon_commands_work_from_the_cli_and_the_answers_hold_no_secret() {
 
 #[cfg(unix)]
 #[test]
-fn local_daemon_commands_run_the_cli_set_in_cli_path() {
+fn local_daemon_commands_run_the_binary_in_pi_studio_home() {
     use std::os::unix::fs::PermissionsExt as _;
     let dir = tempfile::tempdir().unwrap();
-    let write_exec = |name: &str, body: &str| {
-        let path = dir.path().join(name);
+    let write_exec = |path: std::path::PathBuf, body: &str| {
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
     };
-    let fake = write_exec("pi-studio", include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    // The binary is where the app installs it: `$PI_STUDIO_HOME/bin/current/pi-studio`, and the home is read from
+    // the environment the shell prints, as a terminal has it.
+    let home = dir.path().join("home");
+    let version = home.join("bin").join("versions").join("fake");
+    std::fs::create_dir_all(&version).unwrap();
+    write_exec(version.join("pi-studio"), include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    std::os::unix::fs::symlink("versions/fake", home.join("bin").join("current")).unwrap();
     // A shell that prints the environment the way the app asks for it, without start-up files.
-    let shell = write_exec("shell", "#!/bin/sh\neval \"$4\"\n");
+    let shell = write_exec(dir.path().join("shell"), "#!/bin/sh\neval \"$4\"\n");
     let state = dir.path().join("state");
     std::fs::create_dir(&state).unwrap();
     let config = dir.path().join("config");
-    let set_cli = format!(r#"settings.set {{"key":"cliPath","value":"{}"}}"#, fake.display());
     let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
+        .env("PI_STUDIO_HOME", &home)
         .env("SHELL", &shell)
         .env("FAKE_PI_DIR", &state)
-        .args([
-            "run",
-            "--config-dir",
-            config.to_str().unwrap(),
-            "--secret-store",
-            "file",
-            "--cmd",
-            &set_cli,
-            "--cmd",
-            "daemon.local.start",
-            "--cmd",
-            "daemon.list",
-        ])
+        .args(["run", "--config-dir", config.to_str().unwrap(), "--secret-store", "file", "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
         .output()
         .unwrap();
     let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
     assert!(out.status.success(), "{stderr}");
     let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    assert_eq!(lines[1]["result"], serde_json::json!({"accepted": true}));
-    assert_eq!(lines[2]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
+    assert_eq!(lines[0]["result"], serde_json::json!({"accepted": true}));
+    assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
     assert!(!stdout.contains("S3CRET") && !stderr.contains("S3CRET"));
+}
+
+/// The headless CLI never downloads: with no binary in `PI_STUDIO_HOME` the local daemon cannot be run.
+#[cfg(unix)]
+#[test]
+fn local_daemon_commands_without_a_binary_in_place_fail_and_download_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config = dir.path().join("config");
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("PI_STUDIO_HOME", &home)
+        .env("SHELL", "/bin/sh")
+        .args(["run", "--config-dir", config.to_str().unwrap(), "--secret-store", "file", "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
+    assert!(out.status.success(), "{stderr}");
+    let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "failed", "reason": "spawn_failed"}), "{stdout}");
+    assert!(!home.join("bin").exists(), "nothing was installed");
+}
+
+/// `cli_tool.*` from the headless CLI: the link in `~/.local/bin`, the shell's `PATH`, nothing replaced.
+#[cfg(unix)]
+#[test]
+fn the_command_line_tool_is_linked_from_the_cli_and_a_file_in_the_way_is_never_replaced() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let write_exec = |path: std::path::PathBuf, body: &str| {
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let home = dir.path().join("home");
+    let ps_home = home.join(".pi-studio");
+    let version = ps_home.join("bin").join("versions").join("fake");
+    std::fs::create_dir_all(&version).unwrap();
+    write_exec(version.join("pi-studio"), "#!/bin/sh\necho 0.0.131\n");
+    std::os::unix::fs::symlink("versions/fake", ps_home.join("bin").join("current")).unwrap();
+    // A shell that prints the environment the way the app asks for it, without start-up files.
+    let shell = write_exec(dir.path().join("shell"), "#!/bin/sh\neval \"$4\"\n");
+    let run = |cmds: &[&str]| {
+        let mut args = vec!["run"];
+        for cmd in cmds {
+            args.extend(["--cmd", cmd]);
+        }
+        let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &home)
+            .env("SHELL", &shell)
+            .args(args)
+            .output()
+            .unwrap();
+        (out.status.success(), String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
+    };
+    let answers = |out: &str| -> Vec<Value> { out.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["result"].clone()).collect() };
+
+    let (ok, out, err) = run(&["cli_tool.state", "cli_tool.install", "cli_tool.state"]);
+    assert!(ok, "{err}");
+    let states = answers(&out);
+    assert_eq!(states[0], serde_json::json!({"state": "absent"}));
+    // `~/.local/bin` is not on the PATH this shell prints: the link is made, and a new terminal would not find it.
+    assert_eq!(states[1], serde_json::json!({"state": "not_on_path"}));
+    assert_eq!(states[2], serde_json::json!({"state": "not_on_path"}));
+    let link = home.join(".local/bin/pi-studio");
+    assert_eq!(std::fs::read_link(&link).unwrap(), ps_home.join("bin/current/pi-studio"));
+
+    std::fs::remove_file(&link).unwrap();
+    std::fs::write(&link, "mine").unwrap();
+    let (ok, out, err) = run(&["cli_tool.state"]);
+    assert!(ok, "{err}");
+    assert_eq!(answers(&out)[0], serde_json::json!({"state": "occupied"}));
+    let (ok, out, err) = run(&["cli_tool.install"]);
+    assert!(!ok && out.is_empty() && err.contains("never replaces"), "{out}{err}");
+    assert_eq!(std::fs::read_to_string(&link).unwrap(), "mine");
 }
 
 #[test]

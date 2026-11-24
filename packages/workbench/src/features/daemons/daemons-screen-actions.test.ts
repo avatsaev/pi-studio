@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installHost, resetHostForTests } from "../../host/install.js";
-import { type DaemonSettings, type HostDaemons, type RemoteDaemonState } from "../../host/types.js";
+import {
+  type DaemonSettings,
+  type HostDaemons,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 import { DaemonError, createTestDaemons } from "../../test/test-daemons.js";
 import { createTestHost } from "../../test/test-host.js";
 import { DaemonsScreen } from "./DaemonsScreen.js";
-import { REMOTE_INSTALL_COMMAND } from "./daemon-presentation.js";
 import {
   copyCommand,
   openEntry,
+  refreshesOnOpen,
   removeConfirmMessage,
   removeEntry,
   runLocalAction,
@@ -16,7 +21,6 @@ import {
   saveAutoStart,
   STOP_CONFIRM_MESSAGE,
   stopNeedsConfirm,
-  saveCliPath,
 } from "./daemons-screen-actions.js";
 
 function registry() {
@@ -89,10 +93,10 @@ describe("runLocalAction", () => {
     await daemons.settled();
   });
 
-  it("reports what a missing CLI rejects with, for start and for refresh alike", async () => {
-    const daemons = createTestDaemons({ local: { state: "cli_missing" } });
+  it("reports what an outdated daemon rejects with, for start and for refresh alike", async () => {
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
 
-    expect(await runLocalAction(daemons, "start")).toBe("cli_missing");
+    expect(await runLocalAction(daemons, "start")).toBe("outdated");
     const unsupported = createTestDaemons({ local: { state: "unsupported" } });
     expect(await runLocalAction(unsupported, "refresh")).toBe("unsupported");
   });
@@ -108,9 +112,32 @@ describe("runLocalAction", () => {
   });
 });
 
+describe("refreshesOnOpen", () => {
+  it("does not re-read a failed install: the read would install again before Retry", () => {
+    for (const reason of ["download_failed", "checksum_mismatch", "install_failed"] as const) {
+      expect(refreshesOnOpen({ state: "failed", reason })).toBe(false);
+    }
+  });
+
+  it("re-reads every other state, a failed start included", () => {
+    const states: LocalDaemonState[] = [
+      { state: "failed", reason: "not_healthy" },
+      { state: "failed", reason: "timeout" },
+      { state: "failed", reason: "spawn_failed" },
+      { state: "stopped" },
+      { state: "running", host: "127.0.0.1", port: 6767 },
+      { state: "outdated", version: "0.0.100" },
+      { state: "checking" },
+      { state: "downloading", received: 1, total: 2 },
+      { state: "installing" },
+    ];
+    for (const state of states) expect(refreshesOnOpen(state), state.state).toBe(true);
+  });
+});
+
 describe("update", () => {
   it("updates the local daemon: updating, then the outcome", async () => {
-    const daemons = createTestDaemons({ local: { state: "cli_outdated", version: "0.0.1" } });
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
 
     expect(await runLocalAction(daemons, "update")).toBeNull();
     expect(daemons.snapshot().local.state).toBe("updating");
@@ -123,16 +150,16 @@ describe("update", () => {
     const daemons = createTestDaemons({
       entries: [{ id: "s", kind: "ssh", name: "Box", host: "box" }],
       currentId: "s",
-      remote: { state: "cli_outdated", version: "0.0.1" },
-      remoteUpdateOutcome: { state: "failed", reason: "update_failed", output: "EACCES" },
+      remote: { state: "outdated", version: "0.0.1" },
+      remoteUpdateOutcome: { state: "failed", reason: "install_failed", output: "EACCES" },
     });
 
     expect(await runRemoteAction(daemons, "update")).toBeNull();
-    expect(daemons.snapshot().remote?.state).toBe("updating");
+    expect(daemons.snapshot().remote?.state).toBe("installing");
     await daemons.settled();
     expect(daemons.snapshot().remote).toEqual({
       state: "failed",
-      reason: "update_failed",
+      reason: "install_failed",
       output: "EACCES",
     });
   });
@@ -176,23 +203,6 @@ function recording() {
 }
 
 describe("settings", () => {
-  it("saves the CLI path trimmed, with one setSettings call", async () => {
-    const { daemons, wrapped, patches } = recording();
-
-    expect(await saveCliPath(wrapped, "  /opt/bin/pi-studio ")).toBeNull();
-
-    expect(patches).toEqual([{ cliPath: "/opt/bin/pi-studio" }]);
-    expect(daemons.snapshot().settings.cliPath).toBe("/opt/bin/pi-studio");
-  });
-
-  it("saves an empty field as null", async () => {
-    const { wrapped, patches } = recording();
-
-    await saveCliPath(wrapped, "   ");
-
-    expect(patches).toEqual([{ cliPath: null }]);
-  });
-
   it("saves the auto-start switch", async () => {
     const { daemons, wrapped, patches } = recording();
 
@@ -206,11 +216,11 @@ describe("settings", () => {
     const daemons = registry();
     const refusing: HostDaemons = {
       ...daemons,
-      setSettings: () => Promise.reject(new Error("The path must be absolute.")),
+      setSettings: () => Promise.reject(new Error("The app could not write its settings.")),
     };
 
-    expect(await saveCliPath(refusing, "relative/pi-studio")).toBe("The path must be absolute.");
-    expect(daemons.snapshot().settings.cliPath).toBeNull();
+    expect(await saveAutoStart(refusing, false)).toBe("The app could not write its settings.");
+    expect(daemons.snapshot().settings.autoStartLocalDaemon).toBe(true);
   });
 });
 
@@ -293,13 +303,41 @@ describe("runRemoteAction", () => {
     expect(daemons.snapshot().remote?.state).toBe("running");
   });
 
-  it("reports what a missing or outdated CLI rejects a start with", async () => {
+  it("reports what a missing or outdated daemon rejects a start with", async () => {
     expect(await runRemoteAction(sshRegistry({ state: "not_installed" }), "start")).toBe(
       "not_installed",
     );
     expect(
-      await runRemoteAction(sshRegistry({ state: "cli_outdated", version: "0.0.1" }), "start"),
-    ).toBe("cli_outdated");
+      await runRemoteAction(sshRegistry({ state: "outdated", version: "0.0.1" }), "start"),
+    ).toBe("outdated");
+  });
+
+  it("installs on the host: installing, then the outcome, and refuses a second install meanwhile", async () => {
+    const daemons = sshRegistry({ state: "not_installed" });
+
+    expect(await runRemoteAction(daemons, "install")).toBeNull();
+    expect(daemons.snapshot().remote).toEqual({ state: "installing", stage: "downloading" });
+    expect(await runRemoteAction(daemons, "install")).toBe("busy");
+    await daemons.settled();
+    expect(daemons.snapshot().remote?.state).toBe("running");
+  });
+
+  it("installs again after a failed install, and only then", async () => {
+    const failed = createTestDaemons({
+      entries: [{ id: "s", kind: "ssh", name: "Box", host: "box" }],
+      currentId: "s",
+      remote: { state: "failed", reason: "send_failed", output: "No space left" },
+    });
+    expect(await runRemoteAction(failed, "install")).toBeNull();
+    expect(await runRemoteAction(sshRegistry({ state: "running" }), "install")).toBe(
+      "install_not_offered",
+    );
+    expect(
+      await runRemoteAction(sshRegistry({ state: "failed", reason: "timeout" }), "install"),
+    ).toBe("install_not_offered");
+    expect(
+      await runRemoteAction(sshRegistry({ state: "unsupported", system: "Windows" }), "install"),
+    ).toBe("unsupported");
   });
 
   it("probes again on refresh and reports busy while a probe runs", async () => {
@@ -317,13 +355,13 @@ describe("copyCommand", () => {
     const written: string[] = [];
     const clipboard = { writeText: async (text: string) => void written.push(text) };
 
-    expect(await copyCommand(clipboard, REMOTE_INSTALL_COMMAND)).toBeNull();
-    expect(written).toEqual(["npm install -g @av-pi-studio/cli"]);
+    expect(await copyCommand(clipboard, "pi-studio --version")).toBeNull();
+    expect(written).toEqual(["pi-studio --version"]);
   });
 
   it("reports unexpected when the clipboard refuses", async () => {
     const host = createTestHost({ clipboardFails: true });
 
-    expect(await copyCommand(host.clipboard, REMOTE_INSTALL_COMMAND)).toBe("unexpected");
+    expect(await copyCommand(host.clipboard, "pi-studio --version")).toBe("unexpected");
   });
 });

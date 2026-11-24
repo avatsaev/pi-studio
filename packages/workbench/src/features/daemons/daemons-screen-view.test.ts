@@ -5,20 +5,14 @@ import {
   type RemoteDaemonState,
 } from "../../host/types.js";
 import {
-  INSTALL_CLI_COMMAND,
-  MIN_REMOTE_CLI_VERSION,
-  REMOTE_INSTALL_COMMAND,
-  UPDATE_CLI_COMMAND,
-} from "./daemon-presentation.js";
-import {
   bannerView,
   buildDaemonsScreenView,
-  cliPathChanged,
-  cliPathFromField,
-  cliPathToField,
   FILE_SECRET_STORE_NOTE,
   LINK_INVALID_LABEL,
+  OUTPUT_MAX_CHARS,
+  OUTPUT_MAX_LINES,
   settingsFailureText,
+  truncateOutput,
 } from "./daemons-screen-view.js";
 import { type DaemonsSnapshot } from "./use-daemons.js";
 
@@ -47,7 +41,7 @@ function snapshot(
     entries,
     local,
     remote: null,
-    settings: { autoStartLocalDaemon: true, cliPath: null },
+    settings: { autoStartLocalDaemon: true },
   };
 }
 
@@ -91,46 +85,75 @@ describe("the SSH row", () => {
     expect(row?.local).toBeNull();
   });
 
-  it("offers Start and Retry after a failure", () => {
+  it("offers Retry that starts again after a failed start", () => {
     const row = rowOf({ state: "failed", reason: "not_healthy" });
-    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start", "refresh"]);
+    expect(row?.remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["retry:start"]);
+    expect(row?.remote?.notice).toBeNull();
   });
 
-  it("says pi-studio is not installed, with the command to copy and Retry", () => {
+  it("offers Install, and no npm instruction, when nothing is installed", () => {
     const remote = rowOf({ state: "not_installed" })?.remote;
     expect(remote?.label).toBe("pi-studio is not installed on this host");
-    expect(remote?.notice?.command).toBe("npm install -g @av-pi-studio/cli");
-    expect(remote?.actions.map((a) => a.call)).toEqual(["refresh"]);
+    expect(remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["install:install"]);
+    expect(remote?.notice?.text).toMatch(/^Install copies the pi-studio daemon/);
+    expect(remote?.notice).not.toHaveProperty("command");
+    expect(JSON.stringify(remote)).not.toMatch(/npm|Node\.js/);
   });
 
-  it("offers Update beside the command for an outdated CLI and shows a busy row while updating", () => {
-    const outdated = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
-    expect(outdated?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
-    expect(rowOf({ state: "updating" })?.remote).toMatchObject({
-      label: "Updating…",
+  it("offers Update and Retry for an outdated daemon and names the version it found", () => {
+    const remote = rowOf({ state: "outdated", version: "0.0.100" })?.remote;
+    expect(remote?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+    expect(remote?.label).toContain("0.0.100");
+    expect(remote?.notice?.text).toContain("Found version 0.0.100");
+  });
+
+  it("shows the stage and the percentage while installing, with no buttons and no notice", () => {
+    expect(
+      rowOf({ state: "installing", stage: "sending", done: 1, total: 4 })?.remote,
+    ).toMatchObject({
+      label: "Sending the daemon to the host · 25 %",
       tone: "busy",
       actions: [],
       notice: null,
     });
   });
 
-  it("shows the last lines of a failed update on the host", () => {
-    const remote = rowOf({ state: "failed", reason: "update_failed", output: "EACCES" })?.remote;
-    expect(remote?.label).toBe("The update failed");
-    expect(remote?.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: REMOTE_INSTALL_COMMAND,
-      output: "EACCES",
+  it("says the system is not supported, with no button and no notice", () => {
+    expect(rowOf({ state: "unsupported", system: "Linux x86_64 (musl)" })?.remote).toMatchObject({
+      label: "This system is not supported (Linux x86_64 (musl))",
+      tone: "error",
+      actions: [],
+      notice: null,
     });
-    expect(remote?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
   });
 
-  it("names both versions for an outdated CLI", () => {
-    const remote = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
-    expect(remote?.label).toContain("0.0.100");
-    expect(remote?.notice?.text).toContain("0.0.100");
-    expect(remote?.notice?.text).toContain(MIN_REMOTE_CLI_VERSION);
-    expect(remote?.notice?.command).toBe(REMOTE_INSTALL_COMMAND);
+  it("shows the reason and the last lines the host printed for a failed install, and Retry installs again", () => {
+    const remote = rowOf({
+      state: "failed",
+      reason: "install_failed",
+      output: "tar: not found",
+    })?.remote;
+    expect(remote?.label).toBe("Installing the daemon on the host failed");
+    expect(remote?.notice).toEqual({
+      text: "Retry installs the daemon again.",
+      output: "tar: not found",
+    });
+    expect(remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["retry:install"]);
+  });
+
+  it("explains each failed step of an install", () => {
+    const text = (reason: "download_failed" | "checksum_mismatch" | "send_failed") =>
+      rowOf({ state: "failed", reason })?.remote?.notice;
+    expect(text("download_failed")).toEqual({ text: "Check the internet connection, then retry." });
+    expect(text("checksum_mismatch")).toEqual({
+      text: "The file was not unpacked. Retry downloads it again.",
+    });
+    expect(
+      rowOf({ state: "failed", reason: "send_failed", output: "No space left" })?.remote,
+    ).toMatchObject({
+      label: "Sending the daemon to the host failed",
+      notice: { text: "Retry sends the daemon to the host again.", output: "No space left" },
+    });
   });
 
   it("has no state when it is not the current entry", () => {
@@ -156,7 +179,7 @@ describe("buildDaemonsScreenView rows", () => {
 
   it("gives the local entry Start and no Remove", () => {
     expect(local?.actions).toEqual(["open", "edit"]);
-    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start", "update"]);
+    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start"]);
   });
 
   it("hides Open on the current entry", () => {
@@ -202,31 +225,33 @@ describe("the local row", () => {
     expect(running.notice).toBeNull();
   });
 
-  it("names a configured path that is not an executable file, and offers Retry", () => {
-    const row = localRow({ state: "cli_missing", path: "/opt/bin/pi-studio" });
-    expect(row.label).toContain("/opt/bin/pi-studio");
-    expect(row.actions.map((a) => a.kind)).toEqual(["retry"]);
-    expect(row.notice?.command).toBe(INSTALL_CLI_COMMAND);
-  });
-
-  it("shows the install command when the CLI is missing", () => {
-    const row = localRow({ state: "cli_missing" });
-    expect(row.notice?.command).toBe(INSTALL_CLI_COMMAND);
-    expect(row.actions.map((a) => a.kind)).toEqual(["retry"]);
-  });
-
-  it("shows the update command and the found version when the CLI is outdated", () => {
-    const row = localRow({ state: "cli_outdated", version: "0.0.100" });
-    expect(row.notice?.command).toBe(UPDATE_CLI_COMMAND);
+  it("shows the found version and offers Update and Retry when the daemon is outdated", () => {
+    const row = localRow({ state: "outdated", version: "0.0.100" });
     expect(row.notice?.text).toContain("0.0.100");
+    expect(row.notice).not.toHaveProperty("command");
     expect(row.actions.map((a) => a.kind)).toEqual(["update", "retry"]);
+  });
+
+  it("shows a busy row without actions while the daemon is downloaded and installed", () => {
+    expect(localRow({ state: "downloading", received: 1, total: 4 })).toMatchObject({
+      label: "Downloading the daemon · 25 %",
+      tone: "busy",
+      actions: [],
+      notice: null,
+    });
+    expect(localRow({ state: "installing" })).toMatchObject({
+      label: "Installing the daemon",
+      tone: "busy",
+      actions: [],
+      notice: null,
+    });
   });
 
   it("explains an unsupported system and offers nothing", () => {
     const row = localRow({ state: "unsupported" });
     expect(row.actions).toEqual([]);
     expect(row.notice?.text).toMatch(/macOS, Linux or WSL/);
-    expect(row.notice?.command).toBeUndefined();
+    expect(row.notice).not.toHaveProperty("command");
   });
 
   it("offers Retry when the daemon failed to start", () => {
@@ -239,27 +264,67 @@ describe("the local row", () => {
     expect(row).toMatchObject({ label: "Updating…", tone: "busy", actions: [], notice: null });
   });
 
-  it("shows the last lines of a failed update with the command to run by hand, and Update", () => {
+  it("shows what a failed install printed, and offers Retry only", () => {
     const row = localRow({
       state: "failed",
-      reason: "update_failed",
-      output: "\nnpm ERR! EACCES\n",
+      reason: "install_failed",
+      output: "\nunpack: refused\n",
     });
-    expect(row.label).toBe("The update failed");
+    expect(row.label).toBe("Installing the daemon failed");
+    expect(row.tone).toBe("error");
     expect(row.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: UPDATE_CLI_COMMAND,
-      output: "npm ERR! EACCES",
+      text: "Retry installs the daemon again.",
+      output: "unpack: refused",
     });
-    expect(row.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+    expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
   });
 
-  it("shows a failed update without output as the command alone", () => {
-    const row = localRow({ state: "failed", reason: "update_failed" });
-    expect(row.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: UPDATE_CLI_COMMAND,
+  it("shows a failed install without output as a plain notice", () => {
+    const row = localRow({ state: "failed", reason: "install_failed" });
+    expect(row.notice).toEqual({ text: "Retry installs the daemon again." });
+  });
+
+  it("shows a failed download and a checksum mismatch in plain words, and offers Retry", () => {
+    const download = localRow({ state: "failed", reason: "download_failed" });
+    expect(download.label).toBe("The download failed");
+    expect(download.notice).toEqual({ text: "Check the internet connection, then retry." });
+    const checksum = localRow({ state: "failed", reason: "checksum_mismatch" });
+    expect(checksum.label).toBe("The file did not match its checksum and was deleted");
+    expect(checksum.notice).toEqual({
+      text: "The file was not unpacked. Retry downloads it again.",
     });
+    for (const row of [download, checksum]) {
+      expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
+    }
+  });
+
+  it("shows no notice for a failed start", () => {
+    expect(localRow({ state: "failed", reason: "spawn_failed" }).notice).toBeNull();
+  });
+});
+
+describe("truncateOutput", () => {
+  it("keeps short output as it is, without blank lines or trailing spaces", () => {
+    expect(truncateOutput("a  \n\n b\n")).toBe("a\n b");
+  });
+
+  it("is undefined for nothing or only blank lines", () => {
+    expect(truncateOutput(undefined)).toBeUndefined();
+    expect(truncateOutput(" \n\n")).toBeUndefined();
+  });
+
+  it("keeps the last lines", () => {
+    const lines = Array.from({ length: OUTPUT_MAX_LINES + 3 }, (_, i) => `line ${i}`);
+    const kept = truncateOutput(lines.join("\n"))?.split("\n");
+    expect(kept).toEqual(lines.slice(-OUTPUT_MAX_LINES));
+  });
+
+  it("keeps the end of a very long text, marked with an ellipsis", () => {
+    const text = `${"x".repeat(OUTPUT_MAX_CHARS)}END`;
+    const kept = truncateOutput(text);
+    expect(kept?.startsWith("…")).toBe(true);
+    expect(kept?.endsWith("END")).toBe(true);
+    expect(kept?.length).toBe(OUTPUT_MAX_CHARS + 1);
   });
 });
 
@@ -278,21 +343,15 @@ describe("the banner", () => {
     expect(bannerView("no_current", { state: "stopped" })?.tone).toBe("info");
   });
 
-  it("carries the update command and the version for cli_outdated", () => {
-    const banner = bannerView("cli_outdated", { state: "cli_outdated", version: "0.0.100" });
+  it("carries the version for outdated and offers no command to run", () => {
+    const banner = bannerView("outdated", { state: "outdated", version: "0.0.100" });
     expect(banner?.tone).toBe("error");
-    expect(banner?.command).toBe(UPDATE_CLI_COMMAND);
+    expect(banner).not.toHaveProperty("command");
     expect(banner?.detail).toContain("0.0.100");
   });
 
   it("leaves the detail alone when the local state no longer says which version", () => {
-    expect(bannerView("cli_outdated", { state: "stopped" })?.detail).toBe("Update it, then retry.");
-  });
-
-  it("carries the install command for cli_missing", () => {
-    const banner = bannerView("cli_missing", { state: "cli_missing" });
-    expect(banner?.command).toBe(INSTALL_CLI_COMMAND);
-    expect(banner?.tone).toBe("error");
+    expect(bannerView("outdated", { state: "stopped" })?.detail).toBe("Update it, then retry.");
   });
 
   it("words an action failure with the message of the code", () => {
@@ -307,28 +366,7 @@ describe("the banner", () => {
 
   it("is built into the view from the store's error", () => {
     const view = buildDaemonsScreenView(snapshot({ state: "stopped" }, "local"), "spawn_failed");
-    expect(view.banner?.message).toBe("The pi-studio CLI could not be run.");
-  });
-});
-
-describe("the CLI path field", () => {
-  it("trims the value and maps empty to null", () => {
-    expect(cliPathFromField("  /usr/local/bin/pi-studio \n")).toBe("/usr/local/bin/pi-studio");
-    expect(cliPathFromField("")).toBeNull();
-    expect(cliPathFromField("   ")).toBeNull();
-  });
-
-  it("shows an empty field for no configured path", () => {
-    expect(cliPathToField({ cliPath: null })).toBe("");
-    expect(cliPathToField({ cliPath: "/x/pi-studio" })).toBe("/x/pi-studio");
-  });
-
-  it("offers Save only when the field would change the setting", () => {
-    expect(cliPathChanged("", { cliPath: null })).toBe(false);
-    expect(cliPathChanged("  ", { cliPath: null })).toBe(false);
-    expect(cliPathChanged("/x", { cliPath: null })).toBe(true);
-    expect(cliPathChanged(" /x ", { cliPath: "/x" })).toBe(false);
-    expect(cliPathChanged("", { cliPath: "/x" })).toBe(true);
+    expect(view.banner?.message).toBe("The daemon could not be run.");
   });
 });
 
