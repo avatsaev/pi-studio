@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
 
 import type {
@@ -23,7 +23,10 @@ type InstallFailureCode = Extract<DaemonUpdateState, { kind: "failed" }>["code"]
  */
 
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const RELEASES_PAGE = "https://github.com/avatsaev/pi-studio/releases";
+
 export const UPDATE_RESULT_FILE = "update-result.json";
+export const UPDATE_SKIP_FILE = "update-skip.json";
 
 /** Result the restart helper leaves for the next daemon start (`update-result.json`). */
 const lastResultSchema = z.object({
@@ -47,6 +50,7 @@ export const MANUAL_UPDATE_COMMANDS: Readonly<Record<CannotUpdateReason, string>
   npm_missing: NPM_COMMAND,
   not_writable: NPM_COMMAND,
   unsupported_platform: NPM_COMMAND,
+  unmanaged_binary: RELEASES_PAGE,
 };
 
 /** Why a refused apply was refused (`daemon_update_apply_response.error`). */
@@ -206,6 +210,8 @@ export interface UpdateServiceDeps {
   autoCheck: boolean;
   /** Reads and removes `update-result.json`; `undefined` when there is none or it was unreadable. */
   takeLastResult(): Promise<UpdateLastResult | undefined>;
+  /** `update-skip.json` (D14); without one the skipped version lives in memory only. */
+  skipStore?: UpdateSkipStore;
   /** Writes `daemon.update.autoCheck`; resolves the effective value (env may win). */
   persistAutoCheck(enabled: boolean): Promise<boolean>;
   /** Delivers a changed status to every session. */
@@ -244,6 +250,7 @@ export class UpdateService {
   private closed = false;
   private probed: Promise<void> | undefined;
   private resultWatch: unknown;
+  private skippedVersion: string | undefined;
 
   private readonly pipeline: UpdatePipeline;
   private readonly now: () => number;
@@ -274,6 +281,7 @@ export class UpdateService {
       ...(this.checkError !== undefined ? { checkError: this.checkError } : {}),
       state: this.state,
       ...(this.lastResult ? { lastResult: this.lastResult } : {}),
+      ...(this.skippedVersion !== undefined ? { skippedVersion: this.skippedVersion } : {}),
     };
   }
 
@@ -303,6 +311,8 @@ export class UpdateService {
       try {
         this.installKind = await this.deps.detectInstallKind();
         this.lastResult = await this.deps.takeLastResult();
+        this.skippedVersion = await this.deps.skipStore?.read();
+        if (this.lastResult) await this.recordSkip(this.lastResult);
       } catch (err) {
         this.deps.logger?.warn({ err: (err as Error).message }, "update: start-up probe failed");
       }
@@ -331,9 +341,10 @@ export class UpdateService {
       reading = true;
       void this.deps
         .takeLastResult()
-        .then((result) => {
+        .then(async (result) => {
           if (result) {
             this.lastResult = result;
+            await this.recordSkip(result);
             this.stopResultWatch();
             this.emitIfChanged();
           } else if (this.now() - startedAt >= this.resultWatchMs) {
@@ -399,7 +410,8 @@ export class UpdateService {
           this.checkError = failure ?? "offline";
         }
       } else {
-        const next = await this.resolveState(latest);
+        await this.dropOlderSkip(latest);
+        const next = await this.resolveState(latest, by);
         // An apply may have started while the probes ran: it owns the state now.
         if (isRunning(this.state)) return this.status();
         this.checkedAt = this.now();
@@ -414,8 +426,12 @@ export class UpdateService {
     return this.status();
   }
 
-  private async resolveState(latest: string): Promise<DaemonUpdateState> {
+  private async resolveState(
+    latest: string,
+    by: "manual" | "automatic",
+  ): Promise<DaemonUpdateState> {
     if (compareVersions(latest, this.deps.currentVersion) <= 0) return { kind: "idle" };
+    if (by === "automatic" && latest === this.skippedVersion) return { kind: "idle" };
     const cannot = (reason: CannotUpdateReason): DaemonUpdateState => ({
       kind: "cannot_update",
       reason,
@@ -430,6 +446,30 @@ export class UpdateService {
     }
     if (blocker !== null) return cannot(blocker);
     return { kind: "available", version: latest };
+  }
+
+  /** Remembers a rolled-back or failed version (D14); every install kind. */
+  private async recordSkip(result: UpdateLastResult): Promise<void> {
+    if (result.outcome !== "rolled_back" && result.outcome !== "failed") return;
+    if (!PLAIN_VERSION.test(result.to)) return;
+    this.skippedVersion = result.to;
+    try {
+      await this.deps.skipStore?.write(result.to);
+    } catch (err) {
+      this.deps.logger?.warn({ err: failureMessage(err) }, "update: skip file not written");
+    }
+  }
+
+  /** A version newer than the skipped one clears the skip. */
+  private async dropOlderSkip(latest: string): Promise<void> {
+    if (this.skippedVersion === undefined) return;
+    if (compareVersions(latest, this.skippedVersion) <= 0) return;
+    this.skippedVersion = undefined;
+    try {
+      await this.deps.skipStore?.clear();
+    } catch (err) {
+      this.deps.logger?.warn({ err: failureMessage(err) }, "update: skip file not removed");
+    }
   }
 
   /** Refuses with `in_progress`, `cannot_update` or `not_available`; else runs the pipeline. */
@@ -527,4 +567,39 @@ export async function readAndRemoveUpdateResult(
     logger?.warn({ err: (err as Error).message, path }, "update: result file malformed");
     return undefined;
   }
+}
+
+/** The one remembered version (`update-skip.json`, D14); `undefined` when none. */
+export interface UpdateSkipStore {
+  read(): Promise<string | undefined>;
+  write(version: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+const skipFileSchema = z.object({ version: z.string().regex(PLAIN_VERSION) });
+
+/** `update-skip.json` store: an unreadable or malformed file is removed and logged. */
+export function createFileSkipStore(path: string, logger?: Logger): UpdateSkipStore {
+  return {
+    read: async () => {
+      let text: string;
+      try {
+        text = await readFile(path, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        logger?.warn({ err: (err as Error).message, path }, "update: skip file unreadable");
+        await rm(path, { force: true });
+        return undefined;
+      }
+      try {
+        return skipFileSchema.parse(JSON.parse(text)).version;
+      } catch (err) {
+        logger?.warn({ err: (err as Error).message, path }, "update: skip file malformed");
+        await rm(path, { force: true });
+        return undefined;
+      }
+    },
+    write: (version) => writeFile(path, JSON.stringify({ version }), "utf8"),
+    clear: () => rm(path, { force: true }),
+  };
 }

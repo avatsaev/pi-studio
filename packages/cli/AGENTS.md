@@ -21,11 +21,26 @@ Or `npm link` inside `packages/cli` to expose `pi-studio` globally on `PATH`.
 
 ---
 
+### The compiled single binary
+
+`npm run build:binary -- --target <linux-x64|linux-arm64|darwin-arm64|darwin-x64>`
+(`scripts/build-binary.mjs`, after `npm run build`) compiles `dist/binary-main.js` with the root's
+pinned Bun into `dist-binary/pi-studio-<version>-<target>/` and a `.tar.gz`: `pi-studio` (the whole
+CLI plus daemon, relay, Pi and `skills`), the `bun` script, Pi's runtime assets and `web/`.
+`binary-main.ts` dispatches on the first argument (`binary-dispatch.ts` decides): `__daemon <json>`,
+`__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (a stub that exits 1 until
+sprint-142), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
+seam (`SUBCOMMAND`, `DaemonOpts`, `RelayOpts`). `node-pty` is `--external` (never loaded under Bun).
+`scripts/binary-container-check.sh` runs the acceptance commands in a Node-less container.
+
 ## Source layout
 
 ```
 src/
   cli.ts                 Entrypoint — parse argv, call run(), exit with code.
+  binary-main.ts         Entry of the compiled binary (not part of the npm `bin`): runs what `binary-dispatch.ts` picks.
+  binary-dispatch.ts     parseBinaryCommand(args) → daemon|relay|pi|skills|update-helper|cli; parseDaemonOpts/parseRelayOpts validate the JSON arguments.
+  binary-dispatch.test.ts
   program.ts             buildProgram() — root Commander program, global options, default action.
   version.generated.ts   PACKAGE_VERSION — generated from package.json by `scripts/gen-version.mjs`
                          (committed, rewritten by every build; `version.generated.test.ts` guards drift).
@@ -600,7 +615,13 @@ branches to `createRelayTransport` when it carries a relay offer).
   that spawn and bind nothing. The CLI passes the Node-only module resolvers
   (`import.meta.resolve("@av-pi-studio/server")`, `…/relay/server`, `…/web-client/package.json`) in as
   functions, so they run in its own module graph and are never called by the compiled binary, whose
-  commands are `<binary> __daemon|__relay|__pi <json|args>`.
+  commands are `<binary> __daemon|__relay <json>`, `<binary> __pi|__skills <args>` and
+  `<binary> __update-helper <json>` (`binary-main.ts`).
+- **`binary-main.ts` is the one place the CLI package runs daemon/relay code in-process**, and only
+  as the detached child the starters spawn (`<binary> __daemon|__relay …`): it imports `runDaemon`
+  and `startRelayServer` statically. The CLI program itself (`cli` kind) still only drives daemons
+  over the WebSocket API. Pi's and `skills`' entries are imported dynamically (they run on import),
+  from the server's `daemon/binary-runtime.ts`.
 - **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
   auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
   `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public

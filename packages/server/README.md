@@ -207,7 +207,7 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 | `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Daemon self-update checks (`daemon.update.autoCheck`): `false`/`0` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json` |
-| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; decides whether the daemon can update itself. The Docker image sets `docker` |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; decides whether the daemon can update itself. The Docker image sets `docker`. The compiled single binary always reports `binary` (detected from its build, not settable here) |
 | `PI_STUDIO_DEV_UPDATE` | _(unset)_ | Dev daemon only: `available`, `cannot`, `fail` or `rollback` scripts the update flow with no npm |
 
 > Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` (opt-in) and connecting via the

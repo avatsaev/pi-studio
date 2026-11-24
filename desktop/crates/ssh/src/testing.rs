@@ -4,8 +4,9 @@
 //! * logins by public key and by password, each scripted in a [`Behavior`], and a record of every offer ([`Seen`]);
 //! * `direct-tcpip` channels that really connect to the host and port asked for (so a jump host's next hop is another
 //!   [`Server`] of the test), with a switch that refuses them as the server's rules would;
-//! * `exec` requests answered by a script, refused when there is none (an account that runs no command), or never
-//!   answered ([`Exec::Hang`]); [`shell`] is a script that prints the markers of a [`Session::run`](crate::Session::run);
+//! * `exec` requests answered by a script, refused when there is none (an account that runs no command), never
+//!   answered ([`Exec::Hang`]), a sink for the command's standard input ([`Exec::Receive`], [`Exec::Stall`]) or ending the
+//!   connection ([`Exec::Disconnect`]); [`shell`] is a script that prints the markers of a [`Session::run`](crate::Session::run);
 //! * a [`Wire`] that sits in front of a server and can go silent without closing, to lose keepalives;
 //! * on Unix, an [`AgentSocket`] serving the agent protocol on a Unix socket, holding the keys a test gives it.
 //!
@@ -13,6 +14,7 @@
 //! compiled only for tests and with the feature.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -97,6 +99,12 @@ pub enum Exec {
     Done { stdout: Vec<u8>, status: u32 },
     /// Accept the command and never answer.
     Hang,
+    /// Read standard input to its end, then exit with `status`; what was read is in [`Seen::received`].
+    Receive { status: u32 },
+    /// Accept the command and then take no standard input: the window of the channel runs out and stays out.
+    Stall,
+    /// Accept the command and then end the connection, as a host that went away.
+    Disconnect,
 }
 
 /// The script of an `exec` request: the command text to its outcome.
@@ -164,6 +172,8 @@ pub struct Seen {
     pub forwards: Vec<(String, u16)>,
     /// Every command of an `exec` request.
     pub commands: Vec<String>,
+    /// The standard input of every [`Exec::Receive`] command that ended its input, in order.
+    pub received: Vec<Vec<u8>>,
 }
 
 impl Seen {
@@ -207,6 +217,15 @@ impl Shared {
 /// One client's handler.
 struct Connection {
     shared: Arc<Shared>,
+    /// The commands that read standard input, by channel.
+    uploads: HashMap<ChannelId, Upload>,
+}
+
+/// What a command that reads standard input has so far.
+struct Upload {
+    /// The status to exit with at the end of the input; `None` takes no input at all ([`Exec::Stall`]).
+    status: Option<u32>,
+    data: Vec<u8>,
 }
 
 impl Handler for Connection {
@@ -275,6 +294,18 @@ impl Handler for Connection {
         match outcome {
             None => session.channel_failure(channel)?,
             Some(Exec::Hang) => session.channel_success(channel)?,
+            Some(Exec::Receive { status }) => {
+                session.channel_success(channel)?;
+                self.uploads.insert(channel, Upload { status: Some(status), data: Vec::new() });
+            }
+            Some(Exec::Stall) => {
+                session.channel_success(channel)?;
+                self.uploads.insert(channel, Upload { status: None, data: Vec::new() });
+            }
+            Some(Exec::Disconnect) => {
+                session.channel_success(channel)?;
+                session.disconnect(Disconnect::ByApplication, "", "")?;
+            }
             Some(Exec::Done { stdout, status }) => {
                 session.channel_success(channel)?;
                 session.data(channel, stdout)?;
@@ -282,6 +313,26 @@ impl Handler for Connection {
                 session.eof(channel)?;
                 session.close(channel)?;
             }
+        }
+        Ok(())
+    }
+
+    async fn data(&mut self, channel: ChannelId, data: &[u8], _session: &mut Session) -> Result<(), Self::Error> {
+        match self.uploads.get_mut(&channel) {
+            Some(Upload { status: Some(_), data: received }) => received.extend_from_slice(data),
+            // A host that stopped reading: this connection takes nothing more, whatever the client sends.
+            Some(Upload { status: None, .. }) => std::future::pending::<()>().await,
+            None => {}
+        }
+        Ok(())
+    }
+
+    async fn channel_eof(&mut self, channel: ChannelId, session: &mut Session) -> Result<(), Self::Error> {
+        if let Some(Upload { status: Some(status), data }) = self.uploads.remove(&channel) {
+            self.shared.record(|seen| seen.received.push(data));
+            session.exit_status_request(channel, status)?;
+            session.eof(channel)?;
+            session.close(channel)?;
         }
         Ok(())
     }
@@ -321,7 +372,7 @@ impl Server {
                     accepted = listener.accept() => {
                         let Ok((socket, _)) = accepted else { break };
                         accepting.record(|seen| seen.connections += 1);
-                        let handler = Connection { shared: Arc::clone(&accepting) };
+                        let handler = Connection { shared: Arc::clone(&accepting), uploads: HashMap::new() };
                         tokio::spawn(serve_connection(Arc::clone(&config), socket, handler, stop.clone()));
                     }
                     _ = stop.changed() => break,

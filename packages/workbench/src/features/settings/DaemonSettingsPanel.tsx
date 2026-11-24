@@ -90,6 +90,11 @@ export function DaemonSettingsPanel() {
               {view.checkError}
             </span>
           )}
+          {view.skipped && (
+            <span className={styles.description} role="status">
+              {view.skipped}
+            </span>
+          )}
         </div>
         <Button
           size="sm"

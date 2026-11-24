@@ -343,6 +343,7 @@ where
 }
 
 mod channels;
+mod send;
 
 #[cfg(test)]
 mod tests;

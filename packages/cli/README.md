@@ -308,3 +308,13 @@ state machine, output rendering, pairing-URL construction, and the `auth` group 
 prompt/notify rendering, login/status/logout orchestration) — all against an injected `CliContext`
 (stub output sink + mock `DaemonRuntime`, fake `AuthRuntime` and terminal I/O), never a real
 spawned daemon and never a real credential store.
+
+### Single binary
+
+`npm run build && npm run build:binary -- --target linux-x64` (also `linux-arm64`, `darwin-arm64`,
+`darwin-x64`) compiles the whole CLI, the daemon, the relay, Pi and `skills` into one `pi-studio`
+executable with Bun, and writes `dist-binary/pi-studio-<version>-<target>/` plus its `.tar.gz`. The
+folder also holds a `bun` script, Pi's runtime assets and `web/` (what `pi-studio ui` serves), so
+it can be moved anywhere and needs no Node. macOS targets are ad-hoc signed only when built on
+macOS. `scripts/binary-container-check.sh` runs the main commands from an unpacked folder in a
+Node-less Docker container.

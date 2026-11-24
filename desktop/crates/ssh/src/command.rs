@@ -25,6 +25,12 @@ const QUOTE_ESCAPE: &str = "'\\''";
 const BEGIN_PREFIX: &str = "pistudio-begin-";
 const END_PREFIX: &str = "pistudio-end-";
 
+/// `word` as one word for a POSIX `sh`: in single quotes, each quote inside closed, escaped and opened again.
+#[must_use]
+pub(crate) fn quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', QUOTE_ESCAPE))
+}
+
 /// What a command printed between its markers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Output {

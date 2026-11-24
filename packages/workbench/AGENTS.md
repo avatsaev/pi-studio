@@ -644,7 +644,8 @@ src/
                             no terminals are open.") | progress (3 stages) | restarting (status gone after
                             a running update, or `restarting`) | result (updated / rolled back / failed;
                             reload note only for a browser host, `updated`, and a page version that differs
-                            from the daemon's) | cannot_update (reason + command) | failed (message,
+                            from the daemon's) | cannot_update (reason + command; `link` when the
+                            command is a web address, e.g. `unmanaged_binary`'s release page) | failed (message,
                             `MANUAL_UPDATE_COMMAND`, Retry) | none; a result wins over everything),
                             daemon-update-actions.ts (`startDaemonUpdate(client, applyStatus, {check})`:
                             Retry = check, then apply; a refusal `in_progress` re-fetches the status and
@@ -770,6 +771,11 @@ src/
                             the reason is only shown when there is something to install;
                             `checkDisabled` while checking or running) from `daemon-update-store`'s
                             status (the pill's own — no second fetch; `null` shows a spinner).
+                            Milestone 6: install kind `binary` → "Single binary"; `view.skipped`
+                            (`skippedText`) = "X was rolled back and is not offered; Check now to try it
+                            again." under "Last checked" when `status.skippedVersion` is set; reason
+                            `unmanaged_binary` has its own wording, and the dialog's cannot_update view
+                            carries `link` (`isWebAddress(command)`) so the release page is also an anchor.
                             daemon-settings-actions.ts (+ test): `checkDaemonNow(client,
                             applyStatus)` — a failed check is the answer's `checkError`, so only a
                             failed request resolves a message; `changeAutoCheck(client, enabled,

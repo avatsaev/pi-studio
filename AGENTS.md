@@ -443,7 +443,7 @@ All communication uses a **single WebSocket connection** per client.
   address and polls `/api/health` (which carries `version`) three times, and otherwise reinstalls the previous
   version (`--prefer-offline`) and starts that; the result lands in `update-result.json` and reaches clients as
   `lastResult`. Docker, a checkout, an unwritable folder, a missing npm and Windows are `cannot_update` with a
-  reason (Windows: `unsupported_platform`) and the command to run by hand. The CLI starts the daemon through
+  reason (Windows: `unsupported_platform`; a binary outside `$PI_STUDIO_HOME/bin/versions/<v>/`: `unmanaged_binary`) and the command to run by hand. `installKind` also takes `binary` (the single compiled binary, milestone 6). The CLI starts the daemon through
   `runDaemon` (SIGINT/SIGTERM close then exit, plus the self-update restart hook), and `daemon stop`/`restart`
   wait up to 10 s for the exit and report `still_running`. **Shipped and live-verified**: the workbench pill,
   dialog and Settings → Daemon switch; the desktop Daemons screen's Update for a stopped or too-old local or
@@ -728,6 +728,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
+update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
 logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;

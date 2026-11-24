@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import type { DaemonUpdateInstallKind } from "@av-pi-studio/protocol";
 
+import { isBinary } from "../runtime/self.js";
+
 /**
  * How this daemon was installed, and whether that install can update itself
  * (features/self-update.md § Install kind, § Check). Detection is found once at start by the
@@ -17,14 +19,19 @@ export const INSTALL_KIND_ENV = "PI_STUDIO_INSTALL_KIND";
 
 const INSTALL_KINDS: readonly InstallKind[] = ["npm-global", "docker", "source", "unknown"];
 
-/** Why an install cannot update (`cannot_update.reason`). */
+/**
+ * Why an install cannot update (`cannot_update.reason`). `unmanaged_binary` is the compiled binary
+ * until the binary's own update path lands (sprint-142/task-004 replaces the blocker below by the
+ * `bin/versions` check).
+ */
 export type CannotUpdateReason =
   | "docker"
   | "source"
   | "unknown_install"
   | "npm_missing"
   | "not_writable"
-  | "unsupported_platform";
+  | "unsupported_platform"
+  | "unmanaged_binary";
 
 /** Filesystem seams for `detectInstallKind`. */
 export interface InstallKindFs {
@@ -69,22 +76,26 @@ function isWorkspaceRoot(dir: string, fs: InstallKindFs): boolean {
 }
 
 /**
- * Find the install kind. Order: `PI_STUDIO_INSTALL_KIND` (a valid value wins); the server package
- * inside `npm root -g` → `npm-global`; the package is `<root>/packages/server` of a workspace root
- * → `source`; else `unknown`.
+ * Find the install kind. Order: `PI_STUDIO_INSTALL_KIND` (a valid value wins); the compiled binary
+ * → `binary` (a build-time constant, `isBinary`); the server package inside `npm root -g` →
+ * `npm-global`; the package is `<root>/packages/server` of a workspace root → `source`; else
+ * `unknown`.
  *
  * @param selfUrl `import.meta.url` of a module inside the server package.
  * @param npmRoot resolves `npm root -g`, `null` when npm is unavailable.
+ * @param binary whether this process is the compiled binary.
  */
 export async function detectInstallKind(
   env: NodeJS.ProcessEnv,
   selfUrl: string,
   npmRoot: () => Promise<string | null>,
   fs: InstallKindFs = REAL_FS,
+  binary: boolean = isBinary,
 ): Promise<InstallKind> {
   const forced = env[INSTALL_KIND_ENV];
   const kind = INSTALL_KINDS.find((k) => k === forced);
   if (kind) return kind;
+  if (binary) return "binary";
 
   const self = fs.realpath(fileURLToPath(selfUrl));
   const root = await npmRoot();
@@ -144,6 +155,8 @@ export function updateBlocker(
       return "source";
     case "unknown":
       return "unknown_install";
+    case "binary":
+      return "unmanaged_binary";
     case "npm-global":
       return platform === "win32" ? "unsupported_platform" : null;
   }

@@ -38,6 +38,30 @@ describe("detectInstallKind", () => {
     expect(kind).toBe("docker");
   });
 
+  it("finds binary for the compiled binary without asking npm", async () => {
+    const kind = await detectInstallKind(
+      {},
+      url("/$bunfs/root/pi-studio"),
+      async () => {
+        throw new Error("npm must not be asked");
+      },
+      fakeFs({}),
+      true,
+    );
+    expect(kind).toBe("binary");
+  });
+
+  it("lets PI_STUDIO_INSTALL_KIND win over the binary", async () => {
+    const kind = await detectInstallKind(
+      { PI_STUDIO_INSTALL_KIND: "docker" },
+      url("/$bunfs/root/pi-studio"),
+      noNpm,
+      fakeFs({}),
+      true,
+    );
+    expect(kind).toBe("docker");
+  });
+
   it("ignores an invalid env value and detects normally", async () => {
     const kind = await detectInstallKind(
       { PI_STUDIO_INSTALL_KIND: "bogus" },
@@ -89,6 +113,7 @@ describe("updateBlocker", () => {
     expect(updateBlocker("docker", "linux")).toBe("docker");
     expect(updateBlocker("source", "linux")).toBe("source");
     expect(updateBlocker("unknown", "linux")).toBe("unknown_install");
+    expect(updateBlocker("binary", "linux")).toBe("unmanaged_binary");
   });
 
   it("allows npm-global except on Windows", () => {

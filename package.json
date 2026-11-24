@@ -40,7 +40,8 @@
     "docker:publish": "bash scripts/docker-publish.sh",
     "docker:deploy": "bash scripts/dokploy-deploy.sh",
     "release": "bash scripts/release.sh",
-    "build:ui-gallery": "npm run build -w packages/ui-gallery"
+    "build:ui-gallery": "npm run build -w packages/ui-gallery",
+    "build:binary": "node scripts/build-binary.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

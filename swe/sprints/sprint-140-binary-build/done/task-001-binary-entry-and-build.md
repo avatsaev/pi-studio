@@ -1,7 +1,7 @@
 # Task 001 — The binary's entry, its sub-commands and `npm run build:binary`
 
 - **Sprint:** sprints/sprint-140-binary-build
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/cli, packages/server, scripts
 - **Priority:** P1

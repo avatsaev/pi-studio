@@ -1,7 +1,7 @@
 # Task 003 — Workbench: the skipped version and the `binary` kind in Settings → Daemon
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench
 - **Priority:** P2

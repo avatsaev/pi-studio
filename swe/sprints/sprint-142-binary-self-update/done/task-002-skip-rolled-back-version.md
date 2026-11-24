@@ -1,7 +1,7 @@
 # Task 002 — A rolled-back version is not offered again by automatic checks
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (update)
 - **Priority:** P2

@@ -101,6 +101,29 @@ describe("daemon_update_* family", () => {
     ).toBe(false);
   });
 
+  it("accepts the binary kind, unmanaged_binary and skippedVersion (milestone 6)", () => {
+    const parsed = daemonUpdateStatusSchema.safeParse({
+      ...base,
+      installKind: "binary",
+      state: {
+        kind: "cannot_update",
+        reason: "unmanaged_binary",
+        version: "0.0.130",
+        command: "https://example.com/releases",
+      },
+      skippedVersion: "0.0.130",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.skippedVersion).toBe("0.0.130");
+    expect(daemonUpdateStatusSchema.safeParse({ ...base, state: { kind: "idle" } }).success).toBe(
+      true,
+    );
+    expect(
+      daemonUpdateStatusSchema.safeParse({ ...base, state: { kind: "idle" }, skippedVersion: 1 })
+        .success,
+    ).toBe(false);
+  });
+
   it("rejects an unknown installKind and a non-boolean enabled", () => {
     expect(daemonUpdateStatusSchema.safeParse({ ...status, installKind: "snap" }).success).toBe(
       false,

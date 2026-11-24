@@ -9,6 +9,7 @@ import type { DaemonUpdateStatus } from "@av-pi-studio/protocol";
 
 import {
   classifyInstallFailure,
+  createFileSkipStore,
   createUpdatePipeline,
   failureMessage,
   HANDOFF_PAUSE_MS,
@@ -684,5 +685,77 @@ describe("readAndRemoveUpdateResult", () => {
     const path = await tempFile(JSON.stringify({ from: 1 }));
     expect(await readAndRemoveUpdateResult(path)).toBeUndefined();
     await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+function memorySkipStore(initial?: string) {
+  const store = {
+    value: initial,
+    read: async () => store.value,
+    write: async (version: string) => {
+      store.value = version;
+    },
+    clear: async () => {
+      store.value = undefined;
+    },
+  };
+  return store;
+}
+
+const rolledBack: UpdateLastResult = {
+  from: "0.0.10",
+  to: "0.0.11",
+  outcome: "rolled_back",
+  at: 5,
+};
+
+describe("skipped version (D14)", () => {
+  it.each(["rolled_back", "failed"])("a %s result writes the skip file", async (outcome) => {
+    const skipStore = memorySkipStore();
+    const { service } = setup({
+      skipStore,
+      takeLastResult: async () => ({ ...rolledBack, outcome }),
+    });
+    await service.ready();
+    expect(skipStore.value).toBe("0.0.11");
+    expect(service.status().skippedVersion).toBe("0.0.11");
+  });
+
+  it("an updated result writes nothing", async () => {
+    const skipStore = memorySkipStore();
+    const { service } = setup({
+      skipStore,
+      takeLastResult: async () => ({ ...rolledBack, outcome: "updated" }),
+    });
+    await service.ready();
+    expect(skipStore.value).toBeUndefined();
+    expect(service.status().skippedVersion).toBeUndefined();
+  });
+
+  it("an automatic check that finds the skipped version stays idle; a manual one offers it", async () => {
+    const { service } = setup({ skipStore: memorySkipStore("0.0.11") });
+    expect((await service.check("automatic")).state).toEqual({ kind: "idle" });
+    expect((await service.check("manual")).state).toEqual({ kind: "available", version: "0.0.11" });
+    expect(service.status().skippedVersion).toBe("0.0.11");
+  });
+
+  it("a newer version is offered and clears the skip", async () => {
+    const skipStore = memorySkipStore("0.0.11");
+    const { service } = setup({ skipStore, fetchLatest: async () => "0.0.12" });
+    const status = await service.check("automatic");
+    expect(status.state).toEqual({ kind: "available", version: "0.0.12" });
+    expect(status.skippedVersion).toBeUndefined();
+    expect(skipStore.value).toBeUndefined();
+  });
+
+  it("a file store round-trips and removes an unreadable file", async () => {
+    const path = await tempFile("not json");
+    const store = createFileSkipStore(path);
+    expect(await store.read()).toBeUndefined();
+    await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await store.write("1.2.3");
+    expect(await store.read()).toBe("1.2.3");
+    await store.clear();
+    expect(await store.read()).toBeUndefined();
   });
 });

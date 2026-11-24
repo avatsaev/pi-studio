@@ -1,7 +1,7 @@
 # Task 001 — SSH crate: send a file over the connection
 
 - **Sprint:** sprints/sprint-144-desktop-ssh-install
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (ssh)
 - **Priority:** P1

@@ -106,9 +106,11 @@ import { npmGlobalInstall, npmLatestVersion } from "../update/npm.js";
 import { spawnUpdateHelper } from "../update/helper.js";
 import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
 import {
+  createFileSkipStore,
   createUpdatePipeline,
   readAndRemoveUpdateResult,
   UPDATE_RESULT_FILE,
+  UPDATE_SKIP_FILE,
   UpdateService,
   type UpdatePipelineDeps,
   type UpdateServiceDeps,
@@ -461,6 +463,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     platform: process.platform,
     autoCheck: config.daemon.update.autoCheck,
     takeLastResult: () => readAndRemoveUpdateResult(join(home, UPDATE_RESULT_FILE), logger),
+    skipStore: createFileSkipStore(join(home, UPDATE_SKIP_FILE), logger),
     persistAutoCheck: async (enabled) => {
       await persistUpdateAutoCheck(configPath, enabled);
       return loadConfig(configPath, process.env).daemon.update.autoCheck;

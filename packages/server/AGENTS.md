@@ -54,10 +54,12 @@ src/
     npm.ts                        npmLatestVersion (`npm view`, 15 s, null on failure), compareVersions,
                                    npmGlobalInstall (`npm install -g`, ENOTEMPTY stale-staging retry via
                                    installWithStaleStagingRetry/staleStagingDirFrom).
-    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?) → npm-global|docker|source|
-                                   unknown (`PI_STUDIO_INSTALL_KIND` wins); npmRootGlobal() (cached),
-                                   canWriteGlobalFolder(folder), npmOnPath(), updateBlocker(kind, platform)
-                                   → `cannot_update` reason or null.
+    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?, binary = isBinary) →
+                                   npm-global|docker|source|binary|unknown (`PI_STUDIO_INSTALL_KIND`
+                                   wins, then `binary` for the compiled binary without asking npm);
+                                   npmRootGlobal() (cached), canWriteGlobalFolder(folder), npmOnPath(),
+                                   updateBlocker(kind, platform) → `cannot_update` reason or null (`binary`
+                                   → `unmanaged_binary` until the binary's own update path, sprint-142).
     process-wait.ts               waitForProcessExit(pid, {timeoutMs, pollMs, alive?, sleep?, now?}) —
                                    polls signal 0 (`EPERM` = alive); true once gone, false at the limit
                                    (`timeoutMs: 0` checks once); processAlive(pid). Used by the CLI's
@@ -99,6 +101,7 @@ src/
   daemon/
     main.ts                       Production entry: `runDaemon()` (bin `pi-studio-daemon`); listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767).
     run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
+    binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `prepareBinaryDaemon()` (Pi's `dist/bun/runtime-setup.js`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
@@ -1950,6 +1953,14 @@ answer, so after that start-up read: while `lastResult` is empty, `start()` also
 500 ms for 30 s (`RESULT_POLL_MS`/`RESULT_WATCH_MS`, its own `resultTimer` seam); the first read takes
 it, sets `lastResult` and broadcasts. `close()` (called first in the daemon's shutdown) clears both
 timers.
+
+- **Skipped version (D14, all install kinds).** Reading an `update-result.json` with outcome
+  `rolled_back` or `failed` (at start-up or in the watch) writes `$PI_STUDIO_HOME/update-skip.json`
+  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; an
+  unreadable/malformed file is removed and logged; absent store = in-memory only, so bootstrap must
+  pass it). `status.skippedVersion` is set while one is held. An automatic check finding exactly
+  that version stays `idle`; a manual check offers it; a newer latest clears it (file removed).
+  `outcome: "updated"` writes nothing. `MANUAL_UPDATE_COMMANDS.unmanaged_binary` is the releases page.
 
 - **Check.** `npm view` result → `checkError` `offline` (no answer) or `bad_answer` (not `x.y.z`),
   state kept; otherwise `idle` (not newer), or the blocker in the spec's order: install kind

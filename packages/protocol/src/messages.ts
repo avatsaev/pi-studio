@@ -1520,7 +1520,13 @@ export type DaemonLogLines = z.infer<typeof daemonLogLinesSchema>;
 // `outcome` and the apply `error` are plain strings, documented in the spec, never enums.
 // ===========================================================================
 
-export const daemonUpdateInstallKindSchema = z.enum(["npm-global", "docker", "source", "unknown"]);
+export const daemonUpdateInstallKindSchema = z.enum([
+  "npm-global",
+  "docker",
+  "source",
+  "unknown",
+  "binary",
+]);
 export type DaemonUpdateInstallKind = z.infer<typeof daemonUpdateInstallKindSchema>;
 
 export const daemonUpdateStateSchema = z.discriminatedUnion("kind", [
@@ -1542,7 +1548,10 @@ export const daemonUpdateStateSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("cannot_update"),
-      /** `docker | source | unknown_install | npm_missing | not_writable | unsupported_platform`. */
+      /**
+       * `docker | source | unknown_install | npm_missing | not_writable | unsupported_platform |
+       * unmanaged_binary`.
+       */
       reason: z.string(),
       version: z.string().optional(),
       command: z.string(),
@@ -1571,6 +1580,8 @@ export const daemonUpdateStatusSchema = z
       })
       .passthrough()
       .optional(),
+    /** Milestone 6 (D14): a version that was rolled back; automatic checks do not offer it. */
+    skippedVersion: z.string().optional(),
   })
   .passthrough();
 export type DaemonUpdateStatus = z.infer<typeof daemonUpdateStatusSchema>;

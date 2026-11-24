@@ -1,7 +1,7 @@
 # Task 001 — Protocol: the `binary` install kind, `unmanaged_binary`, `skippedVersion`
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol, packages/client
 - **Priority:** P1
