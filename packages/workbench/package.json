@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/workbench",
-  "version": "0.0.130",
+  "version": "0.0.131",
   "description": "The Pi-Studio client application as a library: every feature, its stores and its shell regions, for web and desktop shells",
   "license": "AGPL-3.0",
   "repository": {
@@ -38,9 +38,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/client": "^0.0.130",
-    "@av-pi-studio/protocol": "^0.0.130",
-    "@av-pi-studio/ui-library": "^0.0.130",
+    "@av-pi-studio/client": "^0.0.131",
+    "@av-pi-studio/protocol": "^0.0.131",
+    "@av-pi-studio/ui-library": "^0.0.131",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.1",
