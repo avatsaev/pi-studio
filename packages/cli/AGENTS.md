@@ -246,6 +246,8 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 - `start(opts)` — spawn the daemon (`subprocessStarter`) as a detached child.
 - `waitForExit(pid, timeoutMs)` — `waitForProcessExit` from `@av-pi-studio/server` (100 ms poll,
   signal 0); `timeoutMs: 0` is one liveness check.
+- `readVersion(host, port)` — `version` from the `/api/health` body (`httpHealthVersionReader`);
+  `null` when unreadable. Used by `update` to report the version answering after a restart.
 
 Free functions: `waitForDaemon(runtime, host, port, opts)` polls health until up or timeout;
 `stopDaemon(home, runtime)` (async) → `StopResult { stopped, error?: "still_running" }`: no pid file
@@ -472,6 +474,13 @@ succeed afterward); when the CLI step succeeds or is a no-op ("already up to dat
 extensions step's exit code (e.g. `EXIT_ERROR` if no embedded/global Pi CLI is resolvable, or Pi's
 own `update --extensions` exits nonzero) is surfaced instead.
 
+**Daemon restart.** After a successful install in this run (not when already up to date, not when
+the install failed), `restartLocalDaemon` probes `--host` (default 127.0.0.1:6767). A daemon
+answering → `stopDaemon` (waits for the exit), `start` on the same `host:port`, `waitForDaemon`,
+then prints `daemon restarted: <version>` from `readVersion`. No daemon → nothing happens. A failed
+restart prints the reason and exits `EXIT_ERROR` (the install is not undone); the exit order is
+install error, then extensions error, then restart error. Tests inject `ctx.daemon`.
+
 ---
 
 ## `CliContext` and `withDaemon()`
@@ -568,13 +577,16 @@ branches to `createRelayTransport` when it carries a relay offer).
   auth-store init, model list load, provider rebuild) is never _invoked_ until a real `auth`
   command needs it (confirmed with the same live trace, instrumenting `ModelRuntime.create`
   directly: zero invocations for `--help`/`ls`, exactly one for `auth status`).
-- **`subprocessStarter`'s spawned `-e` script must pass `onFatalError` to `startDaemon`.**
-  `startDaemon` deliberately never calls `process.exit()` itself (it is also embedded in-process by
+- **`subprocessStarter`'s spawned `-e` script must call `runDaemon`, never `startDaemon`.**
+  `daemonStartScript(serverUrl, {host, port, home})` builds it. `startDaemon` deliberately never
+  calls `process.exit()` and installs no signal handlers (it is also embedded in-process by
   `packages/desktop` and the server's own integration tests — see `packages/server/AGENTS.md`'s
   invariant), so the process-level decision belongs to whoever owns the process. Here that is the
-  detached child: without `onFatalError: () => process.exit(1)` baked into the script, a bind
-  failure (`EADDRINUSE`) would leave the child alive with a dead HTTP server, and `waitForDaemon`
-  would time out against a process that never exits on its own.
+  detached child, and `runDaemon` (`daemon/run.ts`) supplies it: exit on a bind failure
+  (`EADDRINUSE` would otherwise leave the child alive with a dead HTTP server and `waitForDaemon`
+  timing out), SIGINT/SIGTERM → clean close (so `daemon stop` removes `pi-studio.pid`), and the exit
+  after a self-update's shutdown (without it the daemon cannot update itself). Test:
+  `daemon-start-script.test.ts`.
 - **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
   auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
   `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public

@@ -255,6 +255,7 @@ describe("auth group registration", () => {
         kill: () => true,
         start: async () => 0,
         waitForExit: async () => true,
+        readVersion: async () => null,
       },
     };
     await run(["daemon", "status"], daemonCtx);

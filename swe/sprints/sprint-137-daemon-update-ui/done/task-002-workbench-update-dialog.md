@@ -1,7 +1,7 @@
 # Task 002 — Workbench: the update dialog (confirm with counts, progress, result)
 
 - **Sprint:** sprints/sprint-137-daemon-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (features/daemon-update)
 - **Priority:** P1

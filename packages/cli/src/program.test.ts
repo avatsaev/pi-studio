@@ -72,6 +72,7 @@ function safeCtx(): CliContext {
       kill: () => true,
       start: async () => 0,
       waitForExit: async () => true,
+      readVersion: async () => null,
     },
     connectOverrides: { home: "/nonexistent-pi-studio-home-for-tests" },
   };

@@ -1,6 +1,14 @@
 import type { Command } from "commander";
 
+import { resolveHome } from "./client-id.js";
 import { type CliContext, type GlobalOptions, EXIT_ERROR, EXIT_OK } from "./cli-core.js";
+import { parseHost } from "./connection.js";
+import {
+  type DaemonRuntime,
+  defaultDaemonRuntime,
+  stopDaemon,
+  waitForDaemon,
+} from "./daemon-control.js";
 import { runPiProxy } from "./pi-commands.js";
 import {
   CURRENT_VERSION,
@@ -34,6 +42,42 @@ function updatePiExtensions(ctx: CliContext, opts: GlobalOptions): Promise<numbe
   return runPiProxy(ctx, opts, ["update", "--extensions"]);
 }
 
+/**
+ * After a successful install, restart a local daemon that answers health at `--host`: stop it
+ * (waiting for the exit), start it on the same host:port, and print the version that answers. No
+ * answering daemon means nothing to do. Returns an exit code; the install is never undone.
+ */
+async function restartLocalDaemon(ctx: CliContext, opts: GlobalOptions): Promise<number> {
+  const runtime: DaemonRuntime = ctx.daemon ?? defaultDaemonRuntime();
+  const { host, port } = parseHost(opts.host);
+  if (!(await runtime.probe(host, port))) return EXIT_OK;
+
+  const home = ctx.connectOverrides?.home ?? opts.home ?? resolveHome();
+  ctx.sink.write(`restarting local daemon at ${host}:${port} ...`);
+  try {
+    const { stopped, error } = await stopDaemon(home, runtime);
+    if (!stopped) {
+      ctx.sink.error(
+        error
+          ? "daemon restart failed: the daemon did not exit in time; it is still running."
+          : "daemon restart failed: the running daemon was not started by this CLI home and cannot be stopped.",
+      );
+      return EXIT_ERROR;
+    }
+    await runtime.start({ home, listen: `${host}:${port}`, piHome: opts.piHome });
+    if (!(await waitForDaemon(runtime, host, port))) {
+      ctx.sink.error("daemon restart failed: the daemon did not become healthy in time.");
+      return EXIT_ERROR;
+    }
+    const version = await runtime.readVersion(host, port);
+    ctx.sink.write(`daemon restarted: ${version ?? "unknown version"}`);
+    return EXIT_OK;
+  } catch (err) {
+    ctx.sink.error(`daemon restart failed: ${(err as Error)?.message ?? String(err)}`);
+    return EXIT_ERROR;
+  }
+}
+
 /** Check for and optionally apply an update. Returns an exit code. */
 export async function runUpdate(
   ctx: CliContext,
@@ -59,6 +103,7 @@ export async function runUpdate(
   }
 
   let cliExit = EXIT_OK;
+  let installed = false;
   if (!updateAvailable) {
     ctx.sink.write(`already up to date (${CURRENT_VERSION})`);
   } else {
@@ -66,6 +111,7 @@ export async function runUpdate(
     try {
       await runtime.installGlobal(PACKAGE_NAME, latest);
       ctx.sink.write(`updated to ${latest}`);
+      installed = true;
     } catch (err) {
       ctx.sink.error(`update failed: ${(err as Error)?.message ?? String(err)}`);
       cliExit = EXIT_ERROR;
@@ -73,7 +119,9 @@ export async function runUpdate(
   }
 
   const extensionsExit = await updatePiExtensions(ctx, opts);
-  return cliExit !== EXIT_OK ? cliExit : extensionsExit;
+  const restartExit = installed ? await restartLocalDaemon(ctx, opts) : EXIT_OK;
+  if (cliExit !== EXIT_OK) return cliExit;
+  return extensionsExit !== EXIT_OK ? extensionsExit : restartExit;
 }
 
 export function registerUpdateCommands(

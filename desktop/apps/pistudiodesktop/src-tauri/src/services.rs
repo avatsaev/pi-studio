@@ -190,6 +190,7 @@ pub fn native<R: Runtime>(native: &Arc<Native<R>>) -> Services {
         pick_save_path: Some(Arc::new(move |name: &str, folder: Option<&Path>| for_save.pick_save_path(name, folder))),
         pick_files: Some(Arc::new(move |folder: Option<&Path>| for_pick.pick_files(folder))),
         run: Some(Arc::new(process::run)),
+        run_checked: Some(Arc::new(process::run_checked)),
         is_executable: Some(Arc::new(process::is_executable)),
         env: Some(Arc::new(process::process_env)),
         home_dir: Some(Arc::new(process::home_dir)),

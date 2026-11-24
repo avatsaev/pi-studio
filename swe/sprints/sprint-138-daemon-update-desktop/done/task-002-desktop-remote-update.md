@@ -1,7 +1,7 @@
 # Task 002 — Desktop: `daemon.remote.update` over SSH
 
 - **Sprint:** sprints/sprint-138-daemon-update-desktop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/shell (remote_supervisor), engine
 - **Priority:** P1

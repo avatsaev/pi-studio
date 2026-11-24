@@ -1,7 +1,7 @@
 # Task 002 — Client SDK: daemon update methods and subscription
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

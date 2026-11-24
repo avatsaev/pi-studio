@@ -221,7 +221,7 @@ npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
+# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning; PI_STUDIO_DEV_UPDATE=available|cannot|fail|rollback scripts the self-update family for UI work: no npm, no real restart)
 npm run dev:daemon
 
 # Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
@@ -367,6 +367,7 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 |`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
+|`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
 |`PI_STUDIO_EXTENSION_PACKS`|_(unset, i.e. `core` only)_|CSV of extra audience pack slugs to select, additive to the always-implicit `core` (`daemon.extensions.packs`)|
 
 Also reads `$PI_STUDIO_HOME/config.json`.
@@ -695,6 +696,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 ```
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
+update-result.json    Written by the update restart helper, read once and removed at the next daemon start → `lastResult` of the update status (unreadable → removed and logged)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
                        replace via `pi-studio daemon rotate-key` (revokes all pairing links)

@@ -122,6 +122,8 @@ export const persistedConfigSchema = z
             packs: z.array(z.string()).default([]),
           })
           .default({}),
+        /** Daemon self-update (features/self-update.md § Check). */
+        update: z.object({ autoCheck: z.boolean().default(true) }).default({}),
       })
       .default({}),
     app: z.object({ baseUrl: z.string().optional() }).default({}),
@@ -284,6 +286,10 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
   }
+  if (env.PI_STUDIO_UPDATE_AUTOCHECK !== undefined) {
+    const v = env.PI_STUDIO_UPDATE_AUTOCHECK.trim().toLowerCase();
+    next.daemon.update.autoCheck = !(v === "false" || v === "0");
+  }
 
   return next;
 }
@@ -349,6 +355,35 @@ export async function persistExtensionPacks(
   await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
 
   // Re-chmod to 0600 (best-effort, mirrors CLI pattern)
+  try {
+    chmodSync(configPath, 0o600);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Persist `daemon.update.autoCheck` into `configPath` with the same raw read-merge-write as
+ * {@link persistExtensionPacks}: unknown keys survive, env overrides are never written.
+ */
+export async function persistUpdateAutoCheck(configPath: string, enabled: boolean): Promise<void> {
+  let config: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    } catch {
+      config = {};
+    }
+  }
+
+  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
+  const update = (daemon.update as Record<string, unknown> | undefined) ?? {};
+  update.autoCheck = enabled;
+  daemon.update = update;
+  config.daemon = daemon;
+
+  await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
+
   try {
     chmodSync(configPath, 0o600);
   } catch {

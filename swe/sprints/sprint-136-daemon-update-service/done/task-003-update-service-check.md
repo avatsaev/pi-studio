@@ -1,7 +1,7 @@
 # Task 003 — Daemon: the update service (state, check, timer, setting, result file) and its handlers
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (update/, daemon/bootstrap, config)
 - **Priority:** P1

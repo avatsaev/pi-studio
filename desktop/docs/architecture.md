@@ -80,7 +80,7 @@ Where new code goes, stopping at the first yes:
    through service hooks.
 4. **`Services`** (`crates/shell/src/services.rs`): optional function hooks the app binary fills
    in — `confirm`, `alert`, `open_url`, `pick_save_path` and `pick_files` (the open dialog, several files), built from the dialog and opener
-   plug-ins in `src-tauri/src/services.rs`, and for the CLI `run` (a process with a time limit),
+   plug-ins in `src-tauri/src/services.rs`, and for the CLI `run` (a process with a time limit) and `run_checked` (the same, with the exit status and standard error kept, for `pi-studio update`),
    `is_executable`, `env`, `home_dir` and `list_dir`, built from `shell::process`. The shell and
    the engine never call the OS themselves;
    the shell checks first (`links::check`: http, https and mailto only, at most 8,192 characters;
@@ -152,7 +152,7 @@ event; the app emits only `daemons_changed`, `daemons_manage`, `connection_resum
 | `transfers_set(count)` | The page's count of uploads and saves in flight. Closing the window while it is above zero asks first ("N file transfer(s) are still running. Quit anyway?") |
 | `preview_mount(html)` → `{url}` | Mounts an HTML document at the preview origin. An error on an `inert` platform or past the caps; the error never contains the document |
 | `preview_release(url)` | Drops a mounted document; an unknown URL is ignored |
-| `engine_command(id, params?)` | Runs one of twelve allowed engine ids (`daemon.list/add/update/remove`, `daemon.local.*`, `daemon.remote.start/refresh`, settings); anything else, including `daemon.switch` and `command.list`, is refused |
+| `engine_command(id, params?)` | Runs one of the allowed engine ids (`shell::daemons::PAGE_COMMANDS`: `daemon.list/add/update/remove`, `daemon.local.*` (including `update`), `daemon.remote.start/refresh/update`, settings, `update.*`); anything else, including `daemon.switch` and `command.list`, is refused |
 | `daemon_resolve_current()` | What to dial for the current entry: `{url, connect: true}` or an error code; never a secret, without exception. `url` is the entry's address for a `local` or `direct` entry, the relay's WebSocket address for a `relay` entry (`ws(s)://<relay host>`, or `ws://<host>` for a link with a host hint: Rust reads the link on the blocking pool and answers `engine::relay_address`, never the link) and `ws://127.0.0.1:<daemonPort>` for an `ssh` entry. The page does not dial it: it hands it to `transport_open`, which checks it against the entry. Starts a stopped local daemon when auto-start is on. A local, direct or SSH entry's answer reads nothing from the secret store, so a missing or unreadable password shows at `transport_open` (`secret_missing`, `secret_unavailable`); a relay entry's answer reads the link, so a missing, unreadable or unparsable link shows here (`secret_missing`, `secret_unavailable`, `invalid_link`) |
 | `transport_open(url)` → `{localUrl}` | Opens the proxied connection to the current entry's daemon, whatever its kind (`apps/pistudiodesktop/src-tauri/src/transport.rs`, `Route`, which the transfer engine's connector shares). One question to the owner thread (`LocalOp::Bridge`, answered by `Session::plan_bridge`: the entry's id and kind, the address to dial, where the password or link is); then the route for the kind (`Route::resolve`: a relay entry's link is read on the blocking pool and parsed, `secret_missing`, `secret_unavailable`, `invalid_link`; an SSH entry's fields are asked of the owner thread, `LocalOp::Ssh`), and in order: `address_mismatch` unless `url` is exactly the address rule (`address_matches`) applied to the route's address, `invalid_address` (`net::check_address`: only `ws:`/`wss:`, no user information), `limit` when four proxied connections exist (`Proxies::reserve`, before any dial), the calling webview's origin (read from the webview: `tauri://localhost` on Linux and macOS, `http://tauri.localhost` on Windows), then the socket by kind. A local, direct or SSH entry's password is read from the secret store on the blocking pool (`secret_missing`, `secret_unavailable`). A local or direct entry is dialled within 15 s (`unreachable`, `tls`, `unauthorized`, `host_not_allowed`, `handshake`, `timeout`; the password is the `pi-studio.bearer.<password>` subprotocol). A relay entry goes through `relay::connect` within 15 s (the SDK's eight reasons as codes: `relay_unreachable`, `daemon_offline`, `daemon_unresponsive`, `too_many_clients`, `daemon_outdated`, `wrong_key`, `protocol_error`, `timeout`); a link with a host hint is dialled with `net::dial` and no password. An SSH entry opens a channel of the one shared SSH session (`ssh_session.rs`, opened if needed) and runs `net::dial_over` on it (`unreachable`, `timeout`, `host_key_unknown`, `host_key_changed`, `known_hosts`, `auth_failed`, `passphrase_needed`, `key_unreadable`, `ssh_config`, `forwarding_refused`, `daemon_not_running`, `ssh_lost`, and the dial's codes). Last `Reservation::open(socket, origin)` (`proxy_failed`). `localUrl` is `ws://127.0.0.1:<port>/<token>`: single use, valid for 10 s, in this answer and nowhere else. A local entry whose daemon is not running answers the codes of `daemon_resolve_current` (`local_not_ready` while it starts or has to be started). An SSH entry that fails with `daemon_not_running` also queues one probe of the host's daemon (§ The registry and the local daemon). Errors are `{code, message}`; no answer, error or log line holds a password, a link, a host name or the token. `boot`, `daemon_switch` (after the confirm, before the reload) and the window closing (and the app's exit) close every proxied connection: each daemon is told 1001 |
 | `ssh_config_hosts()` → `{hosts: [{alias, hostName?, user?, port?, identityFile?, jump?}]}` | The plain `Host` names of `~/.ssh/config` and its includes, in file order, at most 256, for the SSH form of the Daemons screen (`SshSessions::config_hosts`, read on the blocking pool; the file is read, never written). An absent file is an empty list; a file that does not parse is refused with `ssh_config`. An unknown SSH host key is not a command: a connect that fails with `host_key_unknown` makes Rust ask in a native confirm (host, port, key type, SHA-256 fingerprint, and whether it is a jump host), once per key per page load; OK stores the key in the app's `known_hosts` and emits `connection_resume`, Cancel is remembered until `boot` or a switch |
@@ -238,15 +238,22 @@ user's login shell once per run (`$SHELL -l -i -c`, random markers around `env`,
 app's own environment on failure; Retry reads it again), then looks at `cliPath`, `PATH`, and the
 per-user and system install directories of npm and the Node version managers
 (`cli_find.rs`). A CLI older than 0.0.127 is `cli_outdated` and runs no daemon command. Each
-call has its own limit (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s), a
+call has its own limit (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s, `update` 5 min), a
 timed-out process group is killed, and the answer is the last non-empty line of standard output
 read as JSON whatever the exit code. The CLI's `pairingUrl` is discarded where the line is parsed.
 Quitting the app never stops the daemon. On Windows none of this runs (`unsupported`).
 
+**Updating the local daemon.** `daemon.local.update` is enabled when the state is `cli_outdated` or
+`stopped` (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
+through `run_checked`; the state is `updating`), without reading its output (an outdated CLI's
+format is unknown); a non-zero exit, a timeout or no process keeps the last 20 lines (2000
+characters, control characters removed) as `failed(update_failed)` with `output`. Then it reads
+`--version` (still below the minimum: `cli_outdated`) and starts the daemon as Start does.
+
 **The SSH entry's daemon.** The engine keeps the `RemoteState` of the current SSH entry's daemon in
-memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`,
+memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`, `updating`,
 `failed`; reset when another entry is opened) and a queue of requests (`daemon.remote.start`,
-`daemon.remote.refresh`, and the probe a `transport_open` that failed with `daemon_not_running`
+`daemon.remote.refresh`, `daemon.remote.update`, and the probe a `transport_open` that failed with `daemon_not_running`
 queues); like the local supervisor it runs no process. `shell::remote_supervisor` (native only) works
 the queue one request at a time through `RemoteAccess` (the app's `RemoteOwner`, over `LocalOp::Ssh`)
 and `Services::remote_run`, a hook the app fills with a command run over the shared SSH session:
@@ -259,9 +266,15 @@ same check, then `pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` (90 s
 `daemon start` listens where `-H` says), read by `cli_answers` as the local supervisor reads it
 (`up` is `running`; otherwise `failed` with `not_healthy`, `timeout` or `bad_output`; `exec_failed`
 when the command could not be run, `no_shell` when the account runs no commands); `pairingUrl` is
-discarded. After a successful Start Rust emits `connection_resume`, so the page connects again. A
-start is never run without the button. A log line holds the action and the state code; the output of a
-remote command is never logged.
+discarded. After a successful Start or Update Rust emits `connection_resume`, so the page connects
+again. A start is never run without the button. Update (`daemon.remote.update`, enabled for
+`cli_outdated` and `stopped`, not `not_installed`) runs `pi-studio update 2>&1` (300 s; the hook
+gives only standard output, so standard error is merged into it) while the state is `updating`; a
+non-zero exit is `failed(update_failed)` with the last 20 lines (at most 2000 characters, control
+characters removed: `cli_answers::output_tail`, the local supervisor's helper) as `output`, a timeout
+is `update_failed` saying so, an SSH-level failure keeps its `exec_failed` / `no_shell` reason. Then
+it reads `--version` again (`cli_outdated` when still too old) and starts the daemon as Start does.
+A log line holds the action and the state code; the output of a remote command is never logged.
 
 **The native menu.** `menus::daemons_menu` turns the registry view into the "Daemons" menu (one
 check item per entry, "Manage Daemons…", Start, Stop and Restart); `src-tauri/src/menu.rs` draws

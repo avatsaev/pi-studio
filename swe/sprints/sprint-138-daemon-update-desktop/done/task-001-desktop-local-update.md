@@ -1,7 +1,7 @@
 # Task 001 — Desktop: `daemon.local.update`
 
 - **Sprint:** sprints/sprint-138-daemon-update-desktop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop/crates/engine, desktop/crates/shell
 - **Priority:** P1

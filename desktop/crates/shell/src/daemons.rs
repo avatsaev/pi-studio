@@ -27,8 +27,10 @@ pub const PAGE_COMMANDS: &[&str] = &[
     "daemon.local.stop",
     "daemon.local.restart",
     "daemon.local.refresh",
+    "daemon.local.update",
     "daemon.remote.start",
     "daemon.remote.refresh",
+    "daemon.remote.update",
     "settings.get",
     "settings.set",
     "update.check",
@@ -170,6 +172,7 @@ fn request_name(request: LocalRequest) -> &'static str {
         LocalRequest::Stop => "stop",
         LocalRequest::Restart => "restart",
         LocalRequest::Probe => "probe",
+        LocalRequest::Update => "update",
     }
 }
 
@@ -179,6 +182,7 @@ fn request_of(name: &str) -> Option<LocalRequest> {
         "stop" => LocalRequest::Stop,
         "restart" => LocalRequest::Restart,
         "probe" => LocalRequest::Probe,
+        "update" => LocalRequest::Update,
         _ => return None,
     })
 }
@@ -291,6 +295,7 @@ fn remote_request_to_json(request: &RemoteRequest) -> Value {
     let action = match request.action {
         RemoteAction::Start => "start",
         RemoteAction::Probe => "probe",
+        RemoteAction::Update => "update",
     };
     json!({"entry": request.entry.as_str(), "action": action})
 }
@@ -301,6 +306,7 @@ pub fn remote_requests_from_json(value: &Value) -> Vec<RemoteRequest> {
         let action = match item["action"].as_str()? {
             "start" => RemoteAction::Start,
             "probe" => RemoteAction::Probe,
+            "update" => RemoteAction::Update,
             _ => return None,
         };
         Some(RemoteRequest { entry: EntryId::parse(item["entry"].as_str()?).ok()?, action })
@@ -435,7 +441,11 @@ mod tests {
         assert_eq!(ssh_plan_from_json(&ssh_plan_to_json(&plan)), Ok(plan));
         assert_eq!(ssh_plan_from_json(&Value::Null), Err("internal"));
         assert_eq!(ssh_plan_from_json(&json!({"entry": "../x"})), Err("internal"));
-        let requests = vec![RemoteRequest { entry: entry.clone(), action: RemoteAction::Start }, RemoteRequest { entry, action: RemoteAction::Probe }];
+        let requests = vec![
+            RemoteRequest { entry: entry.clone(), action: RemoteAction::Start },
+            RemoteRequest { entry: entry.clone(), action: RemoteAction::Update },
+            RemoteRequest { entry, action: RemoteAction::Probe },
+        ];
         let wire = Value::Array(requests.iter().map(remote_request_to_json).collect());
         assert_eq!(remote_requests_from_json(&wire), requests);
         assert!(remote_requests_from_json(&json!([{"entry": "../x", "action": "start"}, {"entry": "local", "action": "bogus"}])).is_empty());

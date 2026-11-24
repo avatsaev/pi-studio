@@ -11,6 +11,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Daemons booted by tests must never ask the real npm registry for updates.
+    env: { PI_STUDIO_UPDATE_AUTOCHECK: "false" },
     // Per-file run style: `npx vitest run <file>`. Discover tests across all packages.
     include: ["packages/*/src/**/*.test.ts", "packages/*/test/**/*.test.ts"],
     environment: "node",

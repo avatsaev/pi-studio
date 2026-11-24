@@ -34,6 +34,16 @@ describe("SETTINGS_CATEGORIES", () => {
     expect(skills.available(withoutSkills)).toBe(false);
     expect(skills.available(withSkills)).toBe(true);
   });
+
+  it("Daemon is capability-gated: absent without daemonUpdate, present with it", () => {
+    const withoutUpdate = buildSettingsCategoryCapabilities({ providerAuth: true, skills: true });
+    const withUpdate = buildSettingsCategoryCapabilities({ daemonUpdate: true });
+    const daemon = SETTINGS_CATEGORIES.find((c) => c.id === "daemon")!;
+    expect(daemon.label).toBe("Daemon");
+    expect(daemon.available(withoutUpdate)).toBe(false);
+    expect(daemon.available(buildSettingsCategoryCapabilities(undefined))).toBe(false);
+    expect(daemon.available(withUpdate)).toBe(true);
+  });
 });
 
 describe("buildSettingsCategoryCapabilities", () => {
@@ -46,5 +56,8 @@ describe("buildSettingsCategoryCapabilities", () => {
     expect(buildSettingsCategoryCapabilities({ providerAuth: true }).providerAuth).toBe(true);
     expect(buildSettingsCategoryCapabilities({ skills: false }).skills).toBe(false);
     expect(buildSettingsCategoryCapabilities({ skills: true }).skills).toBe(true);
+    expect(buildSettingsCategoryCapabilities(undefined).daemonUpdate).toBe(false);
+    expect(buildSettingsCategoryCapabilities({ daemonUpdate: false }).daemonUpdate).toBe(false);
+    expect(buildSettingsCategoryCapabilities({ daemonUpdate: true }).daemonUpdate).toBe(true);
   });
 });

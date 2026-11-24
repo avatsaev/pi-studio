@@ -38,6 +38,7 @@ pub struct Limits {
     pub start: Duration,
     pub restart: Duration,
     pub stop: Duration,
+    pub update: Duration,
 }
 
 impl Default for Limits {
@@ -48,6 +49,7 @@ impl Default for Limits {
             start: cli_answers::START_TIMEOUT,
             restart: cli_answers::RESTART_TIMEOUT,
             stop: cli_answers::STOP_TIMEOUT,
+            update: cli_answers::UPDATE_TIMEOUT,
         }
     }
 }
@@ -55,7 +57,7 @@ impl Default for Limits {
 impl Limits {
     /// The longest a request may take once started.
     fn longest(&self) -> Duration {
-        self.start.max(self.restart).max(self.stop) + self.version + self.status
+        self.update.max(self.start).max(self.restart).max(self.stop) + self.version + self.status
     }
 }
 
@@ -112,7 +114,7 @@ pub struct Supervisor {
 }
 
 fn failed(reason: FailReason) -> LocalState {
-    LocalState::Failed { reason }
+    LocalState::Failed { reason, output: None }
 }
 
 impl Supervisor {
@@ -141,6 +143,11 @@ impl Supervisor {
             Ok(program) => program,
             Err(cli_find::CliMissing { path }) => return LocalState::CliMissing { path },
         };
+        if request == LocalRequest::Update
+            && let Some(state) = self.run_update(&program, env)
+        {
+            return state;
+        }
         match self.run_cli(&program, &["--version"], env, self.limits.version) {
             Err(failure) => return failed(fail_of(failure)),
             Ok(out) => match cli_answers::check_version(&out) {
@@ -151,7 +158,8 @@ impl Supervisor {
         }
         let (command, limit) = match request {
             LocalRequest::Probe => (Command::Status, self.limits.status),
-            LocalRequest::Start => (Command::Start, self.limits.start),
+            // After an update the daemon is started as Start does: the CLI restarted a running one.
+            LocalRequest::Start | LocalRequest::Update => (Command::Start, self.limits.start),
             LocalRequest::Restart => (Command::Restart, self.limits.restart),
             LocalRequest::Stop => (Command::Stop, self.limits.stop),
         };
@@ -170,6 +178,23 @@ impl Supervisor {
             Answer::Stopped => LocalState::Stopped,
             Answer::Failed(Failure::NotHealthy) => failed(FailReason::NotHealthy),
             Answer::Failed(Failure::BadOutput) => failed(FailReason::BadOutput),
+        }
+    }
+
+    /// Run `pi-studio update`. `None` when it succeeded; otherwise the state reached. Its output is
+    /// not parsed (an outdated CLI's format is unknown): a failure keeps its last lines for the
+    /// screen, which are not expected to hold a secret.
+    fn run_update(&self, program: &Path, env: &[(String, String)]) -> Option<LocalState> {
+        let update_failed = |output: &str| LocalState::Failed { reason: FailReason::UpdateFailed, output: Some(output.to_owned()) };
+        let Some(run) = self.services.run_checked.as_ref() else {
+            return Some(update_failed("`pi-studio update` could not be run"));
+        };
+        let spec = RunSpec { program: program.to_path_buf(), args: vec!["update".to_owned()], env: env.to_vec(), limit: self.limits.update };
+        match run(&spec) {
+            Ok(out) if out.success => None,
+            Ok(out) => Some(update_failed(&cli_answers::output_tail(&out.output))),
+            Err(RunFailure::CouldNotStart) => Some(update_failed("`pi-studio update` could not be run")),
+            Err(RunFailure::TimedOut) => Some(update_failed("`pi-studio update` took too long and was stopped")),
         }
     }
 
@@ -254,8 +279,9 @@ fn state_name(state: &LocalState) -> &'static str {
         LocalState::Stopped => "stopped",
         LocalState::Starting => "starting",
         LocalState::Stopping => "stopping",
+        LocalState::Updating => "updating",
         LocalState::Running { .. } => "running",
-        LocalState::Failed { reason } => reason.code(),
+        LocalState::Failed { reason, .. } => reason.code(),
     }
 }
 

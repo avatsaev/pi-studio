@@ -1,0 +1,124 @@
+/* `Dialog`'s own `.body` carries no padding — every dialog body supplies its own. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-14);
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.versions {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-sm);
+}
+
+.text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--pi-font-size-xs);
+  color: var(--pi-color-foregroundMuted);
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--pi-font-size-xs);
+  color: var(--pi-color-statusDanger);
+  overflow-wrap: anywhere;
+}
+
+.success {
+  color: var(--pi-color-statusSuccess);
+}
+
+.warning {
+  color: var(--pi-color-statusWarning);
+}
+
+.danger {
+  color: var(--pi-color-statusDanger);
+}
+
+.stages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage {
+  display: flex;
+  align-items: center;
+  gap: var(--pi-spacing-8);
+  min-width: 0;
+}
+
+.mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pi-spacing-14);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.stageLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.done .mark {
+  color: var(--pi-color-statusSuccess);
+}
+
+.pending .stageLabel {
+  color: var(--pi-color-foregroundMuted);
+}
+
+/* The failed command's output: the last lines, scrolled rather than stretching the dialog. */
+.output {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: var(--pi-spacing-8);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface0);
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-2xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pi-spacing-8);
+  padding: var(--pi-spacing-8);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+  background: var(--pi-color-surface0);
+}
+
+.commandText {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-2xs);
+  white-space: pre;
+}

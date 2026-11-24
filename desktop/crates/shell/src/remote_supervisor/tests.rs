@@ -39,7 +39,7 @@ fn commands(calls: &Calls) -> Vec<String> {
 }
 
 fn failed(reason: RemoteFailReason) -> RemoteState {
-    RemoteState::Failed { reason }
+    RemoteState::Failed { reason, output: None }
 }
 
 const UP: &str = r#"{"up":true,"host":"127.0.0.1","port":7878}"#;
@@ -157,4 +157,57 @@ fn pump_runs_batches_in_order_and_applies_each_outcome() {
     assert_eq!(s.pump(&access), 2);
     assert_eq!(*access.applied.lock().unwrap(), [(entry.clone(), RemoteState::Running), (entry, RemoteState::Running)]);
     assert_eq!(s.pump(&access), 0);
+}
+
+fn update_failed(output: &str) -> RemoteState {
+    RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some(output.to_owned()) }
+}
+
+#[test]
+fn update_runs_the_update_then_the_version_then_the_start() {
+    let (s, calls) = scripted(vec![out(0, "updated\n"), out(0, "0.0.130"), out(0, UP)]);
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), RemoteState::Running);
+    assert_eq!(commands(&calls), ["pi-studio update 2>&1", "pi-studio --version", "pi-studio --json -H 127.0.0.1:7878 daemon start"]);
+    let limits: Vec<Duration> = calls.lock().unwrap().iter().map(|(_, l)| *l).collect();
+    assert_eq!(limits, [Duration::from_secs(300), Duration::from_secs(15), Duration::from_secs(90)]);
+}
+
+#[test]
+fn a_failed_update_keeps_the_last_lines_of_its_output() {
+    let many: String = (0..30).map(|n| format!("line {n}\n")).collect();
+    let (s, calls) = scripted(vec![out(1, &many), out(243, "")]);
+    let state = s.carry_out(RemoteAction::Update, PORT, false);
+    let RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some(output) } = state else { panic!("{state:?}") };
+    assert_eq!(output.lines().count(), 20);
+    assert!(output.starts_with("line 10") && output.ends_with("line 29"));
+    assert_eq!(commands(&calls).len(), 1, "no version check or start after a failed update");
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), update_failed(""));
+}
+
+#[test]
+fn an_update_that_leaves_the_cli_outdated_or_missing_stops_there() {
+    let (s, calls) = scripted(vec![out(0, ""), out(0, "0.0.126"), out(0, ""), out(127, "")]);
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), RemoteState::CliOutdated { version: "0.0.126".into() });
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), RemoteState::NotInstalled);
+    assert_eq!(commands(&calls).iter().filter(|c| c.contains("daemon start")).count(), 0);
+}
+
+#[test]
+fn an_update_that_times_out_or_cannot_run() {
+    let (s, calls) = scripted(vec![Err(RemoteRunFailure::TimedOut), Err(RemoteRunFailure::NoShell), Err(RemoteRunFailure::ExecFailed)]);
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), update_failed("`pi-studio update` took too long and was stopped"));
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), failed(RemoteFailReason::NoShell));
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), failed(RemoteFailReason::ExecFailed));
+    assert_eq!(commands(&calls).len(), 3);
+}
+
+#[test]
+fn a_start_failure_after_an_update_is_reported_as_start_failures_are() {
+    let (s, _) = scripted(vec![out(0, ""), out(0, "0.0.130"), out(1, r#"{"up":false}"#)]);
+    assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), failed(RemoteFailReason::NotHealthy));
+}
+
+#[test]
+fn the_update_limit_is_five_minutes() {
+    assert_eq!(RemoteLimits::default().update, Duration::from_secs(300));
 }

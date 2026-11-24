@@ -18,6 +18,8 @@ pub enum LocalRequest {
     Stop,
     Restart,
     Probe,
+    /// `pi-studio update`, then the version again, then a start.
+    Update,
 }
 
 /// An action the user asked for.
@@ -27,6 +29,7 @@ pub(crate) enum Action {
     Stop,
     Restart,
     Refresh,
+    Update,
 }
 
 /// Requests waiting for the host, and whether an action is in flight.
@@ -154,9 +157,10 @@ impl Session {
     pub(crate) fn request_local(&mut self, action: Action) -> std::result::Result<(), &'static str> {
         match self.local_state() {
             LocalState::Unsupported => return Err("unsupported"),
-            // Retry in the Daemons screen is a refresh, so a refresh goes through these two.
+            // Retry in the Daemons screen is a refresh, so a refresh goes through these two; an
+            // update is what an outdated CLI is offered.
             LocalState::CliMissing { .. } if action != Action::Refresh => return Err("cli_missing"),
-            LocalState::CliOutdated { .. } if action != Action::Refresh => return Err("cli_outdated"),
+            LocalState::CliOutdated { .. } if !matches!(action, Action::Refresh | Action::Update) => return Err("cli_outdated"),
             _ => {}
         }
         let queue = &mut self.local_queue;
@@ -171,6 +175,7 @@ impl Session {
             Action::Restart => (LocalRequest::Restart, Some(LocalState::Starting)),
             Action::Stop => (LocalRequest::Stop, Some(LocalState::Stopping)),
             Action::Refresh => (LocalRequest::Probe, None),
+            Action::Update => (LocalRequest::Update, Some(LocalState::Updating)),
         };
         queue.requests.push(request);
         if let Some(state) = state {
@@ -220,8 +225,8 @@ impl Session {
                 LocalState::Running { host, port } => Ok(self.plan_open(entry, dial_address(host, *port))),
                 LocalState::Stopped if self.settings().auto_start_local_daemon => Ok(DialPlan::Ready(Dial::StartNeeded)),
                 LocalState::Stopped => Err("local_stopped"),
-                LocalState::Failed { reason } => Err(reason.code()),
-                LocalState::Checking | LocalState::Starting | LocalState::Stopping => Ok(DialPlan::Ready(Dial::Wait)),
+                LocalState::Failed { reason, .. } => Err(reason.code()),
+                LocalState::Checking | LocalState::Starting | LocalState::Stopping | LocalState::Updating => Ok(DialPlan::Ready(Dial::Wait)),
             },
         }
     }
@@ -267,6 +272,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec { id: "daemon.local.stop", label: "Stop Local Daemon", menu: &[], shortcut: None, params: "{}", enabled: always, run: stop },
         CommandSpec { id: "daemon.local.restart", label: "Restart Local Daemon", menu: &[], shortcut: None, params: "{}", enabled: always, run: restart },
         CommandSpec { id: "daemon.local.refresh", label: "Refresh Local Daemon", menu: &[], shortcut: None, params: "{}", enabled: always, run: refresh },
+        CommandSpec { id: "daemon.local.update", label: "Update Local Daemon", menu: &[], shortcut: None, params: "{}", enabled: update_enabled, run: update },
     ]
 }
 
@@ -285,6 +291,24 @@ fn stop(s: &mut Session, _: &Value) -> Result<Value> {
 
 fn restart(s: &mut Session, _: &Value) -> Result<Value> {
     accept(s, Action::Restart)
+}
+
+fn update_offered(state: &LocalState) -> bool {
+    matches!(state, LocalState::CliOutdated { .. } | LocalState::Stopped)
+}
+
+/// Update is offered for an outdated CLI and a stopped daemon; the reason says why not otherwise.
+fn update_enabled(s: &Session) -> std::result::Result<(), String> {
+    match s.local_state() {
+        LocalState::Unsupported => Err("unsupported".to_owned()),
+        LocalState::CliMissing { .. } => Err("cli_missing".to_owned()),
+        state if update_offered(state) => Ok(()),
+        _ => Err("update_not_offered".to_owned()),
+    }
+}
+
+fn update(s: &mut Session, _: &Value) -> Result<Value> {
+    accept(s, Action::Update)
 }
 
 fn refresh(s: &mut Session, _: &Value) -> Result<Value> {
@@ -386,6 +410,62 @@ mod tests {
             assert_eq!(code(&mut s, id), "unsupported", "{id}");
         }
         assert!(s.take_local_requests().is_empty());
+    }
+
+    #[test]
+    fn update_state_json_and_command_list_row() {
+        let mut s = ready();
+        let rows = s.execute("command.list", json!({"filter": "daemon.local."})).unwrap();
+        let row = rows.as_array().unwrap().iter().find(|r| r["id"] == "daemon.local.update").unwrap().clone();
+        assert_eq!((row["enabled"].clone(), row["label"].clone()), (json!(true), json!("Update Local Daemon")));
+        s.execute("daemon.local.update", json!({})).unwrap();
+        assert_eq!(s.local_state(), &LocalState::Updating);
+        assert_eq!(s.take_local_requests(), vec![LocalRequest::Update]);
+        let list = s.execute("daemon.list", json!({})).unwrap();
+        assert_eq!(list["local"], json!({"state": "updating"}));
+    }
+
+    #[test]
+    fn update_is_enabled_for_stopped_and_an_outdated_cli_only() {
+        let outdated = LocalState::CliOutdated { version: "0.0.1".into() };
+        let failed = LocalState::Failed { reason: FailReason::UpdateFailed, output: None };
+        let cases = [
+            (LocalState::Stopped, None),
+            (outdated.clone(), None),
+            (LocalState::Unsupported, Some("unsupported")),
+            (LocalState::CliMissing { path: None }, Some("cli_missing")),
+            (LocalState::Checking, Some("update_not_offered")),
+            (LocalState::Starting, Some("update_not_offered")),
+            (LocalState::Stopping, Some("update_not_offered")),
+            (LocalState::Updating, Some("update_not_offered")),
+            (LocalState::Running { host: "h".into(), port: 1 }, Some("update_not_offered")),
+            (failed, Some("update_not_offered")),
+        ];
+        for (state, refusal) in cases {
+            let mut s = Session::new();
+            s.set_local_state(state.clone());
+            let rows = s.execute("command.list", json!({"filter": "daemon.local.update"})).unwrap();
+            assert_eq!(rows[0]["enabled"], json!(refusal.is_none()), "{state:?}");
+            assert_eq!(rows[0]["reason"], json!(refusal), "{state:?}");
+            match refusal {
+                None => assert!(s.execute("daemon.local.update", json!({})).is_ok(), "{state:?}"),
+                Some(reason) => {
+                    assert!(code(&mut s, "daemon.local.update").ends_with(reason), "{state:?}");
+                    assert!(s.take_local_requests().is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_outdated_cli_updates_and_a_second_action_is_busy() {
+        let mut s = Session::new();
+        s.set_local_state(LocalState::CliOutdated { version: "0.0.1".into() });
+        s.execute("daemon.local.update", json!({})).unwrap();
+        assert_eq!((s.local_state().clone(), s.take_local_requests()), (LocalState::Updating, vec![LocalRequest::Update]));
+        assert_eq!(code(&mut s, "daemon.local.refresh"), "busy");
+        s.apply_local_outcome(LocalState::Stopped);
+        assert!(s.execute("daemon.local.start", json!({})).is_ok());
     }
 
     #[test]
@@ -598,10 +678,11 @@ mod tests {
                 (LocalState::Unsupported, Err("unsupported")),
                 (LocalState::CliMissing { path: None }, Err("cli_missing")),
                 (LocalState::CliOutdated { version: "1".into() }, Err("cli_outdated")),
-                (LocalState::Failed { reason: FailReason::Timeout }, Err("timeout")),
-                (LocalState::Failed { reason: FailReason::NotHealthy }, Err("not_healthy")),
-                (LocalState::Failed { reason: FailReason::BadOutput }, Err("bad_output")),
-                (LocalState::Failed { reason: FailReason::SpawnFailed }, Err("spawn_failed")),
+                (LocalState::Failed { reason: FailReason::Timeout, output: None }, Err("timeout")),
+                (LocalState::Failed { reason: FailReason::NotHealthy, output: None }, Err("not_healthy")),
+                (LocalState::Failed { reason: FailReason::BadOutput, output: None }, Err("bad_output")),
+                (LocalState::Failed { reason: FailReason::SpawnFailed, output: None }, Err("spawn_failed")),
+                (LocalState::Failed { reason: FailReason::UpdateFailed, output: Some("x".into()) }, Err("update_failed")),
                 (LocalState::Running { host: "127.0.0.1".into(), port: 9 }, Ok(Some("ws://127.0.0.1:9".into()))),
             ];
             for (state, expected) in cases {
@@ -612,7 +693,7 @@ mod tests {
                     (got, want) => panic!("{state:?}: {got:?} vs {want:?}"),
                 }
             }
-            for state in [LocalState::Checking, LocalState::Starting, LocalState::Stopping] {
+            for state in [LocalState::Checking, LocalState::Starting, LocalState::Stopping, LocalState::Updating] {
                 s.set_local_state(state);
                 assert_eq!(resolve(&s), Ok(Dial::Wait));
             }

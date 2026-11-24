@@ -68,15 +68,24 @@ export async function installWithStaleStagingRetry(
   }
 }
 
+/** The install's time limit; a kill at this limit is reported as "timed out" (classified `timeout`). */
+const NPM_INSTALL_TIMEOUT_MS = 120_000;
+
 function runNpmInstall(pkg: string, version: string): Promise<void> {
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   execFile(
     "npm",
     ["install", "-g", `${pkg}@${version}`],
-    { timeout: 120_000 },
+    { timeout: NPM_INSTALL_TIMEOUT_MS },
     (err, _stdout, stderr) => {
       if (err) {
-        reject(new Error(stderr.trim() || err.message));
+        reject(
+          new Error(
+            err.killed
+              ? `npm install timed out after ${NPM_INSTALL_TIMEOUT_MS / 1000} s`
+              : stderr.trim() || err.message,
+          ),
+        );
         return;
       }
       resolve();

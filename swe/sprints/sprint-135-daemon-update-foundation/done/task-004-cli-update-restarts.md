@@ -1,7 +1,7 @@
 # Task 004 — `pi-studio update` restarts a running local daemon
 
 - **Sprint:** sprints/sprint-135-daemon-update-foundation
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/cli (update-commands)
 - **Priority:** P1

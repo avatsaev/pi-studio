@@ -11,6 +11,7 @@ import {
   overlayEnv,
   persistedConfigSchema,
   persistExtensionPacks,
+  persistUpdateAutoCheck,
 } from "./daemon-config.js";
 
 async function tempConfig(contents: unknown): Promise<string> {
@@ -119,6 +120,20 @@ describe("env overlay (env wins)", () => {
     expect(
       overlayEnv(base, { PI_STUDIO_EXTENSIONS_AUTOSYNC: "yes" }).daemon.extensions.autoSync,
     ).toBe(true);
+  });
+
+  it("PI_STUDIO_UPDATE_AUTOCHECK: env wins over the file; 'false'/'0' disable", () => {
+    const on = persistedConfigSchema.parse({});
+    const off = persistedConfigSchema.parse({ daemon: { update: { autoCheck: false } } });
+    expect(overlayEnv(on, {}).daemon.update.autoCheck).toBe(true);
+    expect(overlayEnv(off, {}).daemon.update.autoCheck).toBe(false);
+    expect(overlayEnv(on, { PI_STUDIO_UPDATE_AUTOCHECK: "false" }).daemon.update.autoCheck).toBe(
+      false,
+    );
+    expect(overlayEnv(on, { PI_STUDIO_UPDATE_AUTOCHECK: "0" }).daemon.update.autoCheck).toBe(false);
+    expect(overlayEnv(off, { PI_STUDIO_UPDATE_AUTOCHECK: "true" }).daemon.update.autoCheck).toBe(
+      true,
+    );
   });
 
   it("PI_STUDIO_EXTENSION_PACKS splits and trims a CSV of pack slugs", () => {
@@ -289,5 +304,44 @@ describe("persistExtensionPacks", () => {
     // List files in the directory; should only contain config.json
     const fileList = await readdir(dir);
     expect(fileList).toEqual(["config.json"]);
+  });
+});
+
+describe("persistUpdateAutoCheck", () => {
+  it("defaults to true when the file says nothing", async () => {
+    const path = await tempConfig({ version: 1 });
+    expect(loadConfig(path, {}).daemon.update.autoCheck).toBe(true);
+  });
+
+  it("writes daemon.update.autoCheck, keeping unknown keys, mode 0600, no defaults materialised", async () => {
+    const path = await tempConfig({
+      version: 1,
+      unknown_top: "value",
+      daemon: { unknown_daemon_key: "kept", update: { future: 1 } },
+    });
+    await persistUpdateAutoCheck(path, false);
+
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(raw.unknown_top).toBe("value");
+    expect(raw.daemon).toEqual({
+      unknown_daemon_key: "kept",
+      update: { future: 1, autoCheck: false },
+    });
+    expect((statSync(path).mode & 0o777) === 0o600).toBe(true);
+    expect(loadConfig(path, {}).daemon.update.autoCheck).toBe(false);
+  });
+
+  it("creates a missing file and never writes env overrides", async () => {
+    const path = await tempConfigPath();
+    await persistUpdateAutoCheck(path, true);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      daemon: { update: { autoCheck: true } },
+    });
+    expect(loadConfig(path, { PI_STUDIO_UPDATE_AUTOCHECK: "false" }).daemon.update.autoCheck).toBe(
+      false,
+    );
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      daemon: { update: { autoCheck: true } },
+    });
   });
 });

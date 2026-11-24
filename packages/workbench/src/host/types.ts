@@ -480,4 +480,10 @@ export interface WorkbenchHost {
    * Optional. The app's self-update. Absent: no update indicator is drawn (the browser).
    */
   updates?: HostUpdates;
+  /**
+   * Optional. Reloads the page itself. Only a browser has one: the daemon update dialog offers a
+   * Reload button, after an update, when the page's version differs from the daemon's. Absent (the
+   * desktop app): no button.
+   */
+  reloadPage?: () => void;
 }

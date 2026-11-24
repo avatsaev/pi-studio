@@ -1,12 +1,25 @@
 #!/bin/sh
 # A stand-in for the `pi-studio` CLI, driven by the environment:
 #   FAKE_PI_DIR      directory of the state file `running` and the logs `calls`, `starts`, `pid` (required)
-#   FAKE_PI_VERSION  what `--version` prints (default 0.0.130)
+#   FAKE_PI_VERSION  what `--version` prints until `update` has run (default 0.0.130)
+#   FAKE_PI_UPDATE   what `update` does: fail (prints two lines to stderr, exits 1) | noop (changes nothing) | sleep;
+#                    otherwise it records the call in `updates` and makes `--version` print FAKE_PI_UPDATED_VERSION (default 0.0.130)
 #   FAKE_PI_PORT     the port it reports (default 6767)
 #   FAKE_PI_MODE     garbage | sleep | not_healthy | slow (0.4 s per call, for overlap checks)
 dir=$FAKE_PI_DIR
 if [ "$1" = "--version" ]; then
-    echo "${FAKE_PI_VERSION:-0.0.130}"
+    if [ -f "$dir/version" ]; then cat "$dir/version"; else echo "${FAKE_PI_VERSION:-0.0.130}"; fi
+    exit 0
+fi
+if [ "$1" = "update" ]; then
+    echo update >> "$dir/updates"
+    case ${FAKE_PI_UPDATE:-} in
+        fail) echo "npm ERR! first line" >&2; echo "npm ERR! EACCES: permission denied" >&2; exit 1 ;;
+        noop) exit 0 ;;
+        sleep) sleep 30 ;;
+    esac
+    echo "${FAKE_PI_UPDATED_VERSION:-0.0.130}" > "$dir/version"
+    echo "updated"
     exit 0
 fi
 [ "$1" = "--json" ] && [ "$2" = "daemon" ] || exit 2

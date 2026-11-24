@@ -23,7 +23,8 @@ vi.mock("../agent/providers/pi/rpc-transport.js", async (importOriginal) => {
   };
 });
 
-const { classify, defaultInstallSpawn, executePlan } = await import("./sync-executor.js");
+const { classify, defaultInstallSpawn, executePlan, updateInstalledExtensions } =
+  await import("./sync-executor.js");
 type InstallSpawn = import("./sync-executor.js").InstallSpawn;
 
 function tempHome(): Promise<string> {
@@ -403,5 +404,46 @@ describe("classify", () => {
     expect(classify(new Error("spawn pi ENOENT"))).toBe("spawn_failed");
     expect(classify(new Error("totally unrecognizable"))).toBe("unknown");
     expect(classify("a bare string throw")).toBe("unknown");
+  });
+});
+
+describe("updateInstalledExtensions", () => {
+  it("spawns the bundled pi with `update --extensions` and the sync environment", async () => {
+    const calls: Parameters<InstallSpawn>[0][] = [];
+    const spawn: InstallSpawn = async (args) => {
+      calls.push(args);
+      return { exitCode: 0, stderr: "" };
+    };
+    await updateInstalledExtensions({ config: CONFIG, spawn });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command.slice(-2)).toEqual(["update", "--extensions"]);
+    expect(calls[0]?.command[0]).toBe(process.execPath);
+    expect(calls[0]?.timeoutMs).toBe(180_000);
+    expect(calls[0]?.env).toMatchObject({
+      PI_CODING_AGENT_DIR: PI_HOME_KEY,
+      GIT_TERMINAL_PROMPT: "0",
+      npm_config_yes: "true",
+    });
+  });
+
+  it("throws the reason on a non-zero exit, a timeout, and an absent bundled pi", async () => {
+    await expect(
+      updateInstalledExtensions({
+        config: CONFIG,
+        spawn: async () => ({ exitCode: 3, stderr: "boom" }),
+      }),
+    ).rejects.toThrow(/exited 3: boom/);
+    await expect(
+      updateInstalledExtensions({
+        config: CONFIG,
+        spawn: async () => ({ exitCode: null, stderr: "", timedOut: true }),
+      }),
+    ).rejects.toThrow(/timed out/);
+    forceNoBundledCli = true;
+    try {
+      await expect(updateInstalledExtensions({ config: CONFIG })).rejects.toThrow(/no bundled pi/);
+    } finally {
+      forceNoBundledCli = false;
+    }
   });
 });

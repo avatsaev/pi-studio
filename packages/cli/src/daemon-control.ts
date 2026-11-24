@@ -64,6 +64,9 @@ export type ProcessKiller = (pid: number, signal?: NodeJS.Signals) => boolean;
 /** Resolve `true` once the process is gone, `false` when it still exists after `timeoutMs`. */
 export type ProcessExitWaiter = (pid: number, timeoutMs: number) => Promise<boolean>;
 
+/** The version the daemon at host:port reports on the health endpoint, or null when unreadable. */
+export type HealthVersionReader = (host: string, port: number) => Promise<string | null>;
+
 /** Start a detached daemon process; returns its pid. */
 export type DaemonStarter = (opts: {
   home: string;
@@ -78,6 +81,7 @@ export interface DaemonRuntime {
   kill: ProcessKiller;
   start: DaemonStarter;
   waitForExit: ProcessExitWaiter;
+  readVersion: HealthVersionReader;
 }
 
 /** Default health probe via node:http GET /api/health (200 ⇒ up). */
@@ -91,6 +95,34 @@ export const httpHealthProbe: HealthProbe = (host, port) =>
     req.on("timeout", () => {
       req.destroy();
       resolve(false);
+    });
+    req.end();
+  });
+
+export const httpHealthVersionReader: HealthVersionReader = (host, port) =>
+  new Promise<string | null>((resolve) => {
+    const req = request({ host, port, path: HEALTH_PATH, method: "GET", timeout: 1500 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => (body += chunk));
+      res.on("end", () => {
+        try {
+          const parsed: unknown = JSON.parse(body);
+          const version =
+            parsed !== null && typeof parsed === "object" && "version" in parsed
+              ? parsed.version
+              : null;
+          resolve(typeof version === "string" ? version : null);
+        } catch {
+          resolve(null);
+        }
+      });
+      res.on("error", () => resolve(null));
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
     });
     req.end();
   });
@@ -110,8 +142,24 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
 };
 
 /**
+ * The `-e` script of the detached daemon process: imports the server module by absolute URL and
+ * calls `runDaemon`, the process entry (`daemon/run.ts`): it exits on a fatal bind error
+ * (`EADDRINUSE` would otherwise leave a live process with a dead HTTP server), closes cleanly on
+ * SIGINT/SIGTERM (so `daemon stop` removes `pi-studio.pid`), and exits after a self-update's
+ * shutdown. `startDaemon` alone does none of that, so a daemon booted with it could not update itself.
+ */
+export function daemonStartScript(
+  serverUrl: string,
+  opts: { host: string | undefined; port: number; home: string },
+): string {
+  return `import(${JSON.stringify(serverUrl)}).then(m=>m.runDaemon({host:${JSON.stringify(
+    opts.host,
+  )},port:${JSON.stringify(opts.port)},home:${JSON.stringify(opts.home)}}))`;
+}
+
+/**
  * Default daemon starter: spawn a detached Node process that boots the real daemon via
- * `@av-pi-studio/server`'s `startDaemon()`. Resolves once the process is spawned (health is then
+ * `@av-pi-studio/server`'s `runDaemon()`. Resolves once the process is spawned (health is then
  * polled by the caller).
  *
  * The server module is resolved to an absolute file URL *here*, inside `@av-pi-studio/cli`'s own
@@ -132,14 +180,7 @@ export const subprocessStarter: DaemonStarter = ({ home, listen, piHome }) =>
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    // `onFatalError` is the process-level half of `startDaemon`'s fatal-error contract: the
-    // bootstrap logs the bind failure and tears down the WS server but never exits on its own, so
-    // without this the detached child would linger with a dead HTTP server after an EADDRINUSE.
-    const code = `import(${JSON.stringify(
-      serverUrl,
-    )}).then(m=>m.startDaemon({host:${JSON.stringify(host)},port:${JSON.stringify(
-      port,
-    )},home:${JSON.stringify(home)},onFatalError:()=>process.exit(1)}))`;
+    const code = daemonStartScript(serverUrl, { host, port, home });
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",
@@ -166,6 +207,7 @@ export function defaultDaemonRuntime(): DaemonRuntime {
     kill: signalKiller,
     start: subprocessStarter,
     waitForExit: processExitWaiter,
+    readVersion: httpHealthVersionReader,
   };
 }
 

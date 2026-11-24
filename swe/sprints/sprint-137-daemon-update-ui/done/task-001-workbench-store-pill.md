@@ -1,7 +1,7 @@
 # Task 001 — Workbench: the daemon update store and the second pill
 
 - **Sprint:** sprints/sprint-137-daemon-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (features/connection)
 - **Priority:** P1

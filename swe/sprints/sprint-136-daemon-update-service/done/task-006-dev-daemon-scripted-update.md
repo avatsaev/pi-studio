@@ -1,7 +1,7 @@
 # Task 006 — Dev daemon: a scripted update for UI work
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (daemon/dev-bootstrap)
 - **Priority:** P1

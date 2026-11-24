@@ -1,7 +1,7 @@
 # Task 004 — Daemon: apply, the helper, restart and rollback
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (update/)
 - **Priority:** P1

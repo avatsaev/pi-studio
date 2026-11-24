@@ -1,0 +1,72 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-10) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  min-width: 0;
+}
+
+.name {
+  flex: none;
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.description {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.text {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--pi-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.success {
+  color: var(--pi-color-statusSuccess);
+}
+
+.muted {
+  color: var(--pi-color-foregroundMuted);
+}
+
+.attention {
+  color: var(--pi-color-foreground);
+}
+
+.danger {
+  color: var(--pi-color-statusDanger);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--pi-font-size-xs);
+  color: var(--pi-color-statusDanger);
+  overflow-wrap: anywhere;
+}

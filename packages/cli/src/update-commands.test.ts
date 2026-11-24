@@ -1,12 +1,44 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Command } from "commander";
 
 import type { CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
+import type { DaemonRuntime } from "./daemon-control.js";
 import type { PiRuntime } from "./pi-commands.js";
 import type { UpdateRuntime } from "./update-control.js";
 import { CURRENT_VERSION } from "./update-control.js";
 import { registerUpdateCommands, runUpdate } from "./update-commands.js";
+
+let home: string;
+
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), "pi-studio-update-test-"));
+});
+
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
+});
+
+/** A daemon runtime that never touches a real process or port; `up` flips on start/kill. */
+function fakeDaemon(
+  state: { up: boolean; version: string },
+  log: string[],
+  overrides: Partial<DaemonRuntime> = {},
+): DaemonRuntime {
+  return {
+    probe: async () => state.up,
+    hash: (p) => p,
+    kill: (pid) => (log.push(`kill:${pid}`), (state.up = false), true),
+    start: async ({ listen }) => (log.push(`start:${listen}`), (state.up = true), 4242),
+    waitForExit: async () => true,
+    readVersion: async () => state.version,
+    ...overrides,
+  };
+}
 
 function fakeRuntime(overrides: Partial<UpdateRuntime> = {}): UpdateRuntime {
   return {
@@ -28,6 +60,7 @@ function fakePiRuntime(overrides: Partial<PiRuntime> = {}): PiRuntime {
 function ctxWith(
   update: UpdateRuntime,
   pi: PiRuntime = fakePiRuntime(),
+  daemon?: DaemonRuntime,
 ): { ctx: CliContext; out: string[]; err: string[] } {
   const out: string[] = [];
   const err: string[] = [];
@@ -36,6 +69,8 @@ function ctxWith(
     sink: { write: (l) => out.push(l), error: (l) => err.push(l) },
     update,
     pi,
+    daemon,
+    connectOverrides: { home },
   };
   return { ctx, out, err };
 }
@@ -104,7 +139,7 @@ describe("runUpdate", () => {
         return 0;
       },
     });
-    const { ctx, out } = ctxWith(runtime, pi);
+    const { ctx, out } = ctxWith(runtime, pi, fakeDaemon({ up: false, version: "99.0.0" }, []));
     const code = await runUpdate(ctx, {});
     expect(installedArgs).toEqual(["@av-pi-studio/cli", "99.0.0"]);
     expect(out.some((l) => l.includes(`${CURRENT_VERSION} -> 99.0.0`))).toBe(true);
@@ -173,6 +208,65 @@ describe("runUpdate", () => {
     const { ctx, err } = ctxWith(runtime, pi);
     const code = await runUpdate(ctx, {});
     expect(err.some((l) => l.includes("embedded Pi CLI not found"))).toBe(true);
+    expect(code).toBe(1);
+  });
+});
+
+describe("runUpdate daemon restart", () => {
+  const newer = fakeRuntime({ getLatestVersion: async () => "99.0.0" });
+
+  it("restarts a running daemon on the same host and port and prints the answering version", async () => {
+    writeFileSync(join(home, "pi-studio.pid"), "777", "utf8");
+    const log: string[] = [];
+    const state = { up: true, version: "99.0.0" };
+    const { ctx, out } = ctxWith(newer, fakePiRuntime(), fakeDaemon(state, log));
+    const code = await runUpdate(ctx, { host: "127.0.0.1:7001" });
+    expect(log).toEqual(["kill:777", "start:127.0.0.1:7001"]);
+    expect(out).toContain("daemon restarted: 99.0.0");
+    expect(code).toBe(0);
+  });
+
+  it("does not start a daemon when none runs", async () => {
+    const log: string[] = [];
+    const { ctx, out } = ctxWith(
+      newer,
+      fakePiRuntime(),
+      fakeDaemon({ up: false, version: "99.0.0" }, log),
+    );
+    const code = await runUpdate(ctx, {});
+    expect(log).toEqual([]);
+    expect(out.some((l) => l.includes("daemon restarted"))).toBe(false);
+    expect(code).toBe(0);
+  });
+
+  it("does not restart when the install failed", async () => {
+    const log: string[] = [];
+    const failing = fakeRuntime({
+      getLatestVersion: async () => "99.0.0",
+      installGlobal: async () => {
+        throw new Error("EACCES");
+      },
+    });
+    const { ctx } = ctxWith(failing, fakePiRuntime(), fakeDaemon({ up: true, version: "1" }, log));
+    const code = await runUpdate(ctx, {});
+    expect(log).toEqual([]);
+    expect(code).toBe(1);
+  });
+
+  it("exits non-zero with the reason when the daemon does not exit, keeping the install", async () => {
+    writeFileSync(join(home, "pi-studio.pid"), "777", "utf8");
+    const log: string[] = [];
+    const { ctx, err, out } = ctxWith(
+      newer,
+      fakePiRuntime(),
+      fakeDaemon({ up: true, version: "1" }, log, { waitForExit: async () => false }),
+    );
+    const code = await runUpdate(ctx, {});
+    expect(out).toContain("updated to 99.0.0");
+    expect(
+      err.some((l) => l.includes("daemon restart failed") && l.includes("still running")),
+    ).toBe(true);
+    expect(log).toEqual(["kill:777"]);
     expect(code).toBe(1);
   });
 });

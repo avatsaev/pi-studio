@@ -1,7 +1,7 @@
 # Task 003 — Workbench: Settings → Daemon
 
 - **Sprint:** sprints/sprint-137-daemon-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (features/settings)
 - **Priority:** P1

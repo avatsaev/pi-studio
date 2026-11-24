@@ -154,7 +154,7 @@ impl RemoteAccess for RemoteOwner {
             .into_iter()
             .filter(|request| request.entry == plan.entry)
             .map(|request| {
-                if request.action == RemoteAction::Start {
+                if matches!(request.action, RemoteAction::Start | RemoteAction::Update) {
                     starting.insert(request.entry.clone());
                 }
                 RemoteJob { daemon_port: plan.fields.daemon_port, seen_up: self.ssh.seen_up(&request.entry), request }

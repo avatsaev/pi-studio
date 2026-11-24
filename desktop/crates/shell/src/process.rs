@@ -11,7 +11,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::services::{RunFailure, RunSpec};
+use crate::services::{CheckedOutput, RunFailure, RunSpec};
 
 /// How often the limit is checked.
 const POLL: Duration = Duration::from_millis(10);
@@ -21,25 +21,43 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(200);
 
 /// Run `spec` and return its standard output. Standard input and error are closed.
 pub fn run(spec: &RunSpec) -> Result<String, RunFailure> {
+    run_with(spec, false).map(|checked| checked.output)
+}
+
+/// Run `spec` and return whether it exited with success and its standard output and error
+/// together, in the order they arrived. Standard input is closed.
+pub fn run_checked(spec: &RunSpec) -> Result<CheckedOutput, RunFailure> {
+    run_with(spec, true)
+}
+
+fn pump(mut source: impl Read + Send + 'static, chunks: std::sync::mpsc::Sender<Vec<u8>>) {
+    // Detached: it ends when every holder of the pipe is gone, which may be later than the program.
+    thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        while let Ok(n) = source.read(&mut buffer) {
+            if n == 0 || chunks.send(buffer[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+}
+
+fn run_with(spec: &RunSpec, with_stderr: bool) -> Result<CheckedOutput, RunFailure> {
     let mut command = Command::new(&spec.program);
-    command.args(&spec.args).env_clear().envs(spec.env.iter().map(|(k, v)| (k, v))).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    command.args(&spec.args).env_clear().envs(spec.env.iter().map(|(k, v)| (k, v))).stdin(Stdio::null()).stdout(Stdio::piped());
+    command.stderr(if with_stderr { Stdio::piped() } else { Stdio::null() });
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
     let mut child = command.spawn().map_err(|_| RunFailure::CouldNotStart)?;
-    let mut stdout = child.stdout.take().ok_or(RunFailure::CouldNotStart)?;
+    let stdout = child.stdout.take().ok_or(RunFailure::CouldNotStart)?;
     let (chunks, received) = channel::<Vec<u8>>();
-    // Detached: it ends when every holder of the pipe is gone, which may be later than the program.
-    thread::spawn(move || {
-        let mut buffer = [0u8; 8192];
-        while let Ok(n) = stdout.read(&mut buffer) {
-            if n == 0 || chunks.send(buffer[..n].to_vec()).is_err() {
-                break;
-            }
-        }
-    });
+    if let Some(stderr) = child.stderr.take() {
+        pump(stderr, chunks.clone());
+    }
+    pump(stdout, chunks);
 
     let deadline = Instant::now() + spec.limit;
     let mut output = Vec::new();
@@ -67,8 +85,8 @@ pub fn run(spec: &RunSpec) -> Result<String, RunFailure> {
             return Err(RunFailure::TimedOut);
         }
     }
-    let _ = child.wait();
-    Ok(String::from_utf8_lossy(&output).into_owned())
+    let success = child.wait().is_ok_and(|status| status.success());
+    Ok(CheckedOutput { success, output: String::from_utf8_lossy(&output).into_owned() })
 }
 
 fn wait_until(child: &mut std::process::Child, deadline: Instant) -> bool {
@@ -100,6 +118,7 @@ pub fn native_services() -> crate::Services {
     use std::sync::Arc;
     crate::Services {
         run: Some(Arc::new(run)),
+        run_checked: Some(Arc::new(run_checked)),
         is_executable: Some(Arc::new(is_executable)),
         env: Some(Arc::new(process_env)),
         home_dir: Some(Arc::new(home_dir)),

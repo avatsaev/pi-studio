@@ -30,6 +30,7 @@ function fakeRuntime(overrides: Partial<DaemonRuntime> = {}): DaemonRuntime {
     kill: () => true,
     start: async () => 4242,
     waitForExit: async () => true,
+    readVersion: async () => null,
     ...overrides,
   };
 }

@@ -232,6 +232,53 @@ fn a_missing_or_old_cli_refuses_start_but_not_a_refresh() {
 }
 
 #[test]
+fn update_is_offered_for_stopped_and_an_outdated_cli_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _, id) = on_ssh(dir.path());
+    let entry = EntryId::parse(&id).unwrap();
+    let outdated = RemoteState::CliOutdated { version: "0.0.1".into() };
+    let failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::UpdateFailed, output: Some("x".into()) };
+    let cases = [
+        (RemoteState::Stopped, None),
+        (outdated, None),
+        (RemoteState::NotInstalled, Some("not_installed")),
+        (RemoteState::Unknown, Some("update_not_offered")),
+        (RemoteState::Checking, Some("update_not_offered")),
+        (RemoteState::Starting, Some("update_not_offered")),
+        (RemoteState::Updating, Some("update_not_offered")),
+        (RemoteState::Running, Some("update_not_offered")),
+        (failed, Some("update_not_offered")),
+    ];
+    for (state, refusal) in cases {
+        assert!(s.apply_remote_outcome(&entry, state.clone()));
+        let rows = s.execute("command.list", json!({"filter": "daemon.remote.update"})).unwrap();
+        assert_eq!(rows[0]["enabled"], json!(refusal.is_none()), "{state:?}");
+        assert_eq!(rows[0]["reason"], json!(refusal), "{state:?}");
+        match refusal {
+            None => {
+                assert!(s.execute("daemon.remote.update", json!({})).is_ok(), "{state:?}");
+                assert_eq!(s.execute("daemon.list", json!({})).unwrap()["remote"], json!({"state": "updating"}));
+                assert_eq!(s.take_remote_requests(), vec![RemoteRequest { entry: entry.clone(), action: RemoteAction::Update }]);
+                assert_eq!(code(&mut s, "daemon.remote.refresh"), "busy");
+            }
+            Some(reason) => {
+                assert!(code(&mut s, "daemon.remote.update").ends_with(reason), "{state:?}");
+                assert!(s.take_remote_requests().is_empty());
+            }
+        }
+    }
+    s.execute("daemon.remote.refresh", json!({})).unwrap();
+    assert_eq!(s.execute("daemon.list", json!({})).unwrap()["remote"], json!({"state": "checking"}));
+}
+
+#[test]
+fn update_refuses_an_entry_that_is_not_ssh() {
+    let mut s = Session::new();
+    assert!(code(&mut s, "daemon.remote.update").ends_with("wrong_kind"));
+    assert!(!s.has_remote_requests());
+}
+
+#[test]
 fn opening_another_entry_resets_the_remote_state_and_queue() {
     let dir = tempfile::tempdir().unwrap();
     let (mut s, _, id) = on_ssh(dir.path());

@@ -158,6 +158,22 @@ function processEnvSnapshot(): Record<string, string> {
   return env;
 }
 
+/**
+ * The environment every bundled-pi spawn gets. `PI_CODING_AGENT_DIR` uses the SAME derivation as the
+ * state key and the spawn path (features/preinstalled-extensions.md § Public Contract — Effective
+ * pi-home key), computed fresh from `config`, so it can never diverge from what a live agent
+ * receives.
+ */
+function piSpawnEnv(config: PersistedConfig): Record<string, string> {
+  return {
+    ...processEnvSnapshot(),
+    PI_CODING_AGENT_DIR: effectivePiHomeKey(config),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
+    npm_config_yes: "true",
+  };
+}
+
 export async function executePlan(
   plan: SyncPlan,
   deps: {
@@ -194,16 +210,7 @@ export async function executePlan(
   state.piHomes[deps.piHomeKey] = piHomeState;
 
   const spawnFn = deps.spawn ?? defaultInstallSpawn;
-  // SAME derivation as the state key and the spawn path (features/preinstalled-extensions.md §
-  // Public Contract — Effective pi-home key) — computed fresh from `config` rather than trusted
-  // from `piHomeKey`, so this env var can never diverge from what a live agent would receive.
-  const env: Record<string, string> = {
-    ...processEnvSnapshot(),
-    PI_CODING_AGENT_DIR: effectivePiHomeKey(deps.config),
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
-    npm_config_yes: "true",
-  };
+  const env = piSpawnEnv(deps.config);
 
   const report: SyncReport = { at: "", outcome: "ok", installed: [], failures: [] };
 
@@ -255,4 +262,29 @@ export async function executePlan(
   report.at = now().toISOString();
   report.outcome = deriveOutcome(report);
   return report;
+}
+
+/**
+ * `pi update --extensions` through the same spawn seam and environment as the sync (the apply
+ * pipeline's extensions step, features/self-update.md § Apply). Resolves when pi exits 0; throws
+ * with the reason otherwise (no bundled pi, a spawn error, a timeout, a non-zero exit with its
+ * stderr tail) — the caller decides that a failure is not fatal.
+ */
+export async function updateInstalledExtensions(deps: {
+  config: PersistedConfig;
+  spawn?: InstallSpawn;
+}): Promise<void> {
+  const cli = resolveBundledPiCli();
+  if (!cli) throw new Error("no bundled pi CLI resolvable");
+  const result = await (deps.spawn ?? defaultInstallSpawn)({
+    command: [process.execPath, cli, "update", "--extensions"],
+    env: piSpawnEnv(deps.config),
+    timeoutMs: INSTALL_TIMEOUT_MS,
+  });
+  if (result.timedOut === true) throw new Error("pi update --extensions timed out");
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `pi update --extensions exited ${result.exitCode}: ${result.stderr.slice(-STDERR_TAIL_MAX)}`,
+    );
+  }
 }

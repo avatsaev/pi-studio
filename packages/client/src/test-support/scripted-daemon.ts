@@ -21,6 +21,13 @@ export interface ScriptedDaemon {
   drop: (reason?: string) => void;
 }
 
+const DAEMON_UPDATE_STATUS = {
+  currentVersion: "0.0.130",
+  installKind: "npm-global",
+  autoCheck: true,
+  state: { kind: "available", version: "0.0.131" },
+};
+
 export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }): ScriptedDaemon {
   const sent: Array<Record<string, unknown>> = [];
   let agentSeq = 0;
@@ -271,6 +278,39 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
           type: "viewer_settings_set_response",
           requestId,
           payload: { settings: { version: 1, viewers: msg.patch } },
+        });
+        return;
+      }
+      case "daemon_update_status_request": {
+        reply({
+          type: "daemon_update_status_response",
+          requestId,
+          status: DAEMON_UPDATE_STATUS,
+        });
+        return;
+      }
+      case "daemon_update_check_request": {
+        reply({
+          type: "daemon_update_check_response",
+          requestId,
+          status: { ...DAEMON_UPDATE_STATUS, checkedAt: 1 },
+        });
+        return;
+      }
+      case "daemon_update_apply_request": {
+        reply({
+          type: "daemon_update_apply_response",
+          requestId,
+          ok: false,
+          error: "cannot_update",
+        });
+        return;
+      }
+      case "daemon_update_set_auto_check_request": {
+        reply({
+          type: "daemon_update_set_auto_check_response",
+          requestId,
+          status: { ...DAEMON_UPDATE_STATUS, autoCheck: msg.enabled },
         });
         return;
       }

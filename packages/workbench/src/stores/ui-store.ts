@@ -28,6 +28,8 @@ export interface UiStoreState {
   cwdPickerOpen: boolean;
   /** Settings dialog (gear at the ConnectionBar's top-right, sprint-065). */
   settingsOpen: boolean;
+  /** The daemon update dialog, opened by the connection bar's daemon update pill. */
+  daemonUpdateDialogOpen: boolean;
   sessionMenu: { sessionId: string; x: number; y: number } | null;
   /** Per-workspace "⋮" menu (sidebar workspace header — New session / Delete workspace). */
   workspaceMenu: { cwd: string; x: number; y: number } | null;
@@ -61,6 +63,8 @@ export interface UiStoreState {
   closeCwdPicker(): void;
   openSettings(): void;
   closeSettings(): void;
+  openDaemonUpdateDialog(): void;
+  closeDaemonUpdateDialog(): void;
   openSessionMenu(sessionId: string, x: number, y: number): void;
   closeSessionMenu(): void;
   openWorkspaceMenu(cwd: string, x: number, y: number): void;
@@ -95,6 +99,7 @@ export const useUiStore = create<UiStoreState>()((set) => ({
 
   cwdPickerOpen: false,
   settingsOpen: false,
+  daemonUpdateDialogOpen: false,
   sessionMenu: null,
   workspaceMenu: null,
   tabMenu: null,
@@ -113,6 +118,8 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   closeCwdPicker: () => set({ cwdPickerOpen: false }),
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  openDaemonUpdateDialog: () => set({ daemonUpdateDialogOpen: true }),
+  closeDaemonUpdateDialog: () => set({ daemonUpdateDialogOpen: false }),
   openSessionMenu: (sessionId, x, y) => set({ sessionMenu: { sessionId, x, y } }),
   closeSessionMenu: () => set({ sessionMenu: null }),
   openWorkspaceMenu: (cwd, x, y) => set({ workspaceMenu: { cwd, x, y } }),

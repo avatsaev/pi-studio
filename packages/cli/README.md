@@ -246,6 +246,10 @@ in the first place (see Install above), so it respects your npm config (registry
 proxies) instead of reimplementing a registry client. `--check` reports whether an update is
 available without installing anything.
 
+After a successful install, a local daemon that answers at `--host` is restarted on the same
+address and `daemon restarted: <version>` is printed. No running daemon means nothing is started;
+a failed restart exits non-zero (the install stays).
+
 ### Feature groups
 
 `chat`, `terminal`, `loop`, `schedule`, `provider`, and `worktree` are sibling top-level

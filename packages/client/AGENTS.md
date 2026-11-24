@@ -240,6 +240,12 @@ const client = new PiStudioClient(daemonClient);
 | `setViewerSettings(patch)`    | `Promise<ViewerSettings>`        | `viewer_settings_set_request` RPC — resolves to the EFFECTIVE post-merge document, never an echo of `patch`     |
 | `onViewerSettingsUpdate(h)`   | unsubscribe fn                   | Subscribe to `viewer_settings_update` broadcasts                                                                |
 | `hasViewerSettingsCapability()` | `boolean`                       | Whether the daemon advertised `viewerSettings` — `false` means "treat every viewer as enabled", never "no viewers" |
+| `hasDaemonUpdateCapability()`   | `boolean`                        | Whether the daemon advertised `daemonUpdate` |
+| `getDaemonUpdateStatus()`       | `Promise<DaemonUpdateStatus>`    | `daemon_update_status_request` RPC |
+| `checkDaemonUpdate()`           | `Promise<DaemonUpdateStatus>`    | `daemon_update_check_request` RPC, 30 s timeout (registry call) |
+| `applyDaemonUpdate()`           | `Promise<{ ok; error? }>`        | `daemon_update_apply_request` RPC — a refusal (`not_available \| cannot_update \| in_progress`) resolves `{ ok: false, error }`, never throws |
+| `setDaemonUpdateAutoCheck(b)`   | `Promise<DaemonUpdateStatus>`    | `daemon_update_set_auto_check_request` RPC — resolves to the new status |
+| `onDaemonUpdateStatus(h)`       | unsubscribe fn                   | Subscribe to `daemon_update_status` broadcasts |
 | `onAgentUiRequest(handler)`   | unsubscribe fn                   | Subscribe to `agent_ui_request` broadcasts (sprint-067, see § Extension UI)                                     |
 | `onAgentUiResolved(handler)`  | unsubscribe fn                   | Subscribe to `agent_ui_resolved` broadcasts                                                                     |
 | `respondToUi(id, response)`   | `Promise<AgentUiRespondResult>`  | `agent_ui_respond_request` RPC — returns, never throws, on a domain `not_found`/`unsupported`                   |

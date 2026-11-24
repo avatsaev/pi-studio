@@ -19,6 +19,26 @@ pub const START_TIMEOUT: Duration = Duration::from_secs(90);
 pub const RESTART_TIMEOUT: Duration = Duration::from_secs(90);
 /// Time limit of `daemon stop`.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Time limit of `update`: it downloads and installs a package.
+pub const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
+/// How many of the last lines of a failed `update` are kept.
+const TAIL_LINES: usize = 20;
+/// The most characters kept of them (the end is kept).
+const TAIL_CHARS: usize = 2000;
+
+/// The last lines of what a failed `update` printed, for a person to read: blank lines dropped,
+/// control characters (colors, carriage returns) removed, at most [`TAIL_LINES`] lines and
+/// [`TAIL_CHARS`] characters, the end kept. Never parsed.
+pub fn output_tail(output: &str) -> String {
+    let lines: Vec<String> = output
+        .lines()
+        .map(|line| line.chars().filter(|c| !c.is_control()).collect::<String>().trim_end().to_owned())
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let tail = lines.iter().skip(lines.len().saturating_sub(TAIL_LINES)).map(String::as_str).collect::<Vec<_>>().join("\n");
+    let skip = tail.chars().count().saturating_sub(TAIL_CHARS);
+    tail.chars().skip(skip).collect()
+}
 
 /// The oldest CLI the app drives: the release that carries the daemon's upload changes (a temporary
 /// file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
@@ -229,5 +249,21 @@ mod tests {
     fn limits() {
         assert_eq!(START_TIMEOUT, Duration::from_secs(90));
         assert_eq!(STOP_TIMEOUT, Duration::from_secs(15));
+        assert_eq!(UPDATE_TIMEOUT, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn the_output_tail_keeps_the_last_lines_cleaned() {
+        assert_eq!(output_tail(""), "");
+        assert_eq!(output_tail("a\n\n  \nb  \n"), "a\nb");
+        assert_eq!(output_tail("\u{1b}[31mnpm ERR!\u{1b}[0m x\r\n"), "[31mnpm ERR![0m x");
+        let many: String = (0..50).map(|n| format!("line {n}\n")).collect();
+        let tail = output_tail(&many);
+        assert_eq!(tail.lines().count(), 20);
+        assert!(tail.starts_with("line 30") && tail.ends_with("line 49"));
+        let long = "x".repeat(5000) + "END";
+        let tail = output_tail(&long);
+        assert_eq!(tail.chars().count(), 2000);
+        assert!(tail.ends_with("END"));
     }
 }
