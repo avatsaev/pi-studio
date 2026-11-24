@@ -172,8 +172,8 @@ explicit provider for non-interactive setups. Secrets are never echoed, and the 
 | Command                    | Description                                                                     |
 | -------------------------- | -------------------------------------------------------------------------------- |
 | `daemon start`             | Spawn a local daemon if one isn't already running, then print a pairing QR      |
-| `daemon stop`              | Send SIGTERM to the local daemon                                                |
-| `daemon restart`           | Stop then start the local daemon                                                |
+| `daemon stop`              | Send SIGTERM to the local daemon and wait up to 10 s for it to exit             |
+| `daemon restart`           | Stop (waiting for the old process to exit), then start the local daemon        |
 | `daemon status`            | Print health + PID                                                              |
 | `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json`                       |
 | `daemon pair`              | Print the pairing URL/QR for an already-running daemon                          |
@@ -245,6 +245,16 @@ Shells out to the same `npm install -g @av-pi-studio/cli@<version>` path used to
 in the first place (see Install above), so it respects your npm config (registry mirrors, auth,
 proxies) instead of reimplementing a registry client. `--check` reports whether an update is
 available without installing anything.
+
+After a successful install, a local daemon that answers at `--host` is restarted on the same
+address and `daemon restarted: <version>` is printed. No running daemon means nothing is started;
+a failed restart exits non-zero (the install stays).
+
+A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
+installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
+screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that
+host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 10 s for the old
+process to exit and report `still_running` if it does not.
 
 ### Feature groups
 

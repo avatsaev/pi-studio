@@ -293,6 +293,46 @@ What the Linux run showed (2026-11-23):
 | | macOS | WKWebView | not checked: owner's decision | | | | | | | | | | |
 | | Windows | WebView2 | not checked: owner's decision | | | | | | | | | | |
 
+## Daemon self-update rows (Linux, desktop app)
+
+The app's part of the daemon self-update (`swe/features/self-update.md` § Desktop and § Acceptance criteria, sprint-138/task-004), **scripted** in the real WebKitGTK webview of the `pi-desktop-xvfb` image (a derived image with Node 22, `openssh-server` and `xdotool`), Linux x86-64, 2026-11-24, **release** builds of `6768941` plus the fixes below, from a clean worktree. Recipe: `docs/development.md` § The daemon's self-update in the desktop app. The daemon packages came from a throwaway verdaccio (`@av-pi-studio/*` published at 0.0.100, 0.0.9001 … 0.0.9008; the real registry was never touched). The "outdated" CLI is 0.0.100, the repository's build relabelled below the app's minimum 0.0.127 (not a real old release: how an old CLI prints is **not** seen). The SSH host is `sshd` in the same container (user `tester`, own npm prefix, daemon on 6890); the container runs `--init` (without it the old daemon is a zombie and the update helper waits its 30 s).
+
+| # | Item | Steps | Expected |
+|---|---|---|---|
+| D-U1 | Local CLI below the minimum (**scripted**) | Global CLI 0.0.100, launch, click Update on the local row | `updating`, then `running` on the newest version, the page connected by itself; `pi-studio --version` and `/api/health` say the new version |
+| D-U2 | Local daemon stopped, a newer CLI on npm (**scripted**) | Stop in the app (native confirm), publish a newer version, click Update | As D-U1, the page connected |
+| D-U3 | SSH host with a CLI below the minimum (**scripted**) | An `ssh` entry with a key file, CLI 0.0.100 on the host, click Update | `updating`, `running`, an `ssh` transport `open`, the host's CLI and daemon on the new version |
+| D-U4 | SSH daemon stopped (**scripted**) | `kill -9` of the host's daemon, click Update | As D-U3 |
+| D-U5 | The pill on a running daemon (**scripted**) | Settings → Daemon → Check now (a newer version published), the pill, the dialog, Update and restart | The three stages, "Waiting for the daemon to come back", the page reconnected through its loopback proxy, "Updated to X"; the local state never leaves `running` |
+| D-U5b | The same with an 8 s gap (**scripted**) | The update helper stopped (`SIGSTOP`) for 8 s right after it started | As D-U5 |
+| D-U6 | npm unreachable (**scripted**) | Registry container stopped, Update on a stopped local daemon and on a stopped SSH one; then the registry back and Update on the failed row | `failed(update_failed)` with the output's last lines on the row; Update on that row runs again and succeeds |
+| D-U7 | `npm install -g` fails (**scripted**) | The global folder made read-only, Update on a stopped local daemon | `failed(update_failed)`, npm's own `EACCES` lines on the row |
+
+What the run showed (every time is from the watcher's 250 ms samples):
+
+| Check | Observed |
+|---|---|
+| D-U1 | 0.0.100 → 0.0.9002: `updating` 1.3 s after the click, `running` with `transports [direct:open]` 7.2 s after it (bar "connected"); CLI `0.0.9002`, `/api/health` `0.0.9002`. **First run on the unfixed build: the daemon was `running` and the bar stayed "disconnected" for good** (fix 1) |
+| D-U2 | 0.0.9005 → 0.0.9006 after a UI Stop (the native "Agents running on this daemon will stop." confirm, OK at (328, 94)): `stopped`, `updating` for 8.5 s, `running` + `direct:open`; `pi-studio.pid` absent after the Stop and naming the new daemon (5041) after the Update. **Unfixed build: running, page "disconnected"** (a late `closed` from the old socket turned the manual disconnect's `idle` into `closed`; fix 3). The first click after the native dialog never lands (the window only takes the focus): click again |
+| D-U3 | Host CLI 0.0.100 → 0.0.9002: `updating` 5 s, `running`, `ssh:open` 6.2 s after the click; host daemon `0.0.9002`. **First run: `failed(update_failed)`**, output "…updated to 0.0.9001 … restarting local daemon at 127.0.0.1:6767 … daemon restart failed: the running daemon was not started by this CLI home and cannot be stopped." (`pi-studio update` had no `-H` and found another user's daemon on the CLI's default port; fix 2) |
+| D-U4 | Host daemon killed, `remote` `stopped`; CLI 0.0.9002 → 0.0.9007: `updating` 7.6 s, `running`, `ssh:open`; daemon `0.0.9007` |
+| D-U5 | Pill "Daemon 0.0.9003" (tooltip "Update the daemon from 0.0.9002 to 0.0.9003"); dialog "0.0.9002 → 0.0.9003 · No agents are running and no terminals are open."; install 4 s, extensions 0.3 s, `disconnected` 0.3 s later, `connected` again after 0.3 s; "Updated to 0.0.9003"; helper log: old daemon exited after 0.3 s, new one answered 0.5 s later, `update updated`; `/api/health` `0.0.9003`. **Unfixed build with a long gap** (the old daemon lingered 30 s as a zombie): bar "Stopped" and no reconnect for minutes, although the new daemon answered (the drop-time probe found the daemon down and a `stopped` local daemon is never dialled again; fix 4) |
+| D-U5b | Helper stopped 01:05:32.9 to 01:05:40.9: bar "connection refused" while the daemon was down, `connected` 8 s after it was back (the SDK's backoff), dialog "Updated to 0.0.9007", `local` `running` in every sample |
+| D-U6 | SSH row after 16 s: "The update failed · Run the update yourself, then retry. · could not reach npm to check the latest version of @av-pi-studio/cli · npm install -g @av-pi-studio/cli"; the local row the same with `npm i -g @av-pi-studio/cli@latest`. **Update on the failed row did nothing on the unfixed build** (banner "The daemon could not be opened.": the screen offered it, the engine refused `update_not_offered`; fix 5). Fixed: 0.0.9007 installed, `running`, `direct:open` 2.7 s after the click |
+| D-U7 | `chmod a-w` on npm's global folder and its `@av-pi-studio`: the row's output ends with npm's lines `npm error code EACCES`, `syscall rename`, `path …/@av-pi-studio/cli`, `errno -13` and its generic cache-folder hint (as the live npm check saw); the folder was made writable again afterwards |
+
+**Fixes this run needed** (each with a test): (1) and (3) `daemon-lifecycle.ts` connects after an Update like after a Start, and `connection-store.ts` detaches the old daemon's state listener on `disconnect()`, so a manual disconnect stays `idle` (Stop then Start or Update used to leave the window disconnected); (2) the SSH update runs `pi-studio -H 127.0.0.1:<daemonPort> update`; (4) `daemon-update-store.ts` remembers an announced `restarting` and `daemon-lifecycle.ts` does not probe the local daemon for that drop; (5) the engine enables `daemon.local.update` / `daemon.remote.update` after `failed(update_failed)`.
+
+**Not seen:** a real old CLI (one that has no `update` restart step), counts in the dialog with agents and terminals, the pill on an SSH entry's daemon, a rollback seen from the app, macOS and Windows (no machine), an SSH host whose daemon runs on the CLI's default port.
+
+### Results (daemon self-update, Linux)
+
+| Date | Machine and OS | Webview | D-U1 | D-U2 | D-U3 | D-U4 | D-U5 | D-U5b | D-U6 | D-U7 | Who |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-11-24 | Linux x86-64, `pi-desktop-xvfb` derived container with sshd, release build of `6768941` plus the five fixes | WebKitGTK | pass after fix 1 | pass after fix 3 | pass after fix 2 | pass | pass | pass after fix 4 | pass after fix 5 | pass | scripted (sprint-138/task-004) |
+| | macOS | WKWebView | not checked: owner's decision | | | | | | | | |
+| | Windows | WebView2 | not checked: owner's decision | | | | | | | | |
+
 ## Results
 
 Fill one row per machine and pass. Mark each item pass, fail (with what you saw) or n/a.

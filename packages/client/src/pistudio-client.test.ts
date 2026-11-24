@@ -453,6 +453,79 @@ describe("PiStudioClient — viewer settings (sprint-073)", () => {
   });
 });
 
+describe("PiStudioClient — daemon update", () => {
+  it("hasDaemonUpdateCapability reflects the daemonUpdate flag", async () => {
+    const { client: withFlag } = await makeFacade({ features: { daemonUpdate: true } });
+    expect(withFlag.hasDaemonUpdateCapability()).toBe(true);
+    const { client: withoutFlag } = await makeFacade({ features: { providersSnapshot: true } });
+    expect(withoutFlag.hasDaemonUpdateCapability()).toBe(false);
+  });
+
+  it("getDaemonUpdateStatus sends daemon_update_status_request and returns the status", async () => {
+    const { client, fake } = await makeFacade();
+    const status = await client.getDaemonUpdateStatus();
+    expect(status.currentVersion).toBe("0.0.130");
+    expect(fake.sent.find((m) => m.type === "daemon_update_status_request")).toEqual({
+      type: "daemon_update_status_request",
+      requestId: expect.any(String),
+    });
+  });
+
+  it("checkDaemonUpdate sends daemon_update_check_request with a 30 s timeout", async () => {
+    const { client, daemon, fake } = await makeFacade();
+    const spy = vi.spyOn(daemon, "request");
+    const status = await client.checkDaemonUpdate();
+    expect(status.checkedAt).toBe(1);
+    expect(spy).toHaveBeenLastCalledWith("daemon_update_check_request", {}, 30_000);
+    expect(fake.sent.some((m) => m.type === "daemon_update_check_request")).toBe(true);
+  });
+
+  it("applyDaemonUpdate resolves a refusal as data, never throws", async () => {
+    const { client, fake } = await makeFacade();
+    await expect(client.applyDaemonUpdate()).resolves.toEqual({
+      ok: false,
+      error: "cannot_update",
+    });
+    expect(fake.sent.find((m) => m.type === "daemon_update_apply_request")).toEqual({
+      type: "daemon_update_apply_request",
+      requestId: expect.any(String),
+    });
+  });
+
+  it("setDaemonUpdateAutoCheck carries enabled and returns the new status", async () => {
+    const { client, fake } = await makeFacade();
+    const status = await client.setDaemonUpdateAutoCheck(false);
+    expect(status.autoCheck).toBe(false);
+    expect(fake.sent.find((m) => m.type === "daemon_update_set_auto_check_request")).toEqual({
+      type: "daemon_update_set_auto_check_request",
+      requestId: expect.any(String),
+      enabled: false,
+    });
+  });
+
+  it("onDaemonUpdateStatus fires only for daemon_update_status pushes; unsubscribe stops delivery", async () => {
+    const { client, fake } = await makeFacade();
+    const seen: unknown[] = [];
+    const unsubscribe = client.onDaemonUpdateStatus((status) => seen.push(status));
+    const status = {
+      currentVersion: "0.0.130",
+      installKind: "npm-global",
+      autoCheck: true,
+      state: { kind: "idle" },
+    };
+
+    fake.push({ type: "agent_update", agentId: "a1", status: "idle" });
+    fake.push({ type: "daemon_update_status", status });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toEqual([status]);
+
+    unsubscribe();
+    fake.push({ type: "daemon_update_status", status });
+    await flushProviderAuthMicrotasks();
+    expect(seen).toHaveLength(1);
+  });
+});
+
 describe("PiStudioClient — skills (sprint-075)", () => {
   it("hasSkillsCapability reflects the daemon's skills flag", async () => {
     const { client: withFlag } = await makeFacade({ features: { skills: true } });

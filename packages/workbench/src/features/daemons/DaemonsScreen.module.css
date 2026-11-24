@@ -187,6 +187,26 @@
   color: var(--pi-color-accent);
 }
 
+.stateSpinner {
+  margin-right: var(--pi-spacing-6);
+  vertical-align: middle;
+}
+
+.output {
+  margin: 0;
+  padding: var(--pi-spacing-4) var(--pi-spacing-6);
+  max-height: 8rem;
+  overflow: auto;
+  border-radius: var(--pi-radius-sm);
+  background: var(--pi-color-surface0);
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .linkInvalid {
   font-size: var(--pi-font-size-xs);
   color: var(--pi-color-statusDanger);

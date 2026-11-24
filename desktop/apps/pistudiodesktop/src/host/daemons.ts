@@ -210,10 +210,12 @@ export function createDesktopDaemons(
       stop: () => accepted("daemon.local.stop"),
       restart: () => accepted("daemon.local.restart"),
       refresh: () => accepted("daemon.local.refresh"),
+      update: () => accepted("daemon.local.update"),
     },
     remote: {
       start: () => accepted("daemon.remote.start"),
       refresh: () => accepted("daemon.remote.refresh"),
+      update: () => accepted("daemon.remote.update"),
     },
     async sshHosts() {
       const answer = await call("ssh_config_hosts");

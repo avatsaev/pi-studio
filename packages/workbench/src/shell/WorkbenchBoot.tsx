@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDaemonUpdateBoot } from "../features/connection/use-daemon-update.js";
 import { useDaemonsStore } from "../features/daemons/daemons-store.js";
 import { getHost } from "../host/install.js";
 import { useAgentDeepLinkBoot } from "../hooks/use-agent-deep-link-boot.js";
@@ -34,6 +35,7 @@ function BootSequence() {
   useConnectionBoot();
   useAgentDeepLinkBoot();
   useViewerSettingsBoot();
+  useDaemonUpdateBoot();
   useAgentTodosBoot();
   // Before the restore hooks: an arriving tab consumes its pane claim, so the claims must exist.
   usePaneLayoutBoot();

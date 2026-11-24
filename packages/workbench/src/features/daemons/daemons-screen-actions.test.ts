@@ -108,6 +108,40 @@ describe("runLocalAction", () => {
   });
 });
 
+describe("update", () => {
+  it("updates the local daemon: updating, then the outcome", async () => {
+    const daemons = createTestDaemons({ local: { state: "cli_outdated", version: "0.0.1" } });
+
+    expect(await runLocalAction(daemons, "update")).toBeNull();
+    expect(daemons.snapshot().local.state).toBe("updating");
+    expect(await runLocalAction(daemons, "update")).toBe("busy");
+    await daemons.settled();
+    expect(daemons.snapshot().local.state).toBe("running");
+  });
+
+  it("updates the current SSH entry's daemon", async () => {
+    const daemons = createTestDaemons({
+      entries: [{ id: "s", kind: "ssh", name: "Box", host: "box" }],
+      currentId: "s",
+      remote: { state: "cli_outdated", version: "0.0.1" },
+      remoteUpdateOutcome: { state: "failed", reason: "update_failed", output: "EACCES" },
+    });
+
+    expect(await runRemoteAction(daemons, "update")).toBeNull();
+    expect(daemons.snapshot().remote?.state).toBe("updating");
+    await daemons.settled();
+    expect(daemons.snapshot().remote).toEqual({
+      state: "failed",
+      reason: "update_failed",
+      output: "EACCES",
+    });
+  });
+
+  it("refuses a remote update when the current entry is not ssh", async () => {
+    expect(await runRemoteAction(registry(), "update")).toBe("wrong_kind");
+  });
+});
+
 describe("openEntry", () => {
   it("switches to the entry", () => {
     const daemons = registry();

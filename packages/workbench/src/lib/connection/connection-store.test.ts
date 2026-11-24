@@ -68,3 +68,43 @@ describe("the connection store's failure reason", () => {
     expect(useConnectionStore.getState().errorReason).toBe("daemon_offline");
   });
 });
+
+/**
+ * Answers `hello` with a `server_info`. Its close reaches the client only when the test says so
+ * (`arrive`), as a real socket's does after `close()` returned.
+ */
+function lateClosingTransport(): { transport: Transport; arrive(): void } {
+  let closedWith: [number, string] | null = null;
+  const transport: Transport = {
+    isOpen: true,
+    onMessage: null,
+    onClose: null,
+    onError: null,
+    connect: async () => {},
+    sendText: () => {
+      const info = { status: "server_info", serverId: "s1", features: {}, capabilities: {} };
+      queueMicrotask(() =>
+        transport.onMessage?.(JSON.stringify({ type: "status", payload: info })),
+      );
+    },
+    sendBinary: () => {},
+    close: (code = 1000, reason = "") => {
+      closedWith = [code, reason];
+    },
+  };
+  return { transport, arrive: () => closedWith && transport.onClose?.(...closedWith) };
+}
+
+describe("a manual disconnect", () => {
+  it("stays idle when the transport's close arrives afterwards", async () => {
+    const late = lateClosingTransport();
+    installHost(createTestHost({ createTransport: () => late.transport }));
+    await useConnectionStore.getState().connect({ url: "box:6767" });
+    expect(useConnectionStore.getState().status).toBe("open");
+
+    useConnectionStore.getState().disconnect();
+    late.arrive();
+
+    expect(useConnectionStore.getState().status).toBe("idle");
+  });
+});

@@ -36,10 +36,12 @@ import {
   SETTINGS_CATEGORIES,
 } from "../settings/settings-categories.js";
 import { useUiStore } from "../../stores/ui-store.js";
+import { DaemonUpdateDialog } from "../daemon-update/DaemonUpdateDialog.js";
 import { useDaemonsStore } from "../daemons/daemons-store.js";
 import { useDaemons } from "../daemons/use-daemons.js";
 import { AppUpdateIndicator } from "./AppUpdateIndicator.js";
 import { DaemonSwitcher } from "./DaemonSwitcher.js";
+import { DaemonUpdateIndicator } from "./DaemonUpdateIndicator.js";
 import { daemonSwitcherView } from "./daemon-switcher-presentation.js";
 import { connectionBarView, connectionDot, isDialableTarget } from "./connection-presentation.js";
 import { appUpdateView } from "./app-update-presentation.js";
@@ -291,6 +293,7 @@ export function ConnectionBar() {
         )}
       </div>
 
+      <DaemonUpdateIndicator />
       {updateView && <AppUpdateIndicator view={updateView} />}
 
       {settingsEverOpened && (
@@ -301,6 +304,8 @@ export function ConnectionBar() {
           />
         </Suspense>
       )}
+
+      <DaemonUpdateDialog />
     </div>
   );
 }

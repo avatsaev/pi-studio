@@ -1,7 +1,7 @@
 # Task 004 — After the merge: the first two publishing runs
 
 - **Sprint:** sprints/sprint-134-desktop-update-release
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** GitHub Actions, desktop/docs/platform-checks.md
 - **Priority:** P1

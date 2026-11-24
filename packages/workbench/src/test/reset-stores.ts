@@ -11,6 +11,7 @@
  * hide which state a test actually depends on.
  */
 
+import { useDaemonUpdateStore } from "../features/connection/daemon-update-store.js";
 import { useDraftStore } from "../stores/draft-store.js";
 import { useLayoutStore } from "../stores/layout-store.js";
 import { useSessionStore } from "../stores/session-store.js";
@@ -38,6 +39,12 @@ export function resetSessionStore(): void {
 
 export function resetDraftStore(): void {
   useDraftStore.setState({ drafts: {}, pendingFeedback: {} });
+}
+
+/** The daemon update status and the dialog's open flag. */
+export function resetDaemonUpdateState(): void {
+  useDaemonUpdateStore.setState({ status: null, revision: 0, restartAnnouncedAt: null });
+  useUiStore.setState({ daemonUpdateDialogOpen: false });
 }
 
 export { resetToastStoreForTests as resetToastStore };

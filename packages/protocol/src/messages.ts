@@ -1513,6 +1513,139 @@ export const daemonLogLinesSchema = z
 export type DaemonLogLines = z.infer<typeof daemonLogLinesSchema>;
 
 // ===========================================================================
+// Daemon self-update (swe/features/self-update.md § RPCs and the broadcast) — flat snake_case
+// family, real union members. `state.kind` is a closed discriminated union: an unknown kind is
+// REJECTED (the whole message fails to parse), so a new kind needs a new client first. Every
+// object is `.passthrough()` so fields are only ever added. `code`, `reason`, `checkError`,
+// `outcome` and the apply `error` are plain strings, documented in the spec, never enums.
+// ===========================================================================
+
+export const daemonUpdateInstallKindSchema = z.enum(["npm-global", "docker", "source", "unknown"]);
+export type DaemonUpdateInstallKind = z.infer<typeof daemonUpdateInstallKindSchema>;
+
+export const daemonUpdateStateSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("idle") }).passthrough(),
+  z.object({ kind: z.literal("checking") }).passthrough(),
+  z.object({ kind: z.literal("available"), version: z.string() }).passthrough(),
+  z.object({ kind: z.literal("installing"), version: z.string() }).passthrough(),
+  z.object({ kind: z.literal("updating_extensions"), version: z.string() }).passthrough(),
+  z.object({ kind: z.literal("restarting"), version: z.string() }).passthrough(),
+  z
+    .object({
+      kind: z.literal("failed"),
+      version: z.string(),
+      /** `"install" | "timeout" | "permission" | "network"` today. */
+      code: z.string(),
+      message: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
+      kind: z.literal("cannot_update"),
+      /** `docker | source | unknown_install | npm_missing | not_writable | unsupported_platform`. */
+      reason: z.string(),
+      version: z.string().optional(),
+      command: z.string(),
+    })
+    .passthrough(),
+]);
+export type DaemonUpdateState = z.infer<typeof daemonUpdateStateSchema>;
+
+export const daemonUpdateStatusSchema = z
+  .object({
+    currentVersion: z.string(),
+    installKind: daemonUpdateInstallKindSchema,
+    autoCheck: z.boolean(),
+    checkedAt: z.number().optional(),
+    /** `"offline" | "bad_answer"`; set by the last check only. */
+    checkError: z.string().optional(),
+    state: daemonUpdateStateSchema,
+    lastResult: z
+      .object({
+        from: z.string(),
+        to: z.string(),
+        /** `"updated" | "rolled_back" | "failed"`. */
+        outcome: z.string(),
+        at: z.number(),
+        message: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+export type DaemonUpdateStatus = z.infer<typeof daemonUpdateStatusSchema>;
+
+export const daemonUpdateStatusRequestSchema = z
+  .object({ type: z.literal("daemon_update_status_request"), requestId: z.string() })
+  .passthrough();
+export type DaemonUpdateStatusRequest = z.infer<typeof daemonUpdateStatusRequestSchema>;
+
+export const daemonUpdateStatusResponseSchema = z
+  .object({
+    type: z.literal("daemon_update_status_response"),
+    requestId: z.string(),
+    status: daemonUpdateStatusSchema,
+  })
+  .passthrough();
+export type DaemonUpdateStatusResponse = z.infer<typeof daemonUpdateStatusResponseSchema>;
+
+export const daemonUpdateCheckRequestSchema = z
+  .object({ type: z.literal("daemon_update_check_request"), requestId: z.string() })
+  .passthrough();
+export type DaemonUpdateCheckRequest = z.infer<typeof daemonUpdateCheckRequestSchema>;
+
+export const daemonUpdateCheckResponseSchema = z
+  .object({
+    type: z.literal("daemon_update_check_response"),
+    requestId: z.string(),
+    status: daemonUpdateStatusSchema,
+  })
+  .passthrough();
+export type DaemonUpdateCheckResponse = z.infer<typeof daemonUpdateCheckResponseSchema>;
+
+export const daemonUpdateApplyRequestSchema = z
+  .object({ type: z.literal("daemon_update_apply_request"), requestId: z.string() })
+  .passthrough();
+export type DaemonUpdateApplyRequest = z.infer<typeof daemonUpdateApplyRequestSchema>;
+
+/** `error` of a refusal: `not_available | cannot_update | in_progress` (open string). */
+export const daemonUpdateApplyResponseSchema = z
+  .object({
+    type: z.literal("daemon_update_apply_response"),
+    requestId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+export type DaemonUpdateApplyResponse = z.infer<typeof daemonUpdateApplyResponseSchema>;
+
+export const daemonUpdateSetAutoCheckRequestSchema = z
+  .object({
+    type: z.literal("daemon_update_set_auto_check_request"),
+    requestId: z.string(),
+    enabled: z.boolean(),
+  })
+  .passthrough();
+export type DaemonUpdateSetAutoCheckRequest = z.infer<typeof daemonUpdateSetAutoCheckRequestSchema>;
+
+export const daemonUpdateSetAutoCheckResponseSchema = z
+  .object({
+    type: z.literal("daemon_update_set_auto_check_response"),
+    requestId: z.string(),
+    status: daemonUpdateStatusSchema,
+  })
+  .passthrough();
+export type DaemonUpdateSetAutoCheckResponse = z.infer<
+  typeof daemonUpdateSetAutoCheckResponseSchema
+>;
+
+/** Broadcast to every session on every change and right after `server_info`; no `requestId`. */
+export const daemonUpdateStatusPushSchema = z
+  .object({ type: z.literal("daemon_update_status"), status: daemonUpdateStatusSchema })
+  .passthrough();
+export type DaemonUpdateStatusPush = z.infer<typeof daemonUpdateStatusPushSchema>;
+
+// ===========================================================================
 // Skills (swe/architecture/pi-resource-management.md § Wire family `skills_*`) — sprint-075
 // slice 1: list + toggle only. Preview/install/remove/update_all land in sprints 076-077 and
 // reuse `skillInfoSchema`/`piPackageInfoSchema` below.
@@ -2153,6 +2286,15 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   daemonLogsUnsubscribeRequestSchema,
   daemonLogsUnsubscribeResponseSchema,
   daemonLogLinesSchema,
+  daemonUpdateStatusRequestSchema,
+  daemonUpdateStatusResponseSchema,
+  daemonUpdateCheckRequestSchema,
+  daemonUpdateCheckResponseSchema,
+  daemonUpdateApplyRequestSchema,
+  daemonUpdateApplyResponseSchema,
+  daemonUpdateSetAutoCheckRequestSchema,
+  daemonUpdateSetAutoCheckResponseSchema,
+  daemonUpdateStatusPushSchema,
   skillsListRequestSchema,
   skillsListResponseSchema,
   skillsSetEnabledRequestSchema,

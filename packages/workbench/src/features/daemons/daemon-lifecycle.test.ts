@@ -19,6 +19,7 @@ const LOCAL_UP: LifecycleFacts = {
   remote: null,
   status: "open",
   errorReason: null,
+  restartExpected: false,
 };
 const RELAY_CONNECTING: LifecycleFacts = {
   currentId: "r",
@@ -27,6 +28,7 @@ const RELAY_CONNECTING: LifecycleFacts = {
   remote: null,
   status: "connecting",
   errorReason: null,
+  restartExpected: false,
 };
 const DIRECT_UP: LifecycleFacts = {
   currentId: "d",
@@ -35,6 +37,7 @@ const DIRECT_UP: LifecycleFacts = {
   remote: null,
   status: "open",
   errorReason: null,
+  restartExpected: false,
 };
 
 function react(prev: LifecycleFacts, patch: Partial<LifecycleFacts>): LifecycleReaction[] {
@@ -49,6 +52,12 @@ describe("lifecycleReactions", () => {
   it("connects when a started local daemon comes up and the window is connected to nothing", () => {
     const stopped: LifecycleFacts = { ...LOCAL_UP, local: "starting", status: "idle" };
     expect(react(stopped, { local: "running" })).toEqual([{ kind: "connect" }]);
+  });
+
+  it("connects when an Update ends in a running local daemon and the window is connected to nothing", () => {
+    const updating: LifecycleFacts = { ...LOCAL_UP, local: "updating", status: "idle" };
+    expect(react(updating, { local: "running" })).toEqual([{ kind: "connect" }]);
+    expect(react(updating, { local: "failed" })).toEqual([]);
   });
 
   it("does not connect for a restart, a daemon started elsewhere, or another entry kind", () => {
@@ -107,6 +116,11 @@ describe("lifecycleReactions", () => {
     expect(react({ ...LOCAL_UP, status: "closing" }, { status: "closed" })).toEqual([]);
     expect(react({ ...LOCAL_UP, status: "connecting" }, { status: "closed" })).toEqual([]);
     expect(react(DIRECT_UP, { status: "closed" })).toEqual([]);
+  });
+
+  it("does not refresh when the daemon announced its restart: it comes back by itself", () => {
+    const restarting: LifecycleFacts = { ...LOCAL_UP, restartExpected: true };
+    expect(react(restarting, { status: "closed" })).toEqual([]);
   });
 });
 
@@ -335,6 +349,7 @@ describe("opening the screen for an SSH entry (S8)", () => {
     remote: "checking",
     status: "idle",
     errorReason: null,
+    restartExpected: false,
   };
   const OPEN = [{ kind: "openScreen" }];
 

@@ -25,6 +25,8 @@ const ALL_LOCAL_STATES: LocalDaemonState[] = [
   { state: "failed", reason: "not_healthy" },
   { state: "failed", reason: "timeout" },
   { state: "failed", reason: "bad_output" },
+  { state: "updating" },
+  { state: "failed", reason: "update_failed", output: "npm ERR!" },
   { state: "failed", reason: "spawn_failed" },
 ];
 
@@ -38,7 +40,7 @@ function actions(state: RemoteDaemonState): string[] {
 
 describe("remoteStateView", () => {
   it("offers Start for a stopped or failed daemon, and Retry for a probe", () => {
-    expect(actions({ state: "stopped" })).toEqual(["start:start"]);
+    expect(actions({ state: "stopped" })).toEqual(["start:start", "update:update"]);
     expect(actions({ state: "failed", reason: "timeout" })).toEqual([
       "start:start",
       "retry:refresh",
@@ -51,7 +53,10 @@ describe("remoteStateView", () => {
 
   it("offers Retry (a new probe) for a missing or outdated CLI and an unchecked host", () => {
     expect(actions({ state: "not_installed" })).toEqual(["retry:refresh"]);
-    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual(["retry:refresh"]);
+    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual([
+      "update:update",
+      "retry:refresh",
+    ]);
     expect(actions({ state: "unknown" })).toEqual(["retry:refresh"]);
   });
 
@@ -59,6 +64,26 @@ describe("remoteStateView", () => {
     expect(actions({ state: "checking" })).toEqual([]);
     expect(actions({ state: "starting" })).toEqual([]);
     expect(actions({ state: "running" })).toEqual([]);
+  });
+
+  it("offers Update for a stopped or outdated host and after a failed update", () => {
+    expect(actions({ state: "stopped" })).toEqual(["start:start", "update:update"]);
+    expect(actions({ state: "cli_outdated", version: "0.0.100" })).toEqual([
+      "update:update",
+      "retry:refresh",
+    ]);
+    expect(actions({ state: "failed", reason: "update_failed" })).toEqual([
+      "update:update",
+      "retry:refresh",
+    ]);
+  });
+
+  it("shows a busy row without actions while updating", () => {
+    expect(actions({ state: "updating" })).toEqual([]);
+    expect(remoteStateView({ state: "updating" })).toMatchObject({
+      label: "Updating…",
+      tone: "busy",
+    });
   });
 
   it("words each state and flags failures as errors", () => {
@@ -114,11 +139,11 @@ describe("localStateView", () => {
   });
 
   it("offers Start when stopped, Stop and Restart when running, Retry when something failed", () => {
-    expect(kinds({ state: "stopped" })).toEqual(["start"]);
+    expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
     expect(kinds({ state: "running", host: "h", port: 1 })).toEqual(["stop", "restart"]);
     expect(kinds({ state: "failed", reason: "timeout" })).toEqual(["retry"]);
     expect(kinds({ state: "cli_missing" })).toEqual(["retry"]);
-    expect(kinds({ state: "cli_outdated", version: "0.0.1" })).toEqual(["retry"]);
+    expect(kinds({ state: "cli_outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
   });
 
   it("offers nothing while checking, starting, stopping, or without local support", () => {
@@ -129,12 +154,36 @@ describe("localStateView", () => {
 
   it("points Retry at a probe for a missing CLI and at a start for a failed daemon", () => {
     expect(localStateView({ state: "cli_missing" }).actions[0]?.call).toBe("refresh");
-    expect(localStateView({ state: "cli_outdated", version: "0.0.1" }).actions[0]?.call).toBe(
+    expect(localStateView({ state: "cli_outdated", version: "0.0.1" }).actions[1]?.call).toBe(
       "refresh",
     );
     expect(localStateView({ state: "failed", reason: "bad_output" }).actions[0]?.call).toBe(
       "start",
     );
+  });
+
+  it("offers Update for an outdated CLI and a stopped daemon, and after a failed update", () => {
+    expect(kinds({ state: "cli_outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
+    expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
+    expect(kinds({ state: "failed", reason: "update_failed", output: "x" })).toEqual([
+      "update",
+      "retry",
+    ]);
+    expect(localStateView({ state: "cli_outdated", version: "0.0.1" }).actions[0]?.call).toBe(
+      "update",
+    );
+  });
+
+  it("shows a busy row without actions while updating, and words a failed update", () => {
+    expect(localStateView({ state: "updating" })).toEqual({
+      label: "Updating…",
+      tone: "busy",
+      actions: [],
+    });
+    expect(localStateView({ state: "failed", reason: "update_failed" })).toMatchObject({
+      label: "The update failed",
+      tone: "error",
+    });
   });
 
   it("flags failures as errors and a stopped daemon as neutral", () => {

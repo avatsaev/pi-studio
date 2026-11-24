@@ -22,11 +22,15 @@ export function toastTokens(variant: ToastVariant): ToastTokens {
   }
 }
 
+export type ToastAction = { label: string; onSelect: () => void };
+
 export type ToastOptions = {
   icon?: string;
   variant?: ToastVariant;
   /** Duration in ms. null = sticky (never auto-dismisses). Default ~2200ms. */
   durationMs?: number | null;
+  /** A button after the text; selecting it runs `onSelect` and dismisses the toast. */
+  action?: ToastAction;
   /** Android-only: delegate to native toast instead of the in-app one. */
   nativeAndroid?: boolean;
 };
@@ -39,6 +43,7 @@ export type ToastEntry = {
   variant: ToastVariant;
   durationMs: number | null;
   icon?: string;
+  action?: ToastAction;
   /** True while the hover-pause is active (web desktop only). */
   paused: boolean;
   /** Snapshot of `remainingMs` taken the instant `paused` became true, frozen until resume. Kept
@@ -65,6 +70,7 @@ export function buildToastEntry(
     variant: opts.variant ?? "default",
     durationMs: opts.durationMs !== undefined ? opts.durationMs : DEFAULT_TOAST_DURATION_MS,
     icon: opts.icon,
+    action: opts.action,
     paused: false,
     shownAt: now,
   };

@@ -8,8 +8,8 @@ subtitle: Start the daemon, pair clients, and log in to model providers.
 | Command | Description |
 |---|---|
 | `daemon start` | Spawn a local daemon if one isn't already running, then print a pairing QR |
-| `daemon stop` | Send `SIGTERM` to the local daemon |
-| `daemon restart` | Stop then start the local daemon |
+| `daemon stop` | Send `SIGTERM` to the local daemon and wait up to 10 s for it to exit (`still_running` if it does not) |
+| `daemon restart` | Stop (waiting for the old process to exit), then start the local daemon |
 | `daemon status` | Print health + PID |
 | `daemon set-password <pw>` | Bcrypt-hash a password into `$PI_STUDIO_HOME/config.json` |
 | `daemon pair` | Print the pairing URL/QR for an already-running daemon |

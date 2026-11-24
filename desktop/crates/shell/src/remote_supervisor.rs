@@ -23,6 +23,8 @@ use crate::services::{RemoteRunFailure, Services};
 pub const REMOTE_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 /// Time limit of `daemon start` on the host.
 pub const REMOTE_START_TIMEOUT: Duration = cli_answers::START_TIMEOUT;
+/// Time limit of `update` on the host.
+pub const REMOTE_UPDATE_TIMEOUT: Duration = cli_answers::UPDATE_TIMEOUT;
 /// The shell's exit status for a command it did not find.
 const COMMAND_NOT_FOUND: i32 = 127;
 /// The version command, as typed on the host.
@@ -33,11 +35,12 @@ const VERSION_COMMAND: &str = "pi-studio --version";
 pub struct RemoteLimits {
     pub version: Duration,
     pub start: Duration,
+    pub update: Duration,
 }
 
 impl Default for RemoteLimits {
     fn default() -> Self {
-        Self { version: REMOTE_VERSION_TIMEOUT, start: REMOTE_START_TIMEOUT }
+        Self { version: REMOTE_VERSION_TIMEOUT, start: REMOTE_START_TIMEOUT, update: REMOTE_UPDATE_TIMEOUT }
     }
 }
 
@@ -69,7 +72,7 @@ pub struct RemoteSupervisor {
 }
 
 fn failed(reason: RemoteFailReason) -> RemoteState {
-    RemoteState::Failed { reason }
+    RemoteState::Failed { reason, output: None }
 }
 
 fn fail_of(failure: RemoteRunFailure) -> RemoteFailReason {
@@ -78,6 +81,13 @@ fn fail_of(failure: RemoteRunFailure) -> RemoteFailReason {
         RemoteRunFailure::NoShell => RemoteFailReason::NoShell,
         RemoteRunFailure::TimedOut => RemoteFailReason::Timeout,
     }
+}
+
+/// `pi-studio update`, as typed on the host: standard error joins the output, which is all the hook gives.
+/// `-H` names the entry's daemon: after the install, `update` restarts the daemon that answers at that
+/// address, not whatever listens on the CLI's default port (another user's daemon, say).
+fn update_command(daemon_port: u16) -> String {
+    format!("pi-studio -H 127.0.0.1:{daemon_port} update 2>&1")
 }
 
 fn start_command(daemon_port: u16) -> String {
@@ -99,7 +109,13 @@ impl RemoteSupervisor {
     }
 
     fn carry_out_in(&self, action: RemoteAction, daemon_port: u16, seen_up: bool) -> RemoteState {
-        // Both actions begin with the version command: a probe's answer, and Start's check.
+        // An update runs on the version the host reported before, and the version is read again after it.
+        if action == RemoteAction::Update
+            && let Some(state) = self.run_update(daemon_port)
+        {
+            return state;
+        }
+        // Every action begins with the version command: a probe's answer, and Start's check.
         if let Some(state) = self.check_cli() {
             return state;
         }
@@ -111,7 +127,8 @@ impl RemoteSupervisor {
                     RemoteState::Stopped
                 }
             }
-            RemoteAction::Start => self.start(daemon_port),
+            // After an update the daemon is started as Start does: the CLI restarted a running one.
+            RemoteAction::Start | RemoteAction::Update => self.start(daemon_port),
         }
     }
 
@@ -128,6 +145,20 @@ impl RemoteSupervisor {
             VersionCheck::Ok => None,
             VersionCheck::Outdated { version } => Some(RemoteState::CliOutdated { version }),
             VersionCheck::BadOutput => Some(failed(RemoteFailReason::BadOutput)),
+        }
+    }
+
+    /// Run `pi-studio update` on the host, with its error output merged into the standard output
+    /// (the hook gives only that). `None` when it exited with success; otherwise the state reached.
+    /// The output is not parsed (an outdated CLI's format is unknown): a failure keeps its last
+    /// lines for the screen, which are not expected to hold a secret.
+    fn run_update(&self, daemon_port: u16) -> Option<RemoteState> {
+        let update_failed = |output: &str| RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some(output.to_owned()) };
+        match self.run(&update_command(daemon_port), self.limits.update) {
+            Ok(out) if out.status == 0 => None,
+            Ok(out) => Some(update_failed(&cli_answers::output_tail(&out.stdout))),
+            Err(RemoteRunFailure::TimedOut) => Some(update_failed("`pi-studio update` took too long and was stopped")),
+            Err(failure) => Some(failed(fail_of(failure))),
         }
     }
 
@@ -177,7 +208,8 @@ fn state_name(state: &RemoteState) -> &'static str {
         RemoteState::NotInstalled => "not_installed",
         RemoteState::CliOutdated { .. } => "cli_outdated",
         RemoteState::Starting => "starting",
-        RemoteState::Failed { reason } => reason.code(),
+        RemoteState::Updating => "updating",
+        RemoteState::Failed { reason, .. } => reason.code(),
     }
 }
 

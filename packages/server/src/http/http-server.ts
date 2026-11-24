@@ -1,12 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
+import { SERVER_VERSION } from "../version.js";
 import { createHostChecker, type HostnamesSetting } from "./host-allowlist.js";
 
 /**
  * Daemon HTTP server (architecture/auth-security.md § Behavior, daemon-bootstrap.md § Entry points).
  *
  * Request pipeline:
- *  1. `OPTIONS` preflight and `GET /api/health` are exempt from Host + auth checks.
+ *  1. `OPTIONS` preflight and `GET /api/health` (`{status, version}`) are exempt from Host + auth checks.
  *  2. Host-header allowlist (403 on mismatch).
  *  3. CORS headers (`daemon.cors.allowedOrigins`).
  *  4. Optional bearer auth (wired in task-003).
@@ -64,7 +65,7 @@ export function createRequestListener(
       if (method === "GET" && path === healthPath) {
         applyCors(req, res, allowedOrigins);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ status: "ok" }));
+        res.end(JSON.stringify({ status: "ok", version: SERVER_VERSION }));
         return;
       }
 

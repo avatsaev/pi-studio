@@ -105,6 +105,18 @@ export function ToastViewport() {
             onMouseLeave={() => resume(toast.id)}
           >
             <span className={styles.content}>{toast.content}</span>
+            {toast.action && (
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => {
+                  toast.action?.onSelect();
+                  dismiss(toast.id);
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
             <button
               type="button"
               className={styles.close}

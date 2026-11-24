@@ -79,13 +79,15 @@ COPY --from=build /repo/packages/server/dist            ./packages/server/dist
 # Persistent state (agents, keypair, logs, registries) lives here — mount a volume.
 ENV PI_STUDIO_HOME=/data
 ENV PI_STUDIO_LISTEN=0.0.0.0:6767
+# Self-update is off in a container: images are replaced, not updated in place.
+ENV PI_STUDIO_INSTALL_KIND=docker
 RUN mkdir -p /data && chown -R node:node /data
 VOLUME ["/data"]
 
 EXPOSE 6767
 USER node
 
-# Health: the daemon serves GET /api/health -> {"status":"ok"} (exempt from host/auth checks).
+# Health: the daemon serves GET /api/health -> {"status":"ok","version":...} (exempt from host/auth checks; this check reads the status code only).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PI_STUDIO_LISTEN||'0.0.0.0:6767').split(':').pop()+'/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 

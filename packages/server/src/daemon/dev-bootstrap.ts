@@ -44,6 +44,14 @@ import { makeTerminalBinaryHandler, registerTerminalHandlers } from "../terminal
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { SERVER_VERSION } from "../version.js";
 import { wrapSessionEnvelope } from "./bootstrap.js";
+import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
+import {
+  DEV_UPDATE_STEP_MS,
+  DevUpdateScriptRuntime,
+  parseDevUpdateScript,
+  type DevUpdateScript,
+} from "../update/dev-update-script.js";
+import { UpdateService } from "../update/update-service.js";
 import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
 
 export interface DevBootstrapOptions {
@@ -66,6 +74,13 @@ export interface DevBootstrapOptions {
    * (spinners, Stop, Steer) against the dev daemon.
    */
   mockTurnDelayMs?: number;
+  /**
+   * Scripted self-update (`PI_STUDIO_DEV_UPDATE`). `undefined` reads the env var; `null` forces the
+   * unscripted answer (kind `source`, nothing newer).
+   */
+  updateScript?: DevUpdateScript | null;
+  /** Pause between the scripted apply steps (ms). Default 1500; tests pass a few ms. */
+  updateStepMs?: number;
 }
 
 export interface DevBootstrapHandle {
@@ -203,6 +218,52 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   registerAgentTodosHandlers(registry, { service: agentTodosService });
   registerDaemonStatusHandlers(registry, { service: daemonStatusService });
   registerDaemonLogsHandlers(registry, { service: daemonLogsService });
+
+  // ── Daemon self-update (features/self-update.md) from a script (`PI_STUDIO_DEV_UPDATE`): no npm,
+  // no helper, nothing on disk. The restart is simulated in this process: every socket is dropped,
+  // the HTTP listener (same port) stays up, and a fresh `UpdateService` + handlers + handshake
+  // version take over, reporting the post-update version and the scripted `lastResult`.
+  let autoCheck = true;
+  const createUpdateService = (): UpdateService =>
+    new UpdateService({
+      currentVersion: updateRuntime.version,
+      ...updateRuntime.deps(),
+      autoCheck,
+      persistAutoCheck: async (enabled) => {
+        autoCheck = enabled;
+        return enabled;
+      },
+      broadcast: (status) =>
+        broadcast(getActiveSessions(), { type: "daemon_update_status", status }),
+      logger,
+    });
+  const updateRuntime: DevUpdateScriptRuntime = new DevUpdateScriptRuntime({
+    script:
+      opts.updateScript === undefined
+        ? parseDevUpdateScript(process.env.PI_STUDIO_DEV_UPDATE)
+        : (opts.updateScript ?? undefined),
+    baseVersion: SERVER_VERSION,
+    stepMs: opts.updateStepMs ?? DEV_UPDATE_STEP_MS,
+    restart: () => {
+      updateService.close();
+      for (const session of wsHandle.sessions) session.close(1001, "daemon restarting");
+      updateService = createUpdateService();
+      registerDaemonUpdateHandlers(registry, { service: updateService });
+      void updateService.start();
+    },
+  });
+  let updateService = createUpdateService();
+  registerDaemonUpdateHandlers(registry, { service: updateService });
+  /** The current status right after `server_info`, as the production handshake does. */
+  const sendUpdateStatus = (session: Session): void => {
+    try {
+      session.send(
+        wrapSessionEnvelope({ type: "daemon_update_status", status: updateService.status() }),
+      );
+    } catch {
+      /* dead socket */
+    }
+  };
 
   // Unlike extensions (production-only), this subsystem must exist in dev: the web client is
   // developed against the dev daemon, and without it every dev session runs the
@@ -422,13 +483,17 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
     hostname: opts.host,
-    version: SERVER_VERSION,
+    // A getter: the simulated restart changes the version new handshakes report.
+    get version() {
+      return updateRuntime.version;
+    },
     logger,
     onSession: (session) => {
       logger.info(
         { clientId: session.clientId, clientType: session.clientType },
         "ws client connected",
       );
+      sendUpdateStatus(session);
     },
     onSessionClose: (session) => {
       daemonStatusService.disposeSession(session);
@@ -452,6 +517,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   sessionsHolder.sessions = wsHandle.sessions;
 
   httpServer.listen(opts.port, opts.host);
+  void updateService.start();
   // The dev daemon has no auth at all.
   if (!isLoopbackHost(opts.host)) {
     logger.warn({ host: opts.host, port: opts.port }, UNPROTECTED_BIND_WARNING);
@@ -464,6 +530,8 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     manager,
     close: async () => {
       logger.info("dev daemon shutting down");
+      updateService.close();
+      await manager.closeAll();
       daemonStatusService.dispose();
       terminalManager.killAll();
       daemonLogsService.dispose();

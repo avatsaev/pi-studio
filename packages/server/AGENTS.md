@@ -22,6 +22,37 @@ src/
   index.ts                        Public barrel (re-exports for desktop embedding).
   version.ts                      SERVER_VERSION — single source (packages/server/package.json); used by
                                    every `server_info.version` handshake and the extensions sync.
+                                   Also `PACKAGE_NAME` (`@av-pi-studio/cli`, the package updates install).
+  update/                         Self-update engine (features/self-update.md); pure/process-control
+                                   surface re-exported from the package index for the CLI.
+    npm.ts                        npmLatestVersion (`npm view`, 15 s, null on failure), compareVersions,
+                                   npmGlobalInstall (`npm install -g`, ENOTEMPTY stale-staging retry via
+                                   installWithStaleStagingRetry/staleStagingDirFrom).
+    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?) → npm-global|docker|source|
+                                   unknown (`PI_STUDIO_INSTALL_KIND` wins); npmRootGlobal() (cached),
+                                   canWriteGlobalFolder(folder), npmOnPath(), updateBlocker(kind, platform)
+                                   → `cannot_update` reason or null.
+    process-wait.ts               waitForProcessExit(pid, {timeoutMs, pollMs, alive?, sleep?, now?}) —
+                                   polls signal 0 (`EPERM` = alive); true once gone, false at the limit
+                                   (`timeoutMs: 0` checks once); processAlive(pid). Used by the CLI's
+                                   `daemon stop|restart`.
+    update-service.ts             UpdateService (features/self-update.md § Check/Apply) — memory-only status
+                                   (`idle|checking|available|installing|updating_extensions|restarting|failed|
+                                   cannot_update`), single-flight `check("manual"|"automatic")`, `apply()`
+                                   (refuses `in_progress|cannot_update|not_available`) running an injected
+                                   `UpdatePipeline` (required dep; production: `createUpdatePipeline` —
+                                   install → extensions → helper → pause → shutdown → exit, with
+                                   `classifyInstallFailure`/`failureMessage`),
+                                   `setAutoCheck`, a 6 h unref'd timer (injected `UpdateTimer`), and
+                                   `readAndRemoveUpdateResult` for `update-result.json`. Not re-exported
+                                   from the package index (daemon-only).
+    helper.ts                     The restart helper: `HELPER_SCRIPT` (self-contained `node -e` text),
+                                   `compileHelperLogic()` (test entry), `spawnUpdateHelper(params, env?,
+                                   spawn?)`, `HelperParams`/`HelperSeams`/`HelperResult`. Daemon-only.
+    update-rpc.ts                 registerDaemonUpdateHandlers — `daemon_update_{status,check,apply,
+                                   set_auto_check}_request`; thin adapter over UpdateService.
+    dev-update-script.ts          DEV only: parseDevUpdateScript + DevUpdateScriptRuntime — scripted
+                                   seams/pipeline for `PI_STUDIO_DEV_UPDATE` (dev-bootstrap.ts).
   observability/
     daemon-status-service.ts      DaemonStatusService (sprint-084) — DaemonStatus snapshots (process facts,
                                    cpu %, event-loop lag, agentsByStatus, clients[]) + per-session push
@@ -40,17 +71,26 @@ src/
     daemon-logs-rpc.ts            registerDaemonLogsHandlers — `daemon_logs_subscribe_request` /
                                    `_unsubscribe_request` adapters (invalid level/tail are domain failures).
   daemon/
-    main.ts                       Production entry: `startDaemon({ onFatalError })`; listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767), logs `handle.listen`.
+    main.ts                       Production entry: `runDaemon()` (bin `pi-studio-daemon`); listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767).
+    run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
+                                   `close()` is memoized (a second call returns the first's
+                                   promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
+                                   file watchers, status/log services, relay, sockets, http server,
+                                   then `pi-studio.pid` is removed only when it still holds this
+                                   process's PID. shutdown.test.ts covers it.
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
                                    auth; a handler subset for local testing that includes file
                                    transfer (`FileTransferService` + upload binary handler) and
                                    terminals (`registerTerminalHandlers` + binary handler), wired as
-                                   in bootstrap.ts; `close()` kills every PTY.
+                                   in bootstrap.ts; also the scripted self-update family
+                                   (`PI_STUDIO_DEV_UPDATE`, see "Daemon update service");
+                                   `close()` closes every live agent session, then
+                                   kills every PTY.
     orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
                                    wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
@@ -73,7 +113,9 @@ src/
                                    same disposal a direct close runs). Wired by bootstrap.ts.
 
   agent/                          Agent lifecycle, provider registry, session operations.
-    agent-manager.ts              AgentManager — in-memory state + persistence + broadcast.
+    agent-manager.ts              AgentManager — in-memory state + persistence + broadcast;
+                                   closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS) closes every live
+                                   session at shutdown (see Agent subsystem).
     agent-service.ts              AgentService — RPC handler wiring for agent operations;
                                    resetTimeline(agentId, rows) (sprint-071/task-002) —
                                    unconditionally replaces an agent's in-memory timeline (unlike
@@ -281,7 +323,9 @@ src/
                                     either side gains an unhandled value).
     sync-executor.ts               executePlan — spawns `pi install <spec>` per planned action via
                                     an injectable InstallSpawn seam; one package failing never
-                                    aborts the run; state persisted after every action.
+                                    aborts the run; state persisted after every action. Also
+                                    updateInstalledExtensions — bundled `pi update --extensions`
+                                    through the same seam/env (the self-update pipeline's step).
     extensions-service.ts          ExtensionsService — orchestration only: reads settings.json +
                                     state, calls the planner/executor, persists lastSync, logs the
                                     summary line, persists a pack selection (setSelectedPacks). In-
@@ -632,6 +676,15 @@ src/
   rename, fixed by routing both rename RPCs through `updateRecord`).
 - Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
+- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
+  session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
+  that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
+  shutdown") and never holds the others back. Each agent's `session` is cleared first, so a second
+  call is a no-op. Records are untouched (no status write, no broadcast): an agent resumes its
+  provider session at the next prompt, as after any restart. The manager holds no pid: the
+  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM before it
+  resolves); the limit only bounds a provider whose `close()` hangs. Called by
+  `startDaemon().close()` and `startDevDaemon().close()`.
 - On startup, `recover()` rehydrates every persisted record with no live session attached, and
   normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
   `idle` — both in memory and on disk — since neither status is a legal resting state without a
@@ -1415,8 +1468,8 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
   already send, rather than `kill_terminal_request` sending its own (which would now duplicate the
   one `manager.kill()` triggers through this listener).
 - `killAll()` — kill every live terminal and clear its pending flush timer; called from
-  `startDaemon(...).close()` so a stray PTY can't emit output after the transports it would
-  flush through (relay/WS) have already been torn down on shutdown.
+  `startDaemon(...).close()` (after `AgentManager.closeAll()`) so a stray PTY can't emit output
+  after the transports it would flush through (relay/WS) have already been torn down on shutdown.
 
 Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed:
 - `create_terminal_request` — spawn PTY, return slot + entry (echoing the size the PTY actually got).
@@ -1838,6 +1891,91 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
   `settings_path` handling already assumed. `sanitizeSkillName` (`skills-cli.ts`) mirrors the
   `skills` CLI's own `sanitizeName` (`dist/cli.mjs`) for the canonical on-disk directory name.
 
+### Daemon update service (`update/update-service.ts`, `update-rpc.ts`)
+
+Production bootstrap (`daemon/bootstrap.ts`); the dev daemon uses the same service with scripted seams
+(see "Dev daemon script" below). Constructed after the
+registry, `start()` runs after `listen()` and never delays readiness: it finds the install kind
+(`detectInstallKind`), reads **and removes** `$PI_STUDIO_HOME/update-result.json` into `lastResult`,
+then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once
+and arms a 6 h `unref`'d timer. The helper writes the result file only after it has seen this daemon
+answer, so after that start-up read: while `lastResult` is empty, `start()` also polls the file every
+500 ms for 30 s (`RESULT_POLL_MS`/`RESULT_WATCH_MS`, its own `resultTimer` seam); the first read takes
+it, sets `lastResult` and broadcasts. `close()` (called first in the daemon's shutdown) clears both
+timers.
+
+- **Check.** `npm view` result → `checkError` `offline` (no answer) or `bad_answer` (not `x.y.z`),
+  state kept; otherwise `idle` (not newer), or the blocker in the spec's order: install kind
+  (`updateBlocker`), `npm_missing` (`npmOnPath`), `not_writable` (`canWriteGlobalFolder(npm root -g)`),
+  `unsupported_platform`, else `available`. `command` per reason is `MANUAL_UPDATE_COMMANDS`. A manual
+  check broadcasts `checking`; an automatic one does not, and a failed automatic check changes nothing
+  (not even `checkedAt`/`checkError`). A running update owns the state: checks are no-ops.
+- **Apply.** Refusals `in_progress` / `cannot_update` / `not_available`; otherwise `installing` is
+  broadcast, `{ ok: true }` answers, and the injected `UpdatePipeline` (required dep; production:
+  `createUpdatePipeline`) reports each stage through `setState`. A rejection becomes
+  `failed(install, message)`. The production pipeline: `install` (`npmGlobalInstall(PACKAGE_NAME,
+  target)`, 120 s, ENOTEMPTY retry) → on failure `failed(code, message)` and **stop** (old daemon keeps
+  running, no helper, no shutdown; `code` from `classifyInstallFailure`: `permission` EACCES/EPERM,
+  `timeout` "timed out after" (npm.ts's kill message), `network` ENOTFOUND/ECONNRESET/…, else
+  `install`; `message` = `failureMessage`: `redactSource`, last 2048 chars) → `updating_extensions`
+  (`updateInstalledExtensions` in `extensions/sync-executor.ts`: bundled `pi update --extensions`
+  through the sync `InstallSpawn` seam and `piSpawnEnv`, 180 s; a failure is logged and the update goes
+  on) → `restarting` → `spawnUpdateHelper` (throws → `failed(install)`, nothing shut down) →
+  `pause(300 ms)` → `shutdown` (the daemon's one memoized `close()`; a throw is logged, exit still
+  happens) → `exit(0)`. Nothing is `import()`ed lazily between the install and the exit. A daemon
+  without `DaemonOptions.onUpdateRestart` (embedding, tests) fails the apply **before** installing.
+  `daemon/run.ts` `runDaemon()` is the process entry (`main.ts` and any detached starter): fatal-error
+  exit, SIGINT/SIGTERM → `close()` → exit, and `onUpdateRestart: process.exit`. `startDaemon` alone
+  never ends its host. `server_info.features.daemonUpdate` is advertised on both handshakes (one
+  `serverFeatures` map in `bootstrap.ts`, passed to the direct WS server and the relay's
+  `buildServerInfo`).
+- **Helper (`update/helper.ts`).** One self-contained script (`HELPER_SCRIPT` =
+  `HELPER_LOGIC` + `HELPER_MAIN`, passed to `node -e` with the JSON `HelperParams` in `argv[1]`; only
+  `node:` built-ins, never an import of this package: the package is replaced under it), spawned
+  detached/`stdio: "ignore"`/unref'd with the carried environment plus `PI_STUDIO_LISTEN` (the bound
+  address, real port) and `PI_STUDIO_HOME`. It waits ≤ 30 s for the old pid to exit (then goes on), then
+  three tries: find the entry again (`npm root -g` → `@av-pi-studio/server/dist/daemon/main.js`, then
+  nested under `cli/node_modules`; the one whose `package.json` version matches wins), start it
+  detached, poll `/api/health` (250 ms) for `version == target` up to 6 s (an exited daemon ends the try
+  early), stop what failed. Three failures → `npm install -g <pkg>@previous --prefer-offline` (120 s;
+  the previous version is in npm's cache, so a dead registry does not stall the rollback) and the same
+  three tries for `previous` → `rolled_back`, else `failed` (message and last log line say to run
+  `pi-studio daemon start`). It writes `update-result.json` (tmp + rename) and logs to
+  `logs/update-restart.log`.
+  The logic is JS text so the same code ships and is tested: `compileHelperLogic()` evaluates
+  `HELPER_LOGIC` with injected seams (`HelperSeams`: clock, sleep, log, exit wait, entry lookup, daemon
+  start, health, rollback install, result write). Tests: `helper.test.ts` (logic with a fake clock; script
+  text has no import and only `node:` requires; the real script run in a temp home against a fake `npm`
+  and a fake daemon entry on a free port, for the update and for the rollback with its `--prefer-offline`
+  install), `update-service.test.ts` (pipeline + handoff order with fakes; the result watch),
+  `daemon/update-e2e.test.ts` (real bootstrap: states in order, real shutdown, then the fake exit).
+  `DaemonOptions.updateTestSeams` replaces service probes and pipeline steps for those tests.
+  The live check (a real `npm i -g` in a container against a local registry: update, rollback, the
+  read-only folder cases, auto-check, a rollback with the registry stopped) is
+  `scripts/daemon-update-check/` (README there); its dated results are in
+  `packages/server/docs/daemon-update-live-results.md`.
+- **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
+  read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
+  value through `loadConfig` so an env override still wins in memory.
+- **Wire.** Responses are flat (`status` at the top level); every change is broadcast as
+  `daemon_update_status`, and each session (direct and relay) gets the current status right after
+  `server_info`. The root `vitest.config.ts` pins `PI_STUDIO_UPDATE_AUTOCHECK=false` so tests never ask
+  the real registry; every path is tested through injected seams (`update-service.test.ts`,
+  `update-rpc.test.ts`, `daemon/update-e2e.test.ts`).
+
+**Dev daemon script (`PI_STUDIO_DEV_UPDATE=available|cannot|fail|rollback`, `update/dev-update-script.ts`).**
+`dev-bootstrap.ts` registers the same family over an `UpdateService` fed by scripted seams (no npm, no
+helper process, nothing written outside memory; `daemon.update.autoCheck` is in memory only). Unset:
+install kind `source`, latest = current (idle). `available`: kind `npm-global`, `9.9.9` offered; apply
+walks `installing → updating_extensions → restarting` in 1.5 s steps (`updateStepMs` option), then
+**simulates the restart inside the process**: the old service is closed, every WS session is closed
+(1001), the HTTP listener keeps the same port, and a new `UpdateService` + re-registered handlers take
+over with `currentVersion` `9.9.9` (the handshake `version` is a getter on the runtime) and
+`lastResult.updated`. `rollback`: same walk, old version kept, `lastResult.rolled_back`. `fail`:
+`failed(permission)` after the first step, sockets stay. `cannot`: `cannot_update(not_writable, 9.9.9)`.
+`/api/health` still reports the real `SERVER_VERSION` (the HTTP server does not know the simulation).
+`daemon/dev-update-script.test.ts` drives each script over a real socket on port 0.
+
 ### Observability (`observability/`)
 
 `DaemonStatusService` answers `daemon_status_request` (one-shot), `daemon_status_subscribe_request`
@@ -1914,7 +2052,7 @@ kill switch every future viewer plugin reads. Invariants:
 
 ### HTTP server (`http/`)
 
-- `GET /api/health` → `{ status: "ok" }` (unauthenticated, exempt from Host + auth checks)
+- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from Host + auth checks; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
 - Host-header allowlist (403 on mismatch) → CORS headers (`daemon.cors.allowedOrigins`) → optional
   bearer auth → delegates to an injected `onRequest` handler else 404. The daemon wires `onRequest`
   to the service proxy (`proxy/service-proxy.ts`) only — there is no HTTP file-download route;
@@ -1995,10 +2133,13 @@ messages are fair game.
   mock provider) for fast local iteration and must not grow that same surface.
 - **`startDaemon` never calls `process.exit()`.** On an unrecoverable HTTP-server error (in
   practice `EADDRINUSE` on bind) it logs, sets `process.exitCode = 1`, tears down the WS server,
-  and reports the error through the optional `DaemonOptions.onFatalError` callback. Terminating is
-  the *process entry point's* decision — `daemon/main.ts` and the CLI's detached spawner
-  (`daemon-control.ts`'s `subprocessStarter`) both pass `onFatalError: () => process.exit(1)`, and
-  a new consumer that owns a process must do the same. This matters because `startDaemon` is also
+  and reports the error through the optional `DaemonOptions.onFatalError` callback; after a
+  self-update's shutdown it calls `DaemonOptions.onUpdateRestart(0)`. Terminating is the *process
+  entry point's* decision — `daemon/run.ts`'s `runDaemon()` (used by `daemon/main.ts`) passes
+  `onFatalError: () => host.exit(1)` and `onUpdateRestart: host.exit` (`host` is `process` unless a
+  test injects a `ProcessHost`, `run.test.ts`); any detached starter that owns a process must call
+  `runDaemon` — the CLI's `subprocessStarter` does; a starter that called `startDaemon` directly
+  would have no SIGTERM shutdown and its self-update apply would fail before installing. This matters because `startDaemon` is also
   booted **in-process**: `packages/desktop` embeds it, and `bootstrap.test.ts` starts ~35 daemons
   inside the vitest worker. It used to call `process.exit(1)` directly, which turned any bind
   failure into an opaque `"process.exit unexpectedly called with 1"` unhandled rejection,

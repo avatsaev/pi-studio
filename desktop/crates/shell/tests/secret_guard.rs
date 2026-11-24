@@ -258,7 +258,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         let env = vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned()), ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string())];
         let supervisor = Supervisor::with_env(process::native_services(), Limits::default(), env);
-        for request in [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Restart, LocalRequest::Stop] {
+        for request in [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Restart, LocalRequest::Stop, LocalRequest::Update] {
             let state = supervisor.carry_out(request, cli.to_str(), false);
             assert!(leaks(&format!("{state:?}")).is_none(), "{state:?}");
         }

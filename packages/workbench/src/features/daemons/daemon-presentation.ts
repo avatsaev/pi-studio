@@ -13,13 +13,13 @@ import {
 } from "../../host/types.js";
 
 /** What the user can ask of the local daemon. */
-export type LocalActionKind = "start" | "stop" | "restart" | "retry";
+export type LocalActionKind = "start" | "stop" | "restart" | "retry" | "update";
 
 export interface LocalAction {
   kind: LocalActionKind;
   label: string;
   /** The `HostDaemons.local` member to call: Retry re-probes a missing or outdated CLI and starts a failed daemon again. */
-  call: "start" | "stop" | "restart" | "refresh";
+  call: "start" | "stop" | "restart" | "refresh" | "update";
 }
 
 /** `error`: something went wrong; `busy`: an action is running; `ok`: up; `neutral`: nothing to flag. */
@@ -39,12 +39,15 @@ const RESTART: LocalAction = { kind: "restart", label: "Restart", call: "restart
 const RETRY_PROBE: LocalAction = { kind: "retry", label: "Retry", call: "refresh" };
 /** For a daemon that failed to start: start it again. */
 const RETRY_START: LocalAction = { kind: "retry", label: "Retry", call: "start" };
+/** Runs `pi-studio update`, then starts the daemon. */
+const UPDATE: LocalAction = { kind: "update", label: "Update", call: "update" };
 
 const FAILED_LABELS: Record<Extract<LocalDaemonState, { state: "failed" }>["reason"], string> = {
   not_healthy: "Started, but not answering",
   timeout: "Did not start in time",
   bad_output: "The pi-studio CLI printed something unexpected",
   spawn_failed: "The pi-studio CLI could not be run",
+  update_failed: "The update failed",
 };
 
 /** `host:port`, bracketing an IPv6 literal. */
@@ -70,10 +73,10 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
       return {
         label: `The pi-studio CLI ${state.version} is too old`,
         tone: "error",
-        actions: [RETRY_PROBE],
+        actions: [UPDATE, RETRY_PROBE],
       };
     case "stopped":
-      return { label: "Stopped", tone: "neutral", actions: [START] };
+      return { label: "Stopped", tone: "neutral", actions: [START, UPDATE] };
     case "starting":
       return { label: "Starting…", tone: "busy", actions: [] };
     case "stopping":
@@ -84,17 +87,23 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
         tone: "ok",
         actions: [STOP, RESTART],
       };
+    case "updating":
+      return { label: "Updating…", tone: "busy", actions: [] };
     case "failed":
-      return { label: FAILED_LABELS[state.reason], tone: "error", actions: [RETRY_START] };
+      return {
+        label: FAILED_LABELS[state.reason],
+        tone: "error",
+        actions: state.reason === "update_failed" ? [UPDATE, RETRY_PROBE] : [RETRY_START],
+      };
   }
 }
 
 /** What the user can ask of the current SSH entry's daemon. */
 export interface RemoteAction {
-  kind: "start" | "retry";
+  kind: "start" | "retry" | "update";
   label: string;
   /** The `HostDaemons.remote` member to call: Retry probes the host again. */
-  call: "start" | "refresh";
+  call: "start" | "refresh" | "update";
 }
 
 export interface RemoteStateView {
@@ -106,6 +115,8 @@ export interface RemoteStateView {
 
 const REMOTE_START: RemoteAction = { kind: "start", label: "Start", call: "start" };
 const REMOTE_RETRY: RemoteAction = { kind: "retry", label: "Retry", call: "refresh" };
+/** Runs `pi-studio update` on the host, then starts the daemon. */
+const REMOTE_UPDATE: RemoteAction = { kind: "update", label: "Update", call: "update" };
 
 const REMOTE_FAILED_LABELS: Record<
   Extract<RemoteDaemonState, { state: "failed" }>["reason"],
@@ -116,6 +127,7 @@ const REMOTE_FAILED_LABELS: Record<
   bad_output: "The pi-studio CLI printed something unexpected",
   exec_failed: "Could not run a command on the host",
   no_shell: "The host's login shell could not be used",
+  update_failed: "The update failed",
 };
 
 /** The oldest `pi-studio` the desktop app drives on an SSH host (the host's `MIN_CLI_VERSION`). */
@@ -133,7 +145,7 @@ export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
     case "running":
       return { label: "Running", tone: "ok", actions: [] };
     case "stopped":
-      return { label: "Stopped", tone: "neutral", actions: [REMOTE_START] };
+      return { label: "Stopped", tone: "neutral", actions: [REMOTE_START, REMOTE_UPDATE] };
     case "starting":
       return { label: "Starting…", tone: "busy", actions: [] };
     case "not_installed":
@@ -146,13 +158,18 @@ export function remoteStateView(state: RemoteDaemonState): RemoteStateView {
       return {
         label: `The pi-studio CLI ${state.version} on this host is too old`,
         tone: "error",
-        actions: [REMOTE_RETRY],
+        actions: [REMOTE_UPDATE, REMOTE_RETRY],
       };
+    case "updating":
+      return { label: "Updating…", tone: "busy", actions: [] };
     case "failed":
       return {
         label: REMOTE_FAILED_LABELS[state.reason],
         tone: "error",
-        actions: [REMOTE_START, REMOTE_RETRY],
+        actions:
+          state.reason === "update_failed"
+            ? [REMOTE_UPDATE, REMOTE_RETRY]
+            : [REMOTE_START, REMOTE_RETRY],
       };
   }
 }

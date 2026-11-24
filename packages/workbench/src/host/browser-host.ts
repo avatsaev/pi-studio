@@ -52,5 +52,6 @@ export function createBrowserHost(overrides: Partial<BrowserHostOptions> = {}): 
     // No `pickUploads`: the explorer uses its `<input type="file">`.
     files: createBrowserFiles(currentFileTransfer, overrides.saveTarget),
     ...(overrides.pdf ? { pdf: overrides.pdf } : {}),
+    reloadPage: () => window.location.reload(),
   };
 }

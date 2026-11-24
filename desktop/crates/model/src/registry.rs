@@ -790,6 +790,8 @@ pub enum FailReason {
     Timeout,
     BadOutput,
     SpawnFailed,
+    /// `pi-studio update` failed; the state carries the output's last lines.
+    UpdateFailed,
 }
 
 impl FailReason {
@@ -800,6 +802,7 @@ impl FailReason {
             FailReason::Timeout => "timeout",
             FailReason::BadOutput => "bad_output",
             FailReason::SpawnFailed => "spawn_failed",
+            FailReason::UpdateFailed => "update_failed",
         }
     }
 }
@@ -820,12 +823,18 @@ pub enum LocalState {
     Stopped,
     Starting,
     Stopping,
+    /// `pi-studio update` is running, then the version is read again and the daemon started.
+    Updating,
     Running {
         host: String,
         port: u16,
     },
     Failed {
         reason: FailReason,
+        /// The last lines `pi-studio update` printed, for `update_failed`: shown to the user,
+        /// never parsed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
     },
 }
 
@@ -840,6 +849,8 @@ pub enum RemoteFailReason {
     ExecFailed,
     /// The account runs no commands.
     NoShell,
+    /// `pi-studio update` failed on the host; the state carries the output's last lines.
+    UpdateFailed,
 }
 
 impl RemoteFailReason {
@@ -850,6 +861,7 @@ impl RemoteFailReason {
             RemoteFailReason::BadOutput => "bad_output",
             RemoteFailReason::ExecFailed => "exec_failed",
             RemoteFailReason::NoShell => "no_shell",
+            RemoteFailReason::UpdateFailed => "update_failed",
         }
     }
 }
@@ -868,8 +880,14 @@ pub enum RemoteState {
         version: String,
     },
     Starting,
+    /// `pi-studio update` is running on the host, then the version is read again and the daemon started.
+    Updating,
     Failed {
         reason: RemoteFailReason,
+        /// The last lines `pi-studio update` printed, for `update_failed`: shown to the user,
+        /// never parsed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
     },
 }
 
@@ -1055,11 +1073,16 @@ mod tests {
             (LocalState::Stopped, json!({"state":"stopped"})),
             (LocalState::Starting, json!({"state":"starting"})),
             (LocalState::Stopping, json!({"state":"stopping"})),
+            (LocalState::Updating, json!({"state":"updating"})),
             (LocalState::Running { host: "127.0.0.1".into(), port: 7777 }, json!({"state":"running","host":"127.0.0.1","port":7777})),
-            (LocalState::Failed { reason: FailReason::NotHealthy }, json!({"state":"failed","reason":"not_healthy"})),
-            (LocalState::Failed { reason: FailReason::Timeout }, json!({"state":"failed","reason":"timeout"})),
-            (LocalState::Failed { reason: FailReason::BadOutput }, json!({"state":"failed","reason":"bad_output"})),
-            (LocalState::Failed { reason: FailReason::SpawnFailed }, json!({"state":"failed","reason":"spawn_failed"})),
+            (LocalState::Failed { reason: FailReason::NotHealthy, output: None }, json!({"state":"failed","reason":"not_healthy"})),
+            (LocalState::Failed { reason: FailReason::Timeout, output: None }, json!({"state":"failed","reason":"timeout"})),
+            (LocalState::Failed { reason: FailReason::BadOutput, output: None }, json!({"state":"failed","reason":"bad_output"})),
+            (LocalState::Failed { reason: FailReason::SpawnFailed, output: None }, json!({"state":"failed","reason":"spawn_failed"})),
+            (
+                LocalState::Failed { reason: FailReason::UpdateFailed, output: Some("npm ERR! x".into()) },
+                json!({"state":"failed","reason":"update_failed","output":"npm ERR! x"}),
+            ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);
@@ -1069,7 +1092,7 @@ mod tests {
 
     #[test]
     fn remote_state_json() {
-        let failed = |reason| RemoteState::Failed { reason };
+        let failed = |reason| RemoteState::Failed { reason, output: None };
         let cases = [
             (RemoteState::Unknown, json!({"state":"unknown"})),
             (RemoteState::Checking, json!({"state":"checking"})),
@@ -1083,6 +1106,11 @@ mod tests {
             (failed(RemoteFailReason::BadOutput), json!({"state":"failed","reason":"bad_output"})),
             (failed(RemoteFailReason::ExecFailed), json!({"state":"failed","reason":"exec_failed"})),
             (failed(RemoteFailReason::NoShell), json!({"state":"failed","reason":"no_shell"})),
+            (RemoteState::Updating, json!({"state":"updating"})),
+            (
+                RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some("npm ERR! x".into()) },
+                json!({"state":"failed","reason":"update_failed","output":"npm ERR! x"}),
+            ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);

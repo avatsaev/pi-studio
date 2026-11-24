@@ -28,7 +28,7 @@ open http://localhost:8080
 # ...or drive it from the CLI, direct to the daemon
 pi-studio --host http://localhost:6767 ls
 # health probes
-curl http://localhost:6767/api/health   # → {"status":"ok"}
+curl http://localhost:6767/api/health   # → {"status":"ok","version":"<daemon version>"}
 curl http://localhost:7000/health        # → ok
 curl http://localhost:8080/ -I           # → 200 (SPA)
 ```
@@ -193,11 +193,15 @@ docker run -d --name pi-studio-daemon \
 | Env | Default | Purpose |
 |---|---|---|
 | `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Bind address (the container sets it explicitly — the daemon's own default is loopback, which is unreachable from outside the container). Set `PI_STUDIO_PASSWORD` or the daemon logs a warning |
+| `PI_STUDIO_INSTALL_KIND` | `docker` | Set by the image: the daemon never updates itself in a container; replace the image instead |
 | `PI_STUDIO_HOME` | `/data` | State dir (mount a volume here) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Connection password |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino level; `debug` adds per-RPC request lines |
 | `PI_STUDIO_RELAY_ENABLED` / `_ENDPOINT` / `_USE_TLS` | `false` / — / `false` | Dial out to a relay |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — the compose stack sets this to `http://localhost:${PI_STUDIO_WEB_PORT:-8080}` |
+
+A client that asks the container's daemon to update gets `cannot_update` with the command
+`docker compose pull && docker compose up -d`; nothing is installed inside the container.
 
 The daemon logs its full lifecycle to stdout as NDJSON (startup, client connect/disconnect, agent
 create/turn lifecycle, terminal open/exit, `pi` process spawn/exit, relay dial events), so

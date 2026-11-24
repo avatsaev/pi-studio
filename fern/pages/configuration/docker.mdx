@@ -31,7 +31,7 @@ open http://localhost:8080
 # ...or drive it from the CLI, direct to the daemon
 pi-studio --host http://localhost:6767 ls
 # health probes
-curl http://localhost:6767/api/health   # → {"status":"ok"}
+curl http://localhost:6767/api/health   # → {"status":"ok","version":"<daemon version>"}
 curl http://localhost:7000/health        # → ok
 curl http://localhost:8080/ -I           # → 200 (SPA)
 ```
@@ -138,6 +138,12 @@ The `pi` CLI is bundled in the image, but it still needs credentials. Either:
 
 Without credentials the `pi` provider surfaces a clean `rpc_error`; the built-in **`mock`**
 provider works with no credentials for smoke tests.
+
+## Updating
+
+A daemon in a container never updates itself (`PI_STUDIO_INSTALL_KIND=docker`): a connected client shows
+that it cannot update and the command to run, `docker compose pull && docker compose up -d`. Replace the
+image, keep the `/data` volume.
 
 ## Security notes
 

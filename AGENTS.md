@@ -108,6 +108,11 @@ auth-engine exception).
 shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
 Vite aliases (the workbench's published `dist` is proven by `packages/workbench/scripts/pack-smoke.sh`).
 
+The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
+containers against a local verdaccio registry, never the real one; recipe in its README, dated
+results in `packages/server/docs/daemon-update-live-results.md`). Run it from a clean worktree after
+changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop.
+
 ---
 
 ## Tech stack
@@ -221,7 +226,7 @@ npm start
 # Start without rebuilding
 npm run start:server          # node packages/server/dist/daemon/main.js
 
-# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning)
+# Dev daemon (in-memory persistence, mock provider only, a handler subset that includes file transfer and terminals (real PTYs), binds 127.0.0.1:6767 by default; PI_STUDIO_LISTEN overrides, non-loopback logs a no-auth warning; PI_STUDIO_DEV_UPDATE=available|cannot|fail|rollback scripts the self-update family for UI work: no npm, no real restart)
 npm run dev:daemon
 
 # Docker: build + run daemon (:6767), relay (:7000), web UI (:8080); daemon dials the relay
@@ -356,6 +361,7 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
 | `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`). `docker/daemon.Dockerfile` sets `docker` |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
@@ -366,6 +372,8 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 |`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
+|`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
+|`PI_STUDIO_DEV_UPDATE`|_(unset)_|Dev daemon only (`npm run dev:daemon`, `packages/server/src/update/dev-update-script.ts`): `available`, `cannot`, `fail` or `rollback` scripts the whole daemon-update flow with no npm and no helper process; unset: install kind `source`, never offers an update. The production daemon ignores it|
 |`PI_STUDIO_EXTENSION_PACKS`|_(unset, i.e. `core` only)_|CSV of extra audience pack slugs to select, additive to the always-implicit `core` (`daemon.extensions.packs`)|
 
 Also reads `$PI_STUDIO_HOME/config.json`.
@@ -420,6 +428,28 @@ All communication uses a **single WebSocket connection** per client.
   live-verified end to end including over the relay transport (task-006): two windows on the same
   agent, one direct and one relay-connected, both converged to the same truncated transcript the
   instant a fork was confirmed in the other, no reload.
+- **`daemon_update_*`** (daemon self-update, roadmap 5b, sprints 135–138, `swe/features/self-update.md`) is a
+  real `messages.ts` family, flat, gated by `server_info.features.daemonUpdate`: `daemon_update_status`/
+  `_check`/`_apply`/`_set_auto_check_request` + responses, and the `daemon_update_status` broadcast the
+  daemon sends to every session (direct and relay) on each change and right after `server_info`. The
+  status is `{currentVersion, installKind, autoCheck, checkedAt?, checkError?, state, lastResult?}`; `state` is a
+  closed union (`idle`, `checking`, `available`, `installing`, `updating_extensions`, `restarting`,
+  `failed`, `cannot_update`). Any client may ask, so it works for local, direct, relay and SSH daemons and in the
+  browser. On an `npm-global` install, writable npm folder, non-Windows host, apply runs `npm install -g`,
+  `pi update --extensions`, a detached helper that waits for the old daemon, starts the new one on the same
+  address and polls `/api/health` (which carries `version`) three times, and otherwise reinstalls the previous
+  version (`--prefer-offline`) and starts that; the result lands in `update-result.json` and reaches clients as
+  `lastResult`. Docker, a checkout, an unwritable folder, a missing npm and Windows are `cannot_update` with a
+  reason (Windows: `unsupported_platform`) and the command to run by hand. The CLI starts the daemon through
+  `runDaemon` (SIGINT/SIGTERM close then exit, plus the self-update restart hook), and `daemon stop`/`restart`
+  wait up to 10 s for the exit and report `still_running`. **Shipped and live-verified**: the workbench pill,
+  dialog and Settings → Daemon switch; the desktop Daemons screen's Update for a stopped or too-old local or
+  SSH daemon (`pi-studio -H 127.0.0.1:<port> update 2>&1` over SSH). Seen live in a real `npm i -g` in
+  containers against a local registry (`packages/server/docs/daemon-update-live-results.md`: update with
+  clients reconnecting, rollback of a broken version, a rollback with the registry stopped, read-only folder,
+  auto-check off) and in the desktop app's webview on Linux (`desktop/docs/platform-checks.md` § Daemon
+  self-update rows). Not seen: macOS and Windows, a hoisted npm layout, a real old CLI, the pill on an SSH
+  entry's daemon. No external-client fixture: the Rust clients do not consume this family.
 - **`provider_auth_*`** (sprint-055) is the one RPC family that both gets real `messages.ts` request/
   response schemas AND has a passthrough-only push: the five `provider_auth_list/login/respond/
   cancel/logout` request/response pairs are real, durable, multi-client RPC schemas, while the
@@ -693,7 +723,9 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 
 ```
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
-pi-studio.pid         PID lock (prevents duplicate daemons)
+pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
+update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
+logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
                        replace via `pi-studio daemon rotate-key` (revokes all pairing links)

@@ -38,6 +38,9 @@ export function createDaemonRuntimeInfo(
 // Production daemon bootstrap: startDaemon(), DaemonOptions, DaemonHandle, wrapSessionEnvelope().
 export * from "./bootstrap.js";
 
+// Process entry runner (signals, exit after a self-update): `runDaemon()`.
+export * from "./run.js";
+
 // Dev daemon bootstrap (mock provider, in-memory): reachable from outside the package so
 // cross-package E2E (e.g. packages/cli's extension-UI SDK test, sprint-067/task-004) can host a
 // real dev daemon without a second, duplicated bootstrap.

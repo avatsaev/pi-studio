@@ -19,6 +19,7 @@ import { Suspense, useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { Dialog, type DialogProps, EmptyState, Icon, Spinner } from "@av-pi-studio/ui-library";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useUiStore } from "../../stores/ui-store.js";
 import { LoginDialog } from "../provider-auth/LoginDialog.js";
 import { useProviderAuthUiStore } from "../provider-auth/provider-auth-store.js";
 import { buildSettingsCategoryCapabilities, SETTINGS_CATEGORIES } from "./settings-categories.js";
@@ -33,6 +34,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const serverInfo = useConnectionStore((s) => s.serverInfo);
   const pendingLogin = useProviderAuthUiStore((s) => s.pendingLogin);
   const cancelLogin = useProviderAuthUiStore((s) => s.cancelLogin);
+  // The update dialog (opened from the Daemon category, mounted by the connection bar) stacks
+  // over this one exactly as the login dialog does.
+  const updateDialogOpen = useUiStore((s) => s.daemonUpdateDialogOpen);
 
   // Reactive over `serverInfo` (a tracked Zustand field) rather than the imperative
   // `PiStudioClient#hasProviderAuthCapability()` — the store's `client` reference stays stable
@@ -58,21 +62,21 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }
 
   /**
-   * Keeps a stacked login dialog's interactions from dismissing *this* dialog. The two contents
-   * are DOM siblings (each Radix dialog portals to `body`), so a pointerdown inside the login
-   * dialog reads as an outside-interaction here, and closing the login dialog closed Settings
-   * along with it.
+   * Keeps a stacked dialog's interactions (the login dialog, the daemon update dialog) from
+   * dismissing *this* dialog. The contents are DOM siblings (each Radix dialog portals to
+   * `body`), so a pointerdown inside the upper dialog reads as an outside-interaction here, and
+   * closing the upper dialog closed Settings along with it.
    *
    * Two rules, because Radix does not always dispatch while the upper layer still exists: it
-   * defers a non-mouse `pointerdown` to the following `click`, by which point the login dialog's
-   * own Cancel handler has already cleared `pendingLogin` and unmounted that layer — so the
-   * "is a login pending" test alone reports false and lets the dismissal through.
+   * defers a non-mouse `pointerdown` to the following `click`, by which point the upper dialog's
+   * own Cancel handler has already cleared its state and unmounted that layer — so the
+   * "is a stacked dialog open" test alone reports false and lets the dismissal through.
    */
   function suppressStackedDismiss(
     event: Parameters<NonNullable<DialogProps["onInteractOutside"]>>[0],
   ) {
-    // 1. The login dialog is still up: nothing happening inside it belongs to this dialog.
-    if (pendingLogin) {
+    // 1. A stacked dialog is still up: nothing happening inside it belongs to this dialog.
+    if (pendingLogin || updateDialogOpen) {
       event.preventDefault();
       return;
     }
@@ -83,9 +87,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (target instanceof Node && !target.isConnected) event.preventDefault();
   }
 
-  /** Esc is dispatched synchronously to the topmost layer, so the pending-login test is enough. */
+  /** Esc is dispatched synchronously to the topmost layer, so the open-dialog test is enough. */
   function suppressStackedEscape(event: KeyboardEvent) {
-    if (pendingLogin) event.preventDefault();
+    if (pendingLogin || updateDialogOpen) event.preventDefault();
   }
 
   return (

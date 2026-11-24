@@ -8,7 +8,7 @@
  */
 
 import { lazy } from "react";
-import { Atom, KeyRound, Puzzle, type LucideIcon } from "lucide-react";
+import { Atom, KeyRound, Puzzle, Server, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
 /** Server capabilities a settings category may gate its availability on. Grows as new
@@ -18,6 +18,8 @@ export interface SettingsCategoryCapabilities {
   providerAuth: boolean;
   /** sprint-075: `server_info.features.skills` — gates the Skills category. */
   skills: boolean;
+  /** sprint-137: `server_info.features.daemonUpdate` — gates the Daemon category. */
+  daemonUpdate: boolean;
 }
 
 export interface SettingsCategory {
@@ -36,6 +38,10 @@ const ModelProvidersPanel = lazy(() =>
 
 const SkillsPanel = lazy(() =>
   import("../skills/SkillsPanel.js").then((m) => ({ default: m.SkillsPanel })),
+);
+
+const DaemonSettingsPanel = lazy(() =>
+  import("./DaemonSettingsPanel.js").then((m) => ({ default: m.DaemonSettingsPanel })),
 );
 
 const ViewersPanel = lazy(() =>
@@ -70,6 +76,15 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     component: ViewersPanel,
     available: () => true,
   },
+  {
+    // sprint-137/task-003 — capability-gated: a daemon without the `daemonUpdate` flag has no
+    // update status to show, so the category is hidden (the connection bar's pill is too).
+    id: "daemon",
+    label: "Daemon",
+    icon: Server,
+    component: DaemonSettingsPanel,
+    available: (caps) => caps.daemonUpdate,
+  },
 ];
 
 /** Builds the capability object every category's `available` predicate is evaluated against,
@@ -82,5 +97,6 @@ export function buildSettingsCategoryCapabilities(
   return {
     providerAuth: Boolean(features?.["providerAuth"]),
     skills: Boolean(features?.["skills"]),
+    daemonUpdate: Boolean(features?.["daemonUpdate"]),
   };
 }

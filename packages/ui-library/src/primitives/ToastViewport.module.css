@@ -50,6 +50,20 @@
   min-width: 0;
   overflow-wrap: break-word;
 }
+.action {
+  flex: none;
+  padding: var(--pi-spacing-2) var(--pi-spacing-8);
+  border: none;
+  background: transparent;
+  border-radius: var(--pi-radius-base);
+  color: var(--pi-color-accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.action:hover {
+  background: color-mix(in srgb, var(--pi-color-background) 85%, var(--pi-color-foreground) 15%);
+}
 .close {
   flex: none;
   display: flex;

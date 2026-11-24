@@ -78,11 +78,10 @@ src/
 
   update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
   update-commands.test.ts
-  update-control.ts      UpdateRuntime — getLatestVersion/installGlobal (shells out to `npm view`/
-                          `npm install -g`, self-healing npm's ENOTEMPTY stale-staging-dir rename
-                          bug — see § `update` command below); compareVersions() (plain x.y.z
-                          numeric compare, no semver deps — this monorepo only ever publishes
-                          major.minor.patch).
+  update-control.ts      UpdateRuntime — getLatestVersion/installGlobal seam; defaultUpdateRuntime()
+                          wires `npmLatestVersion`/`npmGlobalInstall` from `@av-pi-studio/server`
+                          (`update/npm.ts`, where the ENOTEMPTY self-heal and compareVersions live);
+                          re-exports PACKAGE_NAME/compareVersions; CURRENT_VERSION.
   update-control.test.ts
 
   promise-with-resolvers.d.ts   Promise.withResolvers() ambient decl (lib predates ES2024;
@@ -207,8 +206,8 @@ the file both the CLI and every future agent spawn read, before any agent needs 
 | Command                                   | Description                                                                                                                  |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `daemon start`                            | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
-| `daemon stop`                             | Send SIGTERM to the local daemon                                                                                             |
-| `daemon restart`                          | Stop then start the local daemon                                                                                             |
+| `daemon stop`                             | Send SIGTERM to the local daemon, then wait up to 10 s for the process to exit                                              |
+| `daemon restart`                          | Stop (waiting for the old process to exit), then start the local daemon                                                      |
 | `daemon status`                           | Print health + PID                                                                                                           |
 | `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
 | `daemon pair`                             | Print the pairing URL / QR for an already-running daemon                                                                     |
@@ -236,15 +235,28 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 | --- | --- | --- |
 | `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}`; healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
 | `pair` | `{"pairingUrl","relay"}` | `{"error":"no_keypair"}` |
-| `stop` | `{"stopped":true}` | `{"stopped":false}` |
+| `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 10 s) |
+| `restart` when the old daemon did not exit | — | `{"up":false,"host","port","error":"still_running"}` |
 
-`DaemonRuntime` (`daemon-control.ts`):
+`DaemonRuntime` (`daemon-control.ts`; every member injectable, tests pass fakes):
 
 - `probe(host, port)` — HTTP GET `/api/health`, returns true if 200.
-- `start(opts)` — spawn `node <server>/dist/daemon/main.js` as a detached child.
-- `stop(home)` — read PID from `pi-studio.pid`, send SIGTERM.
-- `status(home)` — read PID and probe health.
-- `waitForDaemon(runtime, host, port, opts)` — poll health until up or timeout.
+- `hash(plaintext)` — bcrypt.
+- `kill(pid, signal?)` — `process.kill`; false on any failure.
+- `start(opts)` — spawn the daemon (`subprocessStarter`) as a detached child.
+- `waitForExit(pid, timeoutMs)` — `waitForProcessExit` from `@av-pi-studio/server` (100 ms poll,
+  signal 0); `timeoutMs: 0` is one liveness check.
+- `readVersion(host, port)` — `version` from the `/api/health` body (`httpHealthVersionReader`);
+  `null` when unreadable. Used by `update` to report the version answering after a restart.
+
+Free functions: `waitForDaemon(runtime, host, port, opts)` polls health until up or timeout;
+`stopDaemon(home, runtime)` (async) → `StopResult { stopped, error?: "still_running" }`: no pid file
+→ `{stopped:false}`; SIGTERM, then `waitForExit(pid, STOP_TIMEOUT_MS = 10 000)`; a pid file whose
+process is gone (the signal failed and one liveness check says gone) is removed and reported as not
+running; a process that survives the wait, or cannot be signalled but exists, is
+`{stopped:false, error:"still_running"}`; after a confirmed exit the pid file is removed when it
+still names that pid. `daemon restart` and `daemon rotate-key` stop first and, on `still_running`,
+start nothing (a start would find the old daemon still answering and call it running).
 
 `persistRelayEnvOverrides(home, env = process.env)` (`daemon-control.ts`) — writes any
 `PI_STUDIO_RELAY_*` env vars present in `env` into `config.json`'s `daemon.relay` (creating the
@@ -441,22 +453,18 @@ publish on their own schedule.
 extensions (exit `EXIT_OK` either way — "already up to date" is not a failure). It only checks the
 CLI package; there is no dry-run equivalent for the extensions step.
 
-`UpdateRuntime` (`update-control.ts`):
+`UpdateRuntime` (`update-control.ts`; the engine itself lives in `@av-pi-studio/server`'s
+`src/update/npm.ts` — see the `update` exception in the import-rule bullets below):
 
-- `getLatestVersion(pkg)` — `npm view <pkg> version`; returns `null` on any failure (registry
-  unreachable, offline, etc.) rather than throwing, so `runUpdate` can render one clean error line.
-- `installGlobal(pkg, version)` — `npm install -g <pkg>@<version>`; throws on failure (surfaced via
-  the child's stderr, falling back to the error message). Self-heals npm's own `ENOTEMPTY`
-  rename-collision bug: npm's arborist stages each install swap under a directory name hashed
-  from the install path (`@npmcli/arborist`'s `retire-path.js`) and only deletes it after a
-  _successful_ install, so an interrupted/killed/concurrent prior update leaves that exact
-  directory behind non-empty — colliding with every subsequent install forever until removed by
-  hand. `installWithStaleStagingRetry` detects that specific error via `staleStagingDirFrom`,
-  `rm -rf`s the directory npm itself reported, and retries (bounded, default 3 attempts) before
-  giving up and rethrowing.
-- `compareVersions(a, b)` — plain numeric `x.y.z` compare (missing segments treat as 0), NOT a full
-  semver comparator (no prerelease/build-metadata handling) — sufficient because this monorepo only
-  ever publishes bare `major.minor.patch` releases (`scripts/publish.sh`'s patch-only bump).
+- `getLatestVersion(pkg)` — server's `npmLatestVersion`: `npm view <pkg> version`; returns `null` on
+  any failure rather than throwing, so `runUpdate` can render one clean error line.
+- `installGlobal(pkg, version)` — server's `npmGlobalInstall`: `npm install -g <pkg>@<version>`;
+  throws on failure. Self-heals npm's own `ENOTEMPTY` rename-collision bug (stale arborist staging
+  directory): `installWithStaleStagingRetry` removes the directory npm reported and retries
+  (bounded, default 3). Tests: `packages/server/src/update/npm.test.ts`.
+- `compareVersions(a, b)` — server's plain numeric `x.y.z` compare, re-exported by
+  `update-control.ts`; not a full semver comparator (this monorepo publishes bare releases only).
+- `PACKAGE_NAME` — `@av-pi-studio/cli`, re-exported from the server's `version.ts`.
 - `CURRENT_VERSION` — this package's own `package.json` version, read via `createRequire` at
   startup (same pattern as `program.ts`'s `-v/--version`) — never hardcoded.
 
@@ -465,6 +473,13 @@ both are attempted (a failed npm install is reported even if `pi update --extens
 succeed afterward); when the CLI step succeeds or is a no-op ("already up to date"), the
 extensions step's exit code (e.g. `EXIT_ERROR` if no embedded/global Pi CLI is resolvable, or Pi's
 own `update --extensions` exits nonzero) is surfaced instead.
+
+**Daemon restart.** After a successful install in this run (not when already up to date, not when
+the install failed), `restartLocalDaemon` probes `--host` (default 127.0.0.1:6767). A daemon
+answering → `stopDaemon` (waits for the exit), `start` on the same `host:port`, `waitForDaemon`,
+then prints `daemon restarted: <version>` from `readVersion`. No daemon → nothing happens. A failed
+restart prints the reason and exits `EXIT_ERROR` (the install is not undone); the exit order is
+install error, then extensions error, then restart error. Tests inject `ctx.daemon`.
 
 ---
 
@@ -562,13 +577,16 @@ branches to `createRelayTransport` when it carries a relay offer).
   auth-store init, model list load, provider rebuild) is never _invoked_ until a real `auth`
   command needs it (confirmed with the same live trace, instrumenting `ModelRuntime.create`
   directly: zero invocations for `--help`/`ls`, exactly one for `auth status`).
-- **`subprocessStarter`'s spawned `-e` script must pass `onFatalError` to `startDaemon`.**
-  `startDaemon` deliberately never calls `process.exit()` itself (it is also embedded in-process by
+- **`subprocessStarter`'s spawned `-e` script must call `runDaemon`, never `startDaemon`.**
+  `daemonStartScript(serverUrl, {host, port, home})` builds it. `startDaemon` deliberately never
+  calls `process.exit()` and installs no signal handlers (it is also embedded in-process by
   `packages/desktop` and the server's own integration tests — see `packages/server/AGENTS.md`'s
   invariant), so the process-level decision belongs to whoever owns the process. Here that is the
-  detached child: without `onFatalError: () => process.exit(1)` baked into the script, a bind
-  failure (`EADDRINUSE`) would leave the child alive with a dead HTTP server, and `waitForDaemon`
-  would time out against a process that never exits on its own.
+  detached child, and `runDaemon` (`daemon/run.ts`) supplies it: exit on a bind failure
+  (`EADDRINUSE` would otherwise leave the child alive with a dead HTTP server and `waitForDaemon`
+  timing out), SIGINT/SIGTERM → clean close (so `daemon stop` removes `pi-studio.pid`), and the exit
+  after a self-update's shutdown (without it the daemon cannot update itself). Test:
+  `daemon-start-script.test.ts`.
 - **`extensions list --local` (sprint-057/task-005) is a third, narrower exception, alongside the
   auth engine.** It reads `@av-pi-studio/server`'s pure extension-planning surface in-process —
   `curated-packs.ts`/`sync-planner.ts`/`extensions-state.ts` (re-exported from the package's public
@@ -582,6 +600,9 @@ branches to `createRelayTransport` when it carries a relay offer).
   established. `resolvePiAgentDir` (`agent/pi-home.ts`) was extracted out of `provider-registry.ts`
   specifically so this in-process read path never reaches `providers/pi/agent.js` or
   `providers/mock/mock-provider.js` either — see root `AGENTS.md`'s dependency-graph note.
+- **`update` (sprint-135/task-003) is a further narrow exception.** `update-control.ts` imports the
+  server's `update/` surface (`npm.ts`, `install-kind.ts`, `PACKAGE_NAME`): pure functions and `npm`
+  child processes, never the daemon's lifecycle, a WS server, or daemon state.
 - **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
   import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
   `await import()` taken only when a prompt is about to render — verified with a `node:module`
@@ -604,8 +625,8 @@ branches to `createRelayTransport` when it carries a relay offer).
 The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
-- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`) add `error` (string) and exit 1.
-- `--json daemon stop`: `{ stopped: boolean }`.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
+- `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 10 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 
 The app reads the last non-empty line of standard output as JSON **whatever the exit code** (a down daemon or a failed start exits 1 and the line still says why), within a limit per command (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s). It discards `pairingUrl`. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply). Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too (`desktop/docs/architecture.md` § The registry and the local daemon).

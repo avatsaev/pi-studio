@@ -24,6 +24,12 @@ import type {
   AgentUiResponse,
   AgentUiSurface,
   CreateAgentRequest,
+  DaemonUpdateApplyResponse,
+  DaemonUpdateCheckResponse,
+  DaemonUpdateSetAutoCheckResponse,
+  DaemonUpdateStatus,
+  DaemonUpdateStatusPush,
+  DaemonUpdateStatusResponse,
   ExtensionPacksListResponse,
   ExtensionPacksSetResponse,
   FetchAgentTimelineResponse,
@@ -44,6 +50,8 @@ import type {
   ViewerSettingsUpdate,
 } from "@av-pi-studio/protocol";
 import type { DaemonClient } from "./daemon-client.js";
+
+const DAEMON_UPDATE_CHECK_TIMEOUT_MS = 30_000;
 
 // Pure skill-install-source classifier (sprint-077/task-002, `@av-pi-studio/protocol`) —
 // re-exported so the web client can classify a pasted source string without a round trip.
@@ -932,6 +940,62 @@ export class PiStudioClient {
     return this.daemon.onSessionMessage((msg) => {
       if ((msg as { type?: string }).type === "viewer_settings_update") {
         handler((msg as unknown as ViewerSettingsUpdate).settings);
+      }
+    });
+  }
+
+  // ─── Daemon update (daemon_update_*) ───────────────────────────────────────
+
+  /** True iff the daemon advertised the `daemonUpdate` capability in `server_info.features`. */
+  hasDaemonUpdateCapability(): boolean {
+    return this.daemon.hasFeature("daemonUpdate");
+  }
+
+  /** The daemon's current update status (cached; no registry call). */
+  async getDaemonUpdateStatus(): Promise<DaemonUpdateStatus> {
+    const response = await this.daemon.request<DaemonUpdateStatusResponse>(
+      "daemon_update_status_request",
+      {},
+    );
+    return response.status;
+  }
+
+  /** Forces a registry check now; resolves to the resulting status. Uses a 30 s timeout. */
+  async checkDaemonUpdate(): Promise<DaemonUpdateStatus> {
+    const response = await this.daemon.request<DaemonUpdateCheckResponse>(
+      "daemon_update_check_request",
+      {},
+      DAEMON_UPDATE_CHECK_TIMEOUT_MS,
+    );
+    return response.status;
+  }
+
+  /** Starts the update. A refusal (`not_available | cannot_update | in_progress`) resolves
+   *  `{ ok: false, error }` instead of throwing; transport errors still reject. */
+  async applyDaemonUpdate(): Promise<{ ok: boolean; error?: string }> {
+    const response = await this.daemon.request<DaemonUpdateApplyResponse>(
+      "daemon_update_apply_request",
+      {},
+    );
+    return response.error === undefined
+      ? { ok: response.ok }
+      : { ok: response.ok, error: response.error };
+  }
+
+  /** Turns the daemon's periodic update check on or off; resolves to the new status. */
+  async setDaemonUpdateAutoCheck(enabled: boolean): Promise<DaemonUpdateStatus> {
+    const response = await this.daemon.request<DaemonUpdateSetAutoCheckResponse>(
+      "daemon_update_set_auto_check_request",
+      { enabled },
+    );
+    return response.status;
+  }
+
+  /** Subscribe to the `daemon_update_status` broadcast (every change, from any session). */
+  onDaemonUpdateStatus(handler: (status: DaemonUpdateStatus) => void): () => void {
+    return this.daemon.onSessionMessage((msg) => {
+      if ((msg as { type?: string }).type === "daemon_update_status") {
+        handler((msg as unknown as DaemonUpdateStatusPush).status);
       }
     });
   }

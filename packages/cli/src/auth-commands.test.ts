@@ -249,7 +249,14 @@ describe("auth group registration", () => {
     // ctx.auth, so exercising it must never construct/import the Pi runtime.
     const daemonCtx: CliContext = {
       ...ctx,
-      daemon: { probe: async () => false, hash: (p) => p, kill: () => true, start: async () => 0 },
+      daemon: {
+        probe: async () => false,
+        hash: (p) => p,
+        kill: () => true,
+        start: async () => 0,
+        waitForExit: async () => true,
+        readVersion: async () => null,
+      },
     };
     await run(["daemon", "status"], daemonCtx);
     expect(mockCreate).not.toHaveBeenCalled();

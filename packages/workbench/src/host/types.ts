@@ -65,19 +65,42 @@ export type LocalDaemonState =
   | { state: "starting" }
   | { state: "stopping" }
   | { state: "running"; host: string; port: number }
-  | { state: "failed"; reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" };
+  | { state: "updating" }
+  | {
+      state: "failed";
+      reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" | "update_failed";
+      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+      output?: string;
+    };
 
 /**
  * The daemon behind the current `ssh` entry, as the host last probed or drove it. In memory; reset
  * when another entry is opened.
  */
 export type RemoteDaemonState =
-  | { state: "unknown" | "checking" | "running" | "stopped" | "not_installed" | "starting" }
+  | {
+      state:
+        | "unknown"
+        | "checking"
+        | "running"
+        | "stopped"
+        | "not_installed"
+        | "starting"
+        | "updating";
+    }
   /** The host's `pi-studio` is older than the minimum the desktop app drives. */
   | { state: "cli_outdated"; version: string }
   | {
       state: "failed";
-      reason: "not_healthy" | "timeout" | "bad_output" | "exec_failed" | "no_shell";
+      reason:
+        | "not_healthy"
+        | "timeout"
+        | "bad_output"
+        | "exec_failed"
+        | "no_shell"
+        | "update_failed";
+      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+      output?: string;
     };
 
 export type NewDaemon =
@@ -202,6 +225,8 @@ export interface HostDaemons {
     stop(): Promise<void>;
     restart(): Promise<void>;
     refresh(): Promise<void>;
+    /** Runs `pi-studio update`, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    update(): Promise<void>;
   };
   /**
    * The current `ssh` entry's daemon. Rejects `wrong_kind` for any other entry, `busy`, and (start)
@@ -210,6 +235,8 @@ export interface HostDaemons {
   remote: {
     start(): Promise<void>;
     refresh(): Promise<void>;
+    /** Updates `pi-studio` on the host, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    update(): Promise<void>;
   };
   /** The hosts of `~/.ssh/config`. Rejects `ssh_config` when the file does not parse. */
   sshHosts(): Promise<SshHostSuggestion[]>;
@@ -480,4 +507,10 @@ export interface WorkbenchHost {
    * Optional. The app's self-update. Absent: no update indicator is drawn (the browser).
    */
   updates?: HostUpdates;
+  /**
+   * Optional. Reloads the page itself. Only a browser has one: the daemon update dialog offers a
+   * Reload button, after an update, when the page's version differs from the daemon's. Absent (the
+   * desktop app): no button.
+   */
+  reloadPage?: () => void;
 }

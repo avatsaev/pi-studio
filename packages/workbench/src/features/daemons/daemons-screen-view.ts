@@ -36,6 +36,18 @@ export const LINK_INVALID_LABEL = "Pairing link no longer valid";
 export interface LocalNotice {
   text: string;
   command?: string;
+  /** The last lines `pi-studio update` printed; shown as is. */
+  output?: string;
+}
+
+/** What the row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
+function updateFailedNotice(command: string, output: string | undefined): LocalNotice {
+  const lines = output?.trim();
+  return {
+    text: "Run the update yourself, then retry.",
+    command,
+    ...(lines ? { output: lines } : {}),
+  };
 }
 
 export interface LocalRowView {
@@ -116,6 +128,10 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
         text: `Found version ${local.version}. Update it, then retry.`,
         command: UPDATE_CLI_COMMAND,
       };
+    case "failed":
+      return local.reason === "update_failed"
+        ? updateFailedNotice(UPDATE_CLI_COMMAND, local.output)
+        : null;
     default:
       return null;
   }
@@ -142,6 +158,10 @@ export function remoteNotice(remote: RemoteDaemonState): LocalNotice | null {
         text: `Found version ${remote.version}; version ${MIN_REMOTE_CLI_VERSION} or newer is needed. Update it on the host, then retry.`,
         command: REMOTE_INSTALL_COMMAND,
       };
+    case "failed":
+      return remote.reason === "update_failed"
+        ? updateFailedNotice(REMOTE_INSTALL_COMMAND, remote.output)
+        : null;
     default:
       return null;
   }

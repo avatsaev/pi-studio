@@ -41,12 +41,16 @@ export interface TestDaemonsOptions {
   localPassword?: string;
   /** The state a `start` or `restart` ends in (default: running on 127.0.0.1:7777). */
   startOutcome?: LocalDaemonState;
+  /** The state an `update` ends in (default: running on 127.0.0.1:7777). */
+  updateOutcome?: LocalDaemonState;
   /** The state of the current `ssh` entry's daemon (default: `unknown`). */
   remote?: RemoteDaemonState;
   /** What `sshHosts()` answers. */
   sshHosts?: SshHostSuggestion[];
   /** The state a remote `start` ends in (default: `running`). */
   remoteStartOutcome?: RemoteDaemonState;
+  /** The state a remote `update` ends in (default: `running`). */
+  remoteUpdateOutcome?: RemoteDaemonState;
 }
 
 export interface TestDaemons extends HostDaemons {
@@ -228,7 +232,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     if (busy.includes(local.state)) throw new DaemonError("busy");
   };
   const startAction = async (): Promise<void> => {
-    begin(["starting", "stopping"]);
+    begin(["starting", "stopping", "updating"]);
     setLocal({ state: "starting" });
     pending = runAction();
   };
@@ -380,7 +384,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
       start: startAction,
       restart: startAction,
       stop: async () => {
-        begin(["starting", "stopping"]);
+        begin(["starting", "stopping", "updating"]);
         setLocal({ state: "stopping" });
         pending = (async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
@@ -390,6 +394,18 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
       refresh: async () => {
         if (local.state === "unsupported") throw new DaemonError("unsupported");
         notify();
+      },
+      update: async () => {
+        // An outdated CLI is what an update is for: only a busy daemon refuses it.
+        if (local.state === "unsupported") throw new DaemonError("unsupported");
+        if (["starting", "stopping", "updating"].includes(local.state)) {
+          throw new DaemonError("busy");
+        }
+        setLocal({ state: "updating" });
+        pending = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          setLocal(options.updateOutcome ?? DEFAULT_RUNNING);
+        })();
       },
     },
     remote: {
@@ -416,6 +432,23 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
           throw new DaemonError("busy");
         }
         notify();
+      },
+      update: async () => {
+        if (entries.find((e) => e.id === currentId)?.kind !== "ssh") {
+          throw new DaemonError("wrong_kind");
+        }
+        if (
+          remote.state === "starting" ||
+          remote.state === "checking" ||
+          remote.state === "updating"
+        ) {
+          throw new DaemonError("busy");
+        }
+        setRemote({ state: "updating" });
+        pending = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          setRemote(options.remoteUpdateOutcome ?? { state: "running" });
+        })();
       },
     },
     sshHosts: async () => (options.sshHosts ?? []).map((host) => ({ ...host })),

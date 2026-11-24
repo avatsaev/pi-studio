@@ -2,9 +2,11 @@ import { type ConnectionState } from "@av-pi-studio/client";
 import { type ServerInfoPayload } from "@av-pi-studio/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useDaemonsStore } from "../daemons/daemons-store.js";
 import {
   type EstablishedTracker,
   noticeOnEstablish,
+  noticeToastOptions,
   watchOutdatedDaemon,
 } from "./use-outdated-daemon-notice.js";
 
@@ -133,5 +135,20 @@ describe("watchOutdatedDaemon", () => {
     stop = null;
     setConnection("open", info("0.0.1"));
     expect(shown).toEqual([]);
+  });
+});
+
+describe("noticeToastOptions", () => {
+  it("offers an action that opens the Daemons screen when the host has a registry", () => {
+    useDaemonsStore.getState().closeScreen();
+    const { action } = noticeToastOptions(true);
+    expect(action?.label).toBe("Open Daemons");
+    action?.onSelect();
+    expect(useDaemonsStore.getState().open).toBe(true);
+    useDaemonsStore.getState().closeScreen();
+  });
+
+  it("has no action without a registry (the browser)", () => {
+    expect(noticeToastOptions(false).action).toBeUndefined();
   });
 });

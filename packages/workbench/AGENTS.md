@@ -51,13 +51,15 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   Optional `daemons` (sprint-109, `HostDaemons`: the desktop daemon registry — snapshot without
   secrets, local daemon actions, `resolveCurrent`, `switchTo`; milestone 4: SSH entries
   (`DaemonEntryView.kind: "ssh"`, `ssh`), `snapshot().remote` (`RemoteDaemonState`),
-  `remote.start/refresh`, `sshHosts()`) and `app.minDaemonVersion`; read by
+  `remote.start/refresh/update`, `local.update`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
   Optional `updates` (`HostUpdates`: `current()`, `subscribe`, `check`/`install`/`restart`; types
   `AppUpdateState` — idle, checking, up_to_date, available, downloading, restart_needed,
   cannot_install, failed — `AppUpdateUnavailableReason`, `AppUpdateFailureCode`): read only by the
   connection bar's update indicator; absent in a browser, which then draws nothing.
+  Optional `reloadPage()` (set by the browser host only): the update dialog's Reload button, shown after
+  an update when the page's version differs from the daemon's; absent → no button.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
@@ -226,7 +228,8 @@ src/
                            `errorReason` — the `RelayConnectError` reason, via connect-failure.ts —
                            beside `error`, sprint-110; also handles
                            relay-transport pairing-link connections; constructs
-                           ReconnectionManager with createWorkerTimers()'s injected timers —
+                           ReconnectionManager with createWorkerTimers()'s injected timers (`disconnect()`
+                           detaches the daemon's state listener first, so a late close stays `idle`) —
                            sprint-050), resolve-connect-target (pure routing: plain address vs.
                            pairing link, direct vs. relay + tests), normalize-url (accepts
                            ws/wss/http/https/bare-host, maps http→ws / https→wss; its cases are
@@ -296,7 +299,9 @@ src/
                            `parsePaneTree` (sprint-048/049) (+ test)
   stores/                  Zustand slices: ui-store (fileMenu carries a `background` flag for the
                            Files tree's empty-space context menu; `collapsedWorkspaces` seeded in
-                           bulk via setCollapsedWorkspaces, not just toggled one at a time),
+                           bulk via setCollapsedWorkspaces, not just toggled one at a time;
+                           `daemonUpdateDialogOpen` + `openDaemonUpdateDialog`/`closeDaemonUpdateDialog`
+                           — set by the daemon update pill, read by the update dialog),
                            tab-store (`activeTabId` is DERIVED — a cached projection of
                            layout-store's focused pane and its active tab, written only by
                            `syncActiveFromLayout()`; every lifecycle method routes through
@@ -533,7 +538,9 @@ src/
                             manual disconnect + open the screen — when the current local entry goes
                             `stopping` or the current entry is removed; mark a relay entry "pairing
                             link no longer valid" on `wrong_key`, clear it on connect or a saved new
-                            link; `local.refresh()` once per dropped local connection; a restart
+                            link; `local.refresh()` once per dropped local connection, except while a
+                            restart is expected (`restartExpected`); the page connects when the local
+                            entry reaches `running` from `starting` or `updating`; a restart
                             changes nothing; `watchDaemonLifecycle` applies it and opens the screen on
                             `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
                             WorkspaceShell). Stop on the current local entry while connected asks
@@ -550,14 +557,22 @@ src/
                             `needsReconnect`: saving the current entry offers "Reconnect now" for any
                             change but a rename (a secret-only change too). The row of an SSH entry shows
                             `user@host:port`; for the current one `remoteStateView` (daemon-presentation.ts:
-                            label/tone/actions per `RemoteDaemonState`): `stopped` Start; `failed` Start
-                            and Retry; `unknown`, `not_installed`, `cli_outdated` Retry (`remote.refresh`);
+                            label/tone/actions per `RemoteDaemonState`): `stopped` Start and Update; `failed` Start
+                            and Retry (`update_failed`: Update and Retry); `unknown`, `not_installed`
+                            Retry (`remote.refresh`); `cli_outdated` Update and Retry; `updating` nothing;
                             `not_installed` shows "pi-studio is not installed on this host" with
                             `REMOTE_INSTALL_COMMAND` (`npm install -g @av-pi-studio/cli`) and a Copy
                             button (`copyCommand`, through `getHost().clipboard`); `cli_outdated` shows the
                             installed version and `MIN_REMOTE_CLI_VERSION` ("0.0.127"), a constant that
                             DUPLICATES the Rust `MIN_CLI_VERSION` (`desktop/crates/shell/src/cli_answers.rs`):
-                            change both together. `runRemoteAction` calls `remote.start/refresh`.
+                            change both together. `runRemoteAction` calls `remote.start/refresh/update`.
+                            Update (daemon self-update, desktop only): the local row offers Update
+                            beside Retry for `cli_outdated` (the npm command stays) and beside Start for
+                            `stopped`; an SSH row the same (`REMOTE_UPDATE`); `updating` is a busy row
+                            with a spinner and no actions; `failed`/`update_failed` reads "The update
+                            failed", offers Update and Retry, and shows the command to run by hand plus
+                            the update's last lines (`LocalNotice.output`, a `<pre>`, from the state's
+                            `output`). `runLocalAction(daemons, "update")` calls `local.update()`.
                             `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
                             entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
                             (`remoteNeedsScreen`, also on mount); the workbench still never starts a
@@ -576,7 +591,9 @@ src/
                             (mounted in WorkspaceShell: one toast per established connection — `open`
                             + `serverInfo` — when `app.minDaemonVersion` is set and the daemon is older
                             or silent; informational only, features stay gated by `server_info.features`;
-                            a reconnect reuses the first handshake's `serverInfo`) (+ tests)
+                            a reconnect reuses the first handshake's `serverInfo`; its "Open Daemons"
+                            toast action (`noticeToastOptions`, only with `host.daemons`) opens the
+                            Daemons screen, where Update is) (+ tests)
                             ConnectionBar (the 42px top row: brand/version, status pill, url+password
                             fields, one primary connect/disconnect action, the two panel toggles —
                             design spec § 08; replaced Toolbar + ConnectionStatus),
@@ -594,7 +611,57 @@ src/
                             `failed` retries `install` when it has a version, else `check`),
                             app-update-actions.ts (+ test — `runAppUpdateCommand`: install /
                             restart / check on the host, a rejection dropped because the host shows
-                            it through its state), use-app-update.ts (`host.updates` as React state)
+                            it through its state), use-app-update.ts (`host.updates` as React state),
+                            daemon update pill (`swe/features/self-update.md` § Workbench, sprint-137):
+                            `UpdatePill` (in AppUpdateIndicator.tsx — the app pill's component given
+                            `{text, tooltip, tone}`, an icon and an activation: button, link or none;
+                            `AppUpdateIndicator` is its app binding) is drawn a second time by
+                            DaemonUpdateIndicator.tsx, left of the app's pill, from
+                            daemon-update-store.ts (`status: DaemonUpdateStatus | null` + a `revision`
+                            that drops a `getDaemonUpdateStatus()` answer a broadcast or a disconnect
+                            overtook; `restartAnnouncedAt` — set when a status says `restarting`, kept
+                            across the disconnect's `reset()`, `isRestartExpected` for 4 minutes — so
+                            the lifecycle does not probe the local daemon for the drop the restart
+                            causes; `hydrate` sends nothing without the `daemonUpdate` capability)
+                            kept by use-daemon-update.ts (`bindDaemonUpdate(status, client)` — open +
+                            capable: subscribe to `onDaemonUpdateStatus`, then fetch; otherwise clear;
+                            `useDaemonUpdateBoot` runs it per connection, mounted in WorkbenchBoot after
+                            the viewer-settings boot), daemon-update-presentation.ts (+ test —
+                            `daemonUpdateView(status)` → `{text, tooltip, tone, icon}`: available "Daemon
+                            X" orange; installing/updating_extensions/restarting "Daemon updating" grey
+                            spinner; failed "Daemon update failed" red; cannot_update with a version
+                            "Daemon X available" grey; `null` for idle, checking and cannot_update
+                            without a version; also `unavailableReasonText`/`failureCodeText`). Every
+                            pill click calls `ui-store.openDaemonUpdateDialog()`. The status is cleared
+                            while the socket is down, so the pill hides during a restart's reconnect.
+    daemon-update/          The daemon update dialog (`swe/features/self-update.md` § Workbench, sprint-137
+                            task-002), `DaemonUpdateDialog.tsx` (+ css) mounted in ConnectionBar, always,
+                            so its result watcher runs while closed; opened by the pill via
+                            `ui-store.daemonUpdateDialogOpen`. Pure modules with tests:
+                            daemon-update-dialog-view.ts (`daemonUpdateDialogView({status, impact,
+                            pageVersion, hostKind, result, wasUpdating})` → confirm (versions + counts:
+                            "N agents running, M terminals open will stop" / "No agents are running and
+                            no terminals are open.") | progress (3 stages) | restarting (status gone after
+                            a running update, or `restarting`) | result (updated / rolled back / failed;
+                            reload note only for a browser host, `updated`, and a page version that differs
+                            from the daemon's) | cannot_update (reason + command) | failed (message,
+                            `MANUAL_UPDATE_COMMAND`, Retry) | none; a result wins over everything),
+                            daemon-update-actions.ts (`startDaemonUpdate(client, applyStatus, {check})`:
+                            Retry = check, then apply; a refusal `in_progress` re-fetches the status and
+                            returns no error), daemon-update-shown.ts (per-`serverId` marker of the last
+                            shown result `at` in `host.storage`, key `pi-studio-daemon-update-shown`;
+                            unseen = newer than the marker, no marker = unseen). `use-update-impact.ts`:
+                            agents from the daemon's `list_agents_request` on open and whenever this
+                            client's own running count changes (`countRunningListedAgents`; the session
+                            store alone misses an agent another client started after this one connected;
+                            the store's count stands in until the answer or when it fails), terminals from
+                            `list_terminals_request` on open and `terminals_update` (a broadcast beats a
+                            slower list answer). The dialog keeps its own `result`/`wasUpdating` state
+                            across the reconnect (the status store is cleared on disconnect); Escape
+                            closes it except while restarting. Host kind: `app.platform === "desktop"` or
+                            no `host.reloadPage` → desktop; the browser host sets `reloadPage`
+                            (`window.location.reload()`, the only reload; `host-guard.test.ts` forbids it
+                            elsewhere).
     sessions/               SessionList (handleDeleteWorkspace — loops `client.agent(id).delete()`
                             over a workspace's sessions, confirms conversations-only/files-
                             untouched, closes their tabs — file-explorer quick-wins-1; its rows are
@@ -681,18 +748,39 @@ src/
                             own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
                             the main bundle ahead of the gear ever being clicked; the panel
                             components stay `lazy()`-loaded regardless of which module imports the
-                            registry array. Three categories today: Model Providers
+                            registry array. Four categories today: Model Providers
                             (`available: (caps) => caps.providerAuth`, capability-gated), Skills
                             (`available: (caps) => caps.skills`, capability-gated — sprint-075/
-                            task-006; `skills/` below), and Viewers (`available: () => true`,
+                            task-006; `skills/` below), Viewers (`available: () => true`,
                             capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its
                             Molecule Viewer and PDF Viewer toggle rows (a constant `VIEWER_ROWS`
                             table, one `ViewerRow` each) to disabled-reading-on with a "Requires a
                             newer daemon" note against a `viewerSettings`-incapable daemon rather
                             than hiding the row; see § Invariants "Viewer-disable gate" and
-                            "Settings gear reachability").
+                            "Settings gear reachability"), and Daemon (`available: (caps) =>
+                            caps.daemonUpdate` = `server_info.features.daemonUpdate`, sprint-137/
+                            task-003): DaemonSettingsPanel.tsx (+ module.css, lazy) draws
+                            daemon-settings-view.ts's `daemonSettingsView({status, pendingAutoCheck,
+                            now})` (+ test — version, install kind, "Last checked" wording
+                            (`lastCheckedText`: Never / Just now / N minutes|hours|days ago), the
+                            last check's `checkError` in words (`checkErrorText`), the update row:
+                            up to date / checking / "Daemon X is available." + Update… / "Updating
+                            to X…" + Show progress / the failure + Details / cannot_update with a
+                            version → reason + How to update; with no version it reads "Up to date" —
+                            the reason is only shown when there is something to install;
+                            `checkDisabled` while checking or running) from `daemon-update-store`'s
+                            status (the pill's own — no second fetch; `null` shows a spinner).
+                            daemon-settings-actions.ts (+ test): `checkDaemonNow(client,
+                            applyStatus)` — a failed check is the answer's `checkError`, so only a
+                            failed request resolves a message; `changeAutoCheck(client, enabled,
+                            {applyStatus, setPending})` — the switch is optimistic through the
+                            panel's `pendingAutoCheck` state, ended in `finally` (after the
+                            daemon's answer is applied, or on an error, which is the revert; the
+                            message is shown inline). Every update action opens the shared update
+                            dialog (`ui-store.openDaemonUpdateDialog`).
                             `SettingsDialog.tsx` also owns the stacked-dialog dismissal guard —
-                            see AGENTS.md § Invariants "Stacked dialogs"
+                            see AGENTS.md § Invariants "Stacked dialogs" (the login dialog and
+                            the daemon update dialog, via `daemonUpdateDialogOpen`)
     provider-auth/          ModelProvidersPanel (+ module.css — the Model Providers category: one
                             row per provider with an auth-state badge, subscription tag, and
                             login/re-login/logout actions), LoginDialog (+ module.css — drives one
@@ -2668,7 +2756,8 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   lower one, and Radix dismisses it. Clicking the login dialog's Cancel therefore closed the
   Settings dialog with it. `Dialog` forwards `onInteractOutside`/`onEscapeKeyDown` to
   `Dialog.Content` for exactly this; `SettingsDialog` uses two rules, and both are needed:
-  `preventDefault()` while a login is pending, **and** `preventDefault()` when the interaction's
+  `preventDefault()` while a login is pending or the daemon update dialog is open (the Daemon
+  category opens it over Settings), **and** `preventDefault()` when the interaction's
   original target is no longer `isConnected`. The second rule is not belt-and-braces — Radix
   defers a non-mouse `pointerdown` to the following `click`, so by dispatch time the upper dialog's
   own handler has already closed it and cleared the pending state, making the first rule test

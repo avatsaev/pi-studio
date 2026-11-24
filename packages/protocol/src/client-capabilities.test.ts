@@ -25,6 +25,7 @@ describe("capability flag sets", () => {
         "checkoutGithubSetAutoMerge",
         "checkoutRefresh",
         "daemonObservability",
+        "daemonUpdate",
         "daemonStatusRpc",
         "extensionPacks",
         "extensionUi",

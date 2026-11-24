@@ -9,7 +9,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 use pistudiodesktop_model::Secret;
-use pistudiodesktop_model::{EntryId, Kind, RemoteState, SshFields};
+use pistudiodesktop_model::{EntryId, Kind, RemoteFailReason, RemoteState, SshFields};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always};
@@ -22,6 +22,8 @@ pub enum RemoteAction {
     Start,
     /// Look again at whether the daemon runs and the CLI is installed.
     Probe,
+    /// `pi-studio update` on the host, then the version again, then a start.
+    Update,
 }
 
 /// One request: what to do, and for which entry.
@@ -67,7 +69,7 @@ impl Session {
         match self.remote {
             // Retry in the Daemons screen is a refresh, so a refresh goes through these two.
             RemoteState::NotInstalled if !refresh => return Err("not_installed"),
-            RemoteState::CliOutdated { .. } if !refresh => return Err("cli_outdated"),
+            RemoteState::CliOutdated { .. } if !matches!(action, RemoteAction::Probe | RemoteAction::Update) => return Err("cli_outdated"),
             _ => {}
         }
         if self.remote_queue.busy {
@@ -77,7 +79,11 @@ impl Session {
         self.remote_queue.busy = true;
         self.remote_queue.refreshing = refresh;
         self.remote_queue.requests.push(RemoteRequest { entry, action });
-        self.set_remote_state(if refresh { RemoteState::Checking } else { RemoteState::Starting });
+        self.set_remote_state(match action {
+            RemoteAction::Probe => RemoteState::Checking,
+            RemoteAction::Start => RemoteState::Starting,
+            RemoteAction::Update => RemoteState::Updating,
+        });
         Ok(())
     }
 
@@ -183,6 +189,15 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec { id: "daemon.remote.start", label: "Start Remote Daemon", menu: &[], shortcut: None, params: "{}", enabled: always, run: start },
         CommandSpec { id: "daemon.remote.refresh", label: "Refresh Remote Daemon", menu: &[], shortcut: None, params: "{}", enabled: always, run: refresh },
+        CommandSpec {
+            id: "daemon.remote.update",
+            label: "Update Remote Daemon",
+            menu: &[],
+            shortcut: None,
+            params: "{}",
+            enabled: update_enabled,
+            run: update,
+        },
     ]
 }
 
@@ -193,6 +208,29 @@ fn accept(s: &mut Session, action: RemoteAction) -> Result<Value> {
 
 fn start(s: &mut Session, _: &Value) -> Result<Value> {
     accept(s, RemoteAction::Start)
+}
+
+fn update_offered(state: &RemoteState) -> bool {
+    matches!(state, RemoteState::CliOutdated { .. } | RemoteState::Stopped | RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, .. })
+}
+
+/// Update is offered for an outdated CLI, a stopped daemon and a failed update of the current SSH
+/// entry (the screen shows it there as the retry); the reason
+/// says why not otherwise (`not_installed` has nothing to update).
+fn update_enabled(s: &Session) -> std::result::Result<(), String> {
+    let entry = s.current_entry_id().ok_or("no_current")?;
+    if s.registry().get(entry.as_str()).map(|e| e.kind) != Some(Kind::Ssh) {
+        return Err("wrong_kind".to_owned());
+    }
+    match s.remote_state() {
+        RemoteState::NotInstalled => Err("not_installed".to_owned()),
+        state if update_offered(state) => Ok(()),
+        _ => Err("update_not_offered".to_owned()),
+    }
+}
+
+fn update(s: &mut Session, _: &Value) -> Result<Value> {
+    accept(s, RemoteAction::Update)
 }
 
 fn refresh(s: &mut Session, _: &Value) -> Result<Value> {

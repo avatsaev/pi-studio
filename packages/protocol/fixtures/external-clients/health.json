@@ -1,16 +1,17 @@
 {
   "type": "health",
   "direction": "http",
-  "description": "GET /api/health, unauthenticated: HTTP status, content type and body.",
+  "description": "GET /api/health, unauthenticated: HTTP status, content type and body. `version` is the daemon's package version (added after 0.0.129; an older daemon answers only `status`).",
   "since": "0.0.115",
   "stage": 1,
   "requiresFeature": null,
-  "volatile": [],
+  "volatile": ["/body/version"],
   "frame": {
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "status": "ok"
+      "status": "ok",
+      "version": "0.0.115"
     }
   }
 }

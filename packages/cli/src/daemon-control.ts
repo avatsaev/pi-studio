@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { request } from "node:http";
 import { join } from "node:path";
 
+import { waitForProcessExit } from "@av-pi-studio/server";
 import bcrypt from "bcryptjs";
 
 import { parseHost } from "./connection.js";
@@ -19,6 +20,8 @@ import { parseHost } from "./connection.js";
 export const PID_FILE = "pi-studio.pid";
 export const CONFIG_FILE = "config.json";
 export const HEALTH_PATH = "/api/health";
+/** Delay between two liveness checks while waiting for a process to exit. */
+const EXIT_POLL_MS = 100;
 
 export interface DaemonPaths {
   config: string;
@@ -58,6 +61,12 @@ export type PasswordHasher = (plaintext: string) => string;
 /** Send a signal to a pid; returns true on success. */
 export type ProcessKiller = (pid: number, signal?: NodeJS.Signals) => boolean;
 
+/** Resolve `true` once the process is gone, `false` when it still exists after `timeoutMs`. */
+export type ProcessExitWaiter = (pid: number, timeoutMs: number) => Promise<boolean>;
+
+/** The version the daemon at host:port reports on the health endpoint, or null when unreadable. */
+export type HealthVersionReader = (host: string, port: number) => Promise<string | null>;
+
 /** Start a detached daemon process; returns its pid. */
 export type DaemonStarter = (opts: {
   home: string;
@@ -71,6 +80,8 @@ export interface DaemonRuntime {
   hash: PasswordHasher;
   kill: ProcessKiller;
   start: DaemonStarter;
+  waitForExit: ProcessExitWaiter;
+  readVersion: HealthVersionReader;
 }
 
 /** Default health probe via node:http GET /api/health (200 ⇒ up). */
@@ -88,7 +99,38 @@ export const httpHealthProbe: HealthProbe = (host, port) =>
     req.end();
   });
 
+export const httpHealthVersionReader: HealthVersionReader = (host, port) =>
+  new Promise<string | null>((resolve) => {
+    const req = request({ host, port, path: HEALTH_PATH, method: "GET", timeout: 1500 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => (body += chunk));
+      res.on("end", () => {
+        try {
+          const parsed: unknown = JSON.parse(body);
+          const version =
+            parsed !== null && typeof parsed === "object" && "version" in parsed
+              ? parsed.version
+              : null;
+          resolve(typeof version === "string" ? version : null);
+        } catch {
+          resolve(null);
+        }
+      });
+      res.on("error", () => resolve(null));
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.end();
+  });
+
 export const bcryptHasher: PasswordHasher = (plaintext) => bcrypt.hashSync(plaintext, 10);
+
+export const processExitWaiter: ProcessExitWaiter = (pid, timeoutMs) =>
+  waitForProcessExit(pid, { timeoutMs, pollMs: EXIT_POLL_MS });
 
 export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
   try {
@@ -100,8 +142,24 @@ export const signalKiller: ProcessKiller = (pid, signal = "SIGTERM") => {
 };
 
 /**
+ * The `-e` script of the detached daemon process: imports the server module by absolute URL and
+ * calls `runDaemon`, the process entry (`daemon/run.ts`): it exits on a fatal bind error
+ * (`EADDRINUSE` would otherwise leave a live process with a dead HTTP server), closes cleanly on
+ * SIGINT/SIGTERM (so `daemon stop` removes `pi-studio.pid`), and exits after a self-update's
+ * shutdown. `startDaemon` alone does none of that, so a daemon booted with it could not update itself.
+ */
+export function daemonStartScript(
+  serverUrl: string,
+  opts: { host: string | undefined; port: number; home: string },
+): string {
+  return `import(${JSON.stringify(serverUrl)}).then(m=>m.runDaemon({host:${JSON.stringify(
+    opts.host,
+  )},port:${JSON.stringify(opts.port)},home:${JSON.stringify(opts.home)}}))`;
+}
+
+/**
  * Default daemon starter: spawn a detached Node process that boots the real daemon via
- * `@av-pi-studio/server`'s `startDaemon()`. Resolves once the process is spawned (health is then
+ * `@av-pi-studio/server`'s `runDaemon()`. Resolves once the process is spawned (health is then
  * polled by the caller).
  *
  * The server module is resolved to an absolute file URL *here*, inside `@av-pi-studio/cli`'s own
@@ -122,14 +180,7 @@ export const subprocessStarter: DaemonStarter = ({ home, listen, piHome }) =>
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    // `onFatalError` is the process-level half of `startDaemon`'s fatal-error contract: the
-    // bootstrap logs the bind failure and tears down the WS server but never exits on its own, so
-    // without this the detached child would linger with a dead HTTP server after an EADDRINUSE.
-    const code = `import(${JSON.stringify(
-      serverUrl,
-    )}).then(m=>m.startDaemon({host:${JSON.stringify(host)},port:${JSON.stringify(
-      port,
-    )},home:${JSON.stringify(home)},onFatalError:()=>process.exit(1)}))`;
+    const code = daemonStartScript(serverUrl, { host, port, home });
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       detached: true,
       stdio: "ignore",
@@ -155,6 +206,8 @@ export function defaultDaemonRuntime(): DaemonRuntime {
     hash: bcryptHasher,
     kill: signalKiller,
     start: subprocessStarter,
+    waitForExit: processExitWaiter,
+    readVersion: httpHealthVersionReader,
   };
 }
 
@@ -273,11 +326,37 @@ export function persistRelayEnvOverrides(
   writeConfigFile(home, path, config);
 }
 
-/** Stop the local daemon by signaling its recorded pid. Returns false when no daemon was found. */
-export function stopDaemon(home: string, runtime: DaemonRuntime): boolean {
+/** The `daemon stop` answer: `stopped` is true only once the process has exited. */
+export interface StopResult {
+  stopped: boolean;
+  /** `still_running`: the process was signalled (or could not be) and still exists. */
+  error?: "still_running";
+}
+
+/** How long `daemon stop` and `daemon restart` wait for the old process to exit. */
+export const STOP_TIMEOUT_MS = 10_000;
+
+/**
+ * Stop the local daemon: SIGTERM its recorded pid, then wait for the process to exit. No pid file,
+ * or one whose process is gone (it is removed), is `{ stopped: false }`; a process that survives the
+ * wait, or one that cannot be signalled but exists, is `{ stopped: false, error: "still_running" }`.
+ */
+export async function stopDaemon(home: string, runtime: DaemonRuntime): Promise<StopResult> {
   const pid = readDaemonPid(home);
-  if (pid === null) return false;
-  return runtime.kill(pid);
+  if (pid === null) return { stopped: false };
+  const pidFile = daemonPaths(home).pid;
+  if (!runtime.kill(pid)) {
+    // `waitForExit(pid, 0)` is a single liveness check.
+    if (!(await runtime.waitForExit(pid, 0))) return { stopped: false, error: "still_running" };
+    rmSync(pidFile, { force: true });
+    return { stopped: false };
+  }
+  if (!(await runtime.waitForExit(pid, STOP_TIMEOUT_MS))) {
+    return { stopped: false, error: "still_running" };
+  }
+  // A daemon that exited cleanly removed its own lock; an older one or a killed one did not.
+  if (readDaemonPid(home) === pid) rmSync(pidFile, { force: true });
+  return { stopped: true };
 }
 
 /**

@@ -9,14 +9,14 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
 import nacl from "tweetnacl";
 
-import { SERVER_VERSION } from "../version.js";
+import { PACKAGE_NAME, SERVER_VERSION } from "../version.js";
 import { createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import {
@@ -32,7 +32,11 @@ import { createHostChecker } from "../http/host-allowlist.js";
 import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.js";
 import { expandHome } from "../files/resolve-path.js";
 
-import { loadConfig, type PersistedConfig } from "../config/daemon-config.js";
+import {
+  loadConfig,
+  persistUpdateAutoCheck,
+  type PersistedConfig,
+} from "../config/daemon-config.js";
 import { LogTap } from "../logging/log-tap.js";
 import { createDaemonLogger, type Logger } from "../logging/logger.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
@@ -84,7 +88,7 @@ import {
 import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
-import type { InstallSpawn } from "../extensions/sync-executor.js";
+import { updateInstalledExtensions, type InstallSpawn } from "../extensions/sync-executor.js";
 import { registerDaemonLogsHandlers } from "../observability/daemon-logs-rpc.js";
 import { DaemonLogsService } from "../observability/daemon-logs-service.js";
 import { registerDaemonStatusHandlers } from "../observability/daemon-status-rpc.js";
@@ -92,6 +96,23 @@ import { DaemonStatusService } from "../observability/daemon-status-service.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { ResourceService } from "../resources/resource-service.js";
 import { registerSkillsHandlers } from "../resources/skills-rpc.js";
+import {
+  canWriteGlobalFolder,
+  detectInstallKind,
+  npmOnPath,
+  npmRootGlobal,
+} from "../update/install-kind.js";
+import { npmGlobalInstall, npmLatestVersion } from "../update/npm.js";
+import { spawnUpdateHelper } from "../update/helper.js";
+import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
+import {
+  createUpdatePipeline,
+  readAndRemoveUpdateResult,
+  UPDATE_RESULT_FILE,
+  UpdateService,
+  type UpdatePipelineDeps,
+  type UpdateServiceDeps,
+} from "../update/update-service.js";
 
 import { SERVER_FEATURES } from "@av-pi-studio/protocol";
 import { parseDaemonListen } from "./index.js";
@@ -124,6 +145,17 @@ export interface DaemonOptions {
   /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
    *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
   extensionsInstallSpawn?: InstallSpawn;
+  /**
+   * Called after an update's shutdown has finished, to end the process (`daemon/main.ts` exits 0).
+   * Without it the daemon does not own its process (embedding, tests) and an apply fails before
+   * installing anything.
+   */
+  onUpdateRestart?: (code: number) => void;
+  /** Test-only: replaces update-service probes and apply-pipeline steps with fakes. */
+  updateTestSeams?: {
+    service?: Partial<Omit<UpdateServiceDeps, "pipeline">>;
+    pipeline?: Partial<UpdatePipelineDeps>;
+  };
   /**
    * Called after an unrecoverable HTTP-server error (typically `EADDRINUSE` on bind) once the WS
    * server has been torn down. `startDaemon` logs the error and sets `process.exitCode = 1`, but
@@ -217,6 +249,17 @@ function writePidLock(home: string): void {
     writeFileSync(join(home, "pi-studio.pid"), String(process.pid), "utf8");
   } catch {
     /* best-effort */
+  }
+}
+
+/** Remove the PID lock on shutdown, but only when it still names this process. Best-effort. */
+function removePidLock(home: string): void {
+  const path = join(home, "pi-studio.pid");
+  try {
+    if (readFileSync(path, "utf8").trim() !== String(process.pid)) return;
+    unlinkSync(path);
+  } catch {
+    /* missing or unreadable: nothing of ours to remove */
   }
 }
 
@@ -399,6 +442,62 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   registerAgentTodosHandlers(registry, { service: agentTodosService });
   registerDaemonStatusHandlers(registry, { service: daemonStatusService });
   registerDaemonLogsHandlers(registry, { service: daemonLogsService });
+
+  // ── Daemon self-update (features/self-update.md): check state, timer, apply pipeline, handlers.
+  // `start()` runs after the daemon listens. The pipeline ends in `closeDaemon()` (a function
+  // declaration below, so it is callable here) and then the process entry's `onUpdateRestart`.
+  /** The address the daemon is bound to now (`host:port`; the real port when it bound port 0). */
+  const boundListen = (): string => {
+    const address = httpServer.address();
+    return `${listen.host}:${typeof address === "object" && address ? address.port : listen.port}`;
+  };
+  const updateService = new UpdateService({
+    currentVersion: SERVER_VERSION,
+    detectInstallKind: () => detectInstallKind(process.env, import.meta.url, npmRootGlobal),
+    fetchLatest: () => npmLatestVersion(PACKAGE_NAME),
+    npmOnPath,
+    globalFolder: npmRootGlobal,
+    canWriteGlobalFolder,
+    platform: process.platform,
+    autoCheck: config.daemon.update.autoCheck,
+    takeLastResult: () => readAndRemoveUpdateResult(join(home, UPDATE_RESULT_FILE), logger),
+    persistAutoCheck: async (enabled) => {
+      await persistUpdateAutoCheck(configPath, enabled);
+      return loadConfig(configPath, process.env).daemon.update.autoCheck;
+    },
+    broadcast: (status) => broadcast(getActiveSessions(), { type: "daemon_update_status", status }),
+    pipeline: createUpdatePipeline({
+      install: (version) => npmGlobalInstall(PACKAGE_NAME, version),
+      updateExtensions: () =>
+        updateInstalledExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+      spawnHelper: (target, previous) =>
+        spawnUpdateHelper({
+          oldPid: process.pid,
+          target,
+          previous,
+          listen: boundListen(),
+          home,
+          packageName: PACKAGE_NAME,
+        }),
+      shutdown: closeDaemon,
+      exit: opts.onUpdateRestart,
+      logger,
+      ...opts.updateTestSeams?.pipeline,
+    }),
+    logger,
+    ...opts.updateTestSeams?.service,
+  });
+  registerDaemonUpdateHandlers(registry, { service: updateService });
+  /** The current status, right after `server_info` (direct and relay handshakes). */
+  const sendUpdateStatus = (session: Session): void => {
+    try {
+      session.send(
+        wrapSessionEnvelope({ type: "daemon_update_status", status: updateService.status() }),
+      );
+    } catch {
+      /* dead socket */
+    }
+  };
 
   // ── Directory listing (agents) ────────────────────────────────────────────────
   registry.register("list_agents_request", (ctx) => ({
@@ -788,8 +887,12 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     onRequest: (req, res) => serviceProxy.handleRequest(req, res),
   });
 
+  /** `server_info.features`: every `SERVER_FEATURES` key (incl. `daemonUpdate`), direct and relay. */
+  const serverFeatures = Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true]));
+
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
+    features: serverFeatures,
     hostname: opts.host,
     version: SERVER_VERSION,
     auth,
@@ -800,6 +903,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         { clientId: session.clientId, clientType: session.clientType },
         "ws client connected",
       );
+      sendUpdateStatus(session);
     },
     onSessionClose: disposeSession,
     onMessage: (session, frame) => {
@@ -849,10 +953,11 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
               // other way to learn.
               homeDir: homedir(),
               capabilities: {},
-              features: Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true])),
+              features: serverFeatures,
             }),
             onSessionOpen: (session) => {
               relaySessions.add(session);
+              sendUpdateStatus(session);
             },
             onSessionClose: (session) => {
               relaySessions.delete(session);
@@ -911,6 +1016,29 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     );
   });
 
+  // After listen, never delays readiness: install kind, `lastResult`, first check, timer.
+  void updateService.start();
+
+  // One shutdown for every caller (signal handler, fatal error, the update pipeline, tests): a
+  // second `close()` returns the first one's promise instead of re-running it.
+  let closing: Promise<void> | undefined;
+  function closeDaemon(): Promise<void> {
+    closing ??= (async () => {
+      updateService.close();
+      logger.info("daemon shutting down");
+      await manager.closeAll();
+      terminalManager.killAll();
+      fileWatchService.close();
+      daemonStatusService.dispose();
+      daemonLogsService.dispose();
+      relayHandle?.close();
+      await wsHandle.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      removePidLock(home);
+    })();
+    return closing;
+  }
+
   return {
     httpServer,
     serverId,
@@ -919,15 +1047,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger,
     listen,
     exposedWithoutPassword,
-    close: async () => {
-      logger.info("daemon shutting down");
-      terminalManager.killAll();
-      fileWatchService.close();
-      daemonStatusService.dispose();
-      daemonLogsService.dispose();
-      relayHandle?.close();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-    },
+    close: closeDaemon,
   };
 }

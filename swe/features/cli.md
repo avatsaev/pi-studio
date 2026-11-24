@@ -59,6 +59,10 @@ function main(argv):
   pairing link so other clients can connect.
 - With the global `--json` flag, `daemon start|restart|pair|stop` print exactly one JSON line to
   stdout (no QR/prose); see `packages/cli/AGENTS.md` § `daemon` group for the shapes.
+- **Amendment (2026-11-23, [self-update.md](self-update.md) § CLI).** `daemon stop` and `daemon
+  restart` wait for the old process to exit (10 s) before they report or start; `update` restarts a
+  running local daemon after the install. The update engine lives in `packages/server/src/update/`
+  and the CLI imports it.
 - `attach` subscribes to the agent timeline and streams events to the terminal; `logs` fetches
   history.
 - `--provider pi/<model>` form combines provider id and model.

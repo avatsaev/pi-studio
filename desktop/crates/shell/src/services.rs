@@ -53,6 +53,18 @@ pub enum RunFailure {
 /// CLI's answer is in its output. Blocks until the program ends or its limit passes.
 pub type RunHook = Arc<dyn Fn(&RunSpec) -> Result<String, RunFailure> + Send + Sync>;
 
+/// What a program that ran to its end left: whether it exited with success, and its standard output
+/// and error together, as they arrived (lossy UTF-8).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckedOutput {
+    pub success: bool,
+    pub output: String,
+}
+
+/// Like [`RunHook`], for a program whose success matters and whose output is read by a person, not
+/// parsed (`pi-studio update`). Blocks until the program ends or its limit passes.
+pub type RunCheckedHook = Arc<dyn Fn(&RunSpec) -> Result<CheckedOutput, RunFailure> + Send + Sync>;
+
 /// Whether the path is a file the user may run.
 pub type IsExecutableHook = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 
@@ -120,6 +132,7 @@ pub struct Services {
     pub pick_save_path: Option<PickSavePathHook>,
     pub pick_files: Option<PickFilesHook>,
     pub run: Option<RunHook>,
+    pub run_checked: Option<RunCheckedHook>,
     pub is_executable: Option<IsExecutableHook>,
     pub env: Option<EnvHook>,
     pub home_dir: Option<HomeDirHook>,

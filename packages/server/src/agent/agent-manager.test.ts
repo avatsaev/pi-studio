@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import {
+  AGENT_CLOSE_TIMEOUT_MS,
   AgentManager,
   type AgentManagerDeps,
   type AgentUpdateBroadcast,
@@ -235,5 +236,115 @@ describe("onSessionAttached hook (sprint-066/task-004)", () => {
 
     expect(() => mgr.attachSession("does-not-exist", fakeSession())).not.toThrow();
     expect(hook).not.toHaveBeenCalled();
+  });
+});
+
+type CloseWarn = (fields: { agentId: string; err: string }, message: string) => void;
+
+function closableSession(close: () => Promise<void>): AgentSession {
+  return { close } as unknown as AgentSession;
+}
+
+describe("closeAll (daemon shutdown)", () => {
+  it("closes every live session at once, clears them, and is a no-op the second time", async () => {
+    const { mgr } = makeManager();
+    const a = await mgr.add(record());
+    const b = await mgr.add(record());
+    const withoutSession = await mgr.add(record());
+    const closeA = vi.fn(() => Promise.resolve());
+    const closeB = vi.fn(() => Promise.resolve());
+    mgr.attachSession(a.record.id, closableSession(closeA));
+    mgr.attachSession(b.record.id, closableSession(closeB));
+
+    await mgr.closeAll();
+    await mgr.closeAll();
+
+    expect(closeA).toHaveBeenCalledTimes(1);
+    expect(closeB).toHaveBeenCalledTimes(1);
+    expect(mgr.get(a.record.id)?.session).toBeNull();
+    expect(mgr.get(b.record.id)?.session).toBeNull();
+    expect(mgr.get(withoutSession.record.id)?.session).toBeNull();
+  });
+
+  it("starts every close before awaiting any (they run at once)", async () => {
+    const { mgr } = makeManager();
+    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const started: number[] = [];
+    for (const [i, gate] of gates.entries()) {
+      const agent = await mgr.add(record());
+      mgr.attachSession(
+        agent.record.id,
+        closableSession(() => {
+          started.push(i);
+          return gate.promise;
+        }),
+      );
+    }
+
+    const done = mgr.closeAll();
+    expect(started).toEqual([0, 1]);
+    for (const gate of gates) gate.resolve();
+    await done;
+  });
+
+  it("a failing close is logged and does not stop the others", async () => {
+    const warn = vi.fn<CloseWarn>();
+    const { mgr } = makeManager({ logger: { warn } as never });
+    const bad = await mgr.add(record());
+    const syncBad = await mgr.add(record());
+    const good = await mgr.add(record());
+    const closeGood = vi.fn(() => Promise.resolve());
+    mgr.attachSession(
+      bad.record.id,
+      closableSession(() => Promise.reject(new Error("boom"))),
+    );
+    mgr.attachSession(
+      syncBad.record.id,
+      closableSession(() => {
+        throw new Error("sync boom");
+      }),
+    );
+    mgr.attachSession(good.record.id, closableSession(closeGood));
+
+    await expect(mgr.closeAll()).resolves.toBeUndefined();
+
+    expect(closeGood).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.map((call) => call[0].err).toSorted()).toEqual(["boom", "sync boom"]);
+  });
+
+  describe("with a close that never resolves", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("holds closeAll for the default 5 s limit and no longer", async () => {
+      vi.useFakeTimers();
+      const warn = vi.fn<CloseWarn>();
+      const { mgr } = makeManager({ logger: { warn } as never });
+      const hung = await mgr.add(record());
+      const good = await mgr.add(record());
+      const closeGood = vi.fn(() => Promise.resolve());
+      mgr.attachSession(
+        hung.record.id,
+        closableSession(() => new Promise<void>(() => {})),
+      );
+      mgr.attachSession(good.record.id, closableSession(closeGood));
+
+      let settled = false;
+      const done = mgr.closeAll().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(AGENT_CLOSE_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      expect(closeGood).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(settled).toBe(true);
+      expect(AGENT_CLOSE_TIMEOUT_MS).toBe(5000);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0].err).toContain("timed out after 5000 ms");
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });
