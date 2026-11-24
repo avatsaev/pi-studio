@@ -1,7 +1,7 @@
 # Task 006 — After the owner's merge: the first published binaries
 
 - **Sprint:** sprints/sprint-142-binary-self-update
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** release
 - **Priority:** P1
