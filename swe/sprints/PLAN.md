@@ -164,9 +164,16 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 136 | `sprint-136-daemon-update-service` | protocol + client + server: **Daemon self-update, slice 2 — the daemon.** The `daemon_update_*` family and SDK; the service (check, timer, setting, result); apply, the helper, restart and rollback; a live run with a real global npm install and a local registry; a scripted dev daemon. | 6 |
 | 137 | `sprint-137-daemon-update-ui` | workbench: **Daemon self-update, slice 3 — the UI.** The second pill, the dialog with counts, progress and result, Settings → Daemon; a browser check. | 4 |
 | 138 | `sprint-138-daemon-update-desktop` | desktop + workbench + docs: **Daemon self-update, slice 4 — the desktop and close.** `daemon.local.update` and `daemon.remote.update`; Update on the Daemons screen; the live desktop run; documents and close. | 5 |
+| 139 | `sprint-139-binary-foundation` | server + cli: **Single-binary daemon, slice 1 — foundation.** The gate: Pi's settings replaced in-process, proven in a compiled binary; one runtime seam for every spawn site; no `createRequire`; a terminal backend for Bun. | 4 |
+| 140 | `sprint-140-binary-build` | cli + server + scripts: **Single-binary daemon, slice 2 — the binary.** Its entry and sub-commands and `npm run build:binary`; the baseline sync leaves out what the binary cannot load; the smoke test; a live check with a real Pi. | 4 |
+| 141 | `sprint-141-binary-release` | CI + scripts: **Single-binary daemon, slice 3 — releases.** `SHA256SUMS` and `latest.json`; the binaries workflow on four systems with publishing; the desktop release's pin step; a pull request run on all four. | 4 |
+| 142 | `sprint-142-binary-self-update` | protocol + server + workbench: **Single-binary daemon, slice 4 — self-update.** The `binary` kind and `skippedVersion`; a rolled-back version skipped; the workbench lines; check, install, helper and rollback for a binary; a live run; the first published binaries after the owner's merge. | 6 |
+| 143 | `sprint-143-desktop-local-binary` | desktop + workbench: **Single-binary daemon, slice 5 — the app's local daemon.** The pin and new states; the `install` crate; the supervisor runs the binary (the CLI search removed); the Daemons screen; the command-line tool. | 5 |
+| 144 | `sprint-144-desktop-ssh-install` | desktop + workbench: **Single-binary daemon, slice 6 — SSH hosts.** Sending a file over SSH; the remote supervisor's Install; the SSH row. | 3 |
+| 145 | `sprint-145-single-binary-close` | desktop + docs: **Single-binary daemon, slice 7 — close.** The live desktop run on Linux; documents and specs; the first desktop release with a pinned daemon after the owner's merge. | 3 |
 
-Total: **132 sprints, 674 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23) and by 135–138 (+4/+19, 2026-11-23; the table sums to 132/674). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **139 sprints, 703 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23) and by 139–145 (+7/+29, 2026-11-24; the table sums to 139/703). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3682,6 +3689,104 @@ t001 and t002 may run beside sprints 136 and 137 (Rust only).
 > is offered again at the next check. Milestone 5b is closed; the next roadmap step is 6 (single-binary
 > daemon and install over SSH).
 
+> **Single-binary daemon and install over SSH** (`features/single-binary-daemon.md`,
+> `features/desktop-ssh-daemon-install.md`, `architecture/single-binary-daemon.md`, amendments to
+> `features/self-update.md`; grill `grills/single-binary-daemon.md`). Roadmap step 6. Branch
+> `feat/single-binary-daemon`. **Two merges, both the owner's:** the first after sprint 142 publishes
+> the first binaries (sprint-142/task-006), which the desktop part pins; the second after sprint 145.
+> **Sprint-139/task-001 is a gate:** if Pi's settings cannot be replaced inside the compiled binary,
+> the work stops and goes back to the owner. Proof is on Linux live; on macOS only that the binary
+> starts on a runner (D16). No Windows (D3).
+
+### sprint-139-binary-foundation
+> **What it ships.** Proof that the binary can leave the user's Pi settings alone, and the code seams
+> the binary needs, with Node behaviour unchanged.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Pi's settings replaced in-process, proven inside a compiled binary (gate) | feature | none | arch § Pi's settings, A1, A6; feature § Pi in the binary, P8, D2 |
+| task-002 | One runtime seam for every spawn site | refactor | task-001 | arch § The runtime seam, A3 |
+| task-003 | No `createRequire` in code the binary bundles | refactor | task-001 | A5 |
+| task-004 | A terminal backend for Bun; `node-pty` loaded lazily | feature | task-001 | A4 |
+
+t001 first (gate); then t002, t003, t004 in parallel (different files).
+
+### sprint-140-binary-build
+> **What it ships.** A working `pi-studio` binary for Linux, built from the repository, with its own
+> smoke test, seen running a real Pi.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The binary's entry, its sub-commands and `npm run build:binary` | feature | sprint-139/task-001..004 | arch § The build, § The sub-commands, A2, A7, A8; feature S2, S4, P4 |
+| task-002 | The baseline sync leaves out packages the binary cannot load | feature | sprint-139/task-001, sprint-139/task-002 | D2; preinstalled-extensions note |
+| task-003 | The binary's smoke test (`npm run test:binary`) | test | task-001 | A9, P1 |
+| task-004 | Live check of the binary on Linux with a real Pi | test | task-001, task-002, task-003 | feature § Acceptance (Pi rows), § TODO(verify), P16 |
+
+t001 and t002 in parallel; then t003; t004 last.
+
+### sprint-141-binary-release
+> **What it ships.** Every release builds, tests and publishes the four binaries; the desktop release
+> can pin them.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The daemon release files: `SHA256SUMS` and `latest.json` | feature | sprint-140/task-001 | § Public contract 1, S1, S2, P13 |
+| task-002 | Binaries built, smoke-tested and published by every release | feature | task-001, sprint-140/task-003 | § Release, P1, P13, S3, A10 |
+| task-003 | The desktop release pins the newest daemon binary | feature | task-001 | § The pin, P2, P14, S5, S6 |
+| task-004 | The binaries workflow passes on all four systems in a pull request | test | task-002, task-003 | § Acceptance (release rows), D16 |
+
+t002 and t003 in parallel after t001; t004 last.
+
+### sprint-142-binary-self-update
+> **What it ships.** A binary daemon updates itself and rolls back; a rolled-back version is skipped
+> for every install kind; then, after the owner's merge, the first published binaries.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Protocol: the `binary` install kind, `unmanaged_binary`, `skippedVersion` | feature | none | self-update § RPCs (milestone 6) |
+| task-002 | A rolled-back version is not offered again by automatic checks | feature | task-001 | D14 |
+| task-003 | Workbench: the skipped version and the `binary` kind in Settings → Daemon | feature | task-001 | self-update § Workbench (milestone 6) |
+| task-004 | A binary daemon checks, installs, restarts and rolls back | feature | task-001, task-002, sprint-140/task-001 | D7, D13, P15, A8 |
+| task-005 | Live check: a binary daemon updates itself and rolls back | test | task-002, task-004, sprint-140/task-003 | self-update § Acceptance (milestone 6) |
+| task-006 | After the owner's merge: the first published binaries | chore | task-003, task-005, sprint-141/task-004 | feature § Acceptance (release rows) |
+
+t001 may run beside sprints 139–141; t002 and t003 after it; t004 after t002; t005; t006 waits for the owner.
+
+### sprint-143-desktop-local-binary
+> **What it ships.** The desktop app runs its local daemon from the pinned binary on a machine with
+> nothing installed; the command-line tool.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Desktop model: the pin, the new local states, no `cliPath` | feature | sprint-142/task-006, sprint-141/task-003 | § Public contract 4, S5, S10, S12 |
+| task-002 | Desktop crate `install`: download, verify, unpack, version layout | feature | sprint-140/task-001 | S8, S9, P3, P9, P10 |
+| task-003 | The local supervisor runs the app's binary | feature | task-001, task-002 | § The local entry, D4, D8, D9, P11, S7 |
+| task-004 | Daemons screen: the local entry's new states; the CLI views removed | feature | task-001 | § Public contract 4, S10, S12 |
+| task-005 | "Install the command-line tool" | feature | task-003, task-004 | § The command-line tool, D11, P5, S11 |
+
+t002 may run beside sprints 141–142 (Rust only); t003 and t004 after t001; t005 last.
+
+### sprint-144-desktop-ssh-install
+> **What it ships.** Install on an SSH host, with the file sent over the connection.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | SSH crate: send a file over the connection | feature | none | ssh-install § Public contract (SSH crate), R3 |
+| task-002 | The remote supervisor installs and runs the binary on an SSH host | feature | task-001, sprint-143/task-003 | ssh-install § Behavior, R1–R9, D6, D15, P6, P12 |
+| task-003 | Daemons screen: Install on an SSH row | feature | task-002, sprint-143/task-004 | ssh-install § Daemons screen, D10 |
+
+t001 may run beside sprint 143; then t002, t003.
+
+### sprint-145-single-binary-close
+> **What it ships.** The live desktop run, the documents, and the first desktop release that pins a
+> daemon.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Live desktop run on Linux: first launch, takeover, SSH installs | test | sprint-143/task-005, sprint-144/task-003, sprint-142/task-003 | both features' § Acceptance |
+| task-002 | Documents and spec close for milestone 6 | docs | task-001 | § Dependencies on other specs, § TODO(verify) |
+| task-003 | After the owner's merge: the first desktop release with a pinned daemon | chore | task-002 | § The pin, S6 |
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -3858,6 +3963,10 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/desktop-self-update.md | s131/t001-003 (plug-in + config + test overlay + 0.3.0; key in a `main`-only environment; manifest script + contract test), s132/t001-004 (setting, state, schedule, hook; commands, menu, `boot`/`ui.inspect`; check, kind, `--update-manifest`, event, dialog; download, install, `pkexec`, restart), s133/t001-003 (host member + indicator; desktop host; Linux live checks), s134/t001-004 (release check script; workflow with signing, manifests, check and promotion; documents; first two publishing runs after the merge). **Planned 2026-11-23.** Not turned into tasks, by decision: everything in the spec's Out of scope; macOS keychain prompts and the Downloads-folder case (no Mac) |
 | features/self-update.md | s135/t001-004 (shutdown closes agents and removes the PID file; health version and wait-for-exit; engine in the server and install kind; `update` restarts), s136/t001-006 (protocol family + flag; SDK; service, check, timer, setting; apply, helper, rollback; live npm run with a local registry; dev daemon scripts), s137/t001-004 (pill; dialog; Settings → Daemon; browser check), s138/t001-005 (desktop local and SSH Update; Daemons screen; live desktop run; documents and close). **Planned 2026-11-23.** Not turned into tasks, by decision: the spec's Non-goals; macOS and Windows live runs (no machine) |
 | architecture/workbench-host-adapter.md § `updates` (2026-11-23) | s133/t001 (types and indicator), s133/t002 (desktop host) |
+| features/single-binary-daemon.md | s139/t001 (Pi settings gate), s140/t001-004 (entry, sub-commands, build; excluded packages; smoke test; live Pi check), s141/t001-004 (release files; binaries workflow; desktop pin step; pull request run), s142/t006 (first published binaries), s143/t001-005 (pin and states; `install` crate; supervisor; Daemons screen; command-line tool), s145/t001-003 (live run; documents; first desktop release). **Planned 2026-11-24.** Not turned into tasks, by decision: the spec's Non-goals (Windows, musl, removing a daemon, resume, OS signing); a run on a real Mac (D16) |
+| features/desktop-ssh-daemon-install.md | s144/t001-003 (send over SSH; remote supervisor install; SSH row), s145/t001 (live run). **Planned 2026-11-24.** Not turned into tasks, by decision: Windows and musl hosts, the host downloading the file, removing a daemon |
+| architecture/single-binary-daemon.md (designed 2026-11-24) | s139/t001-004 (A1, A3–A6), s140/t001 and t003 (A2, A7–A9), s141/t002 (A10) |
+| features/self-update.md (milestone 6 amendments) | s142/t001-005 (protocol; skipped version; workbench; binary path; live run), s143/t003 and s144/t002 (desktop Update installs the pin) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 
 ## Open questions — TODO(verify)
@@ -4111,3 +4220,9 @@ Carried from the scope; resolve against the live source while implementing the o
       (2026-11-22). If an answer is lost, settlement moves into `transfer_progress`.
 - [ ] Desktop transfer engine: `minDaemonVersion` needs a release number that does not exist until
       the branch merges (s123/t004).
+- [ ] Single-binary daemon: whether both `SettingsManager` replacements take effect inside the
+      compiled binary — the gate (s139/t001); the server suite never ran under Bun, `skills`
+      operations, sync at boot, a full OAuth login, what Pi does when another extension fails, the
+      oldest glibc (s140/t004); the Intel macOS runner label (s141/t002); an exec channel carrying a
+      file on OpenSSH and a `ForceCommand` host (s145/t001); a macOS binary never started on a real
+      Mac (owner's choice of proof, D16).
