@@ -7,18 +7,13 @@
  * (`swe/features/desktop-daemon-registry.md` § Public contract 4, § Error handling & edge cases).
  */
 
+import { type DaemonEntryView, type RemoteDaemonState } from "../../host/types.js";
 import {
-  type DaemonEntryView,
-  type DaemonSettings,
-  type RemoteDaemonState,
-} from "../../host/types.js";
-import {
-  INSTALL_CLI_COMMAND,
   MIN_REMOTE_CLI_VERSION,
   REMOTE_INSTALL_COMMAND,
-  UPDATE_CLI_COMMAND,
   daemonErrorView,
   daemonFailureOf,
+  isInstallFailure,
   localStateView,
   remoteStateView,
   type DaemonFailure,
@@ -36,11 +31,11 @@ export const LINK_INVALID_LABEL = "Pairing link no longer valid";
 export interface LocalNotice {
   text: string;
   command?: string;
-  /** The last lines `pi-studio update` printed; shown as is. */
+  /** The last lines of what a failed update or install printed; shown as is. */
   output?: string;
 }
 
-/** What the row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
+/** What the SSH row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
 function updateFailedNotice(command: string, output: string | undefined): LocalNotice {
   const lines = output?.trim();
   return {
@@ -48,6 +43,12 @@ function updateFailedNotice(command: string, output: string | undefined): LocalN
     command,
     ...(lines ? { output: lines } : {}),
   };
+}
+
+/** What the local row says under a failed download or install: Update tries again, with what the install printed. */
+function installFailedNotice(output: string | undefined): LocalNotice {
+  const lines = output?.trim();
+  return { text: "Update tries the install again.", ...(lines ? { output: lines } : {}) };
 }
 
 export interface LocalRowView {
@@ -116,22 +117,10 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
       const detail = daemonErrorView("unsupported").detail;
       return detail === undefined ? null : { text: detail };
     }
-    case "cli_missing":
-      return {
-        text: local.path
-          ? "Fix the path below or clear it to look for the CLI, or install it (it needs Node.js), then retry."
-          : "Install it (it needs Node.js), then retry.",
-        command: INSTALL_CLI_COMMAND,
-      };
-    case "cli_outdated":
-      return {
-        text: `Found version ${local.version}. Update it, then retry.`,
-        command: UPDATE_CLI_COMMAND,
-      };
+    case "outdated":
+      return { text: `Found version ${local.version}. Update it, then retry.` };
     case "failed":
-      return local.reason === "update_failed"
-        ? updateFailedNotice(UPDATE_CLI_COMMAND, local.output)
-        : null;
+      return isInstallFailure(local.reason) ? installFailedNotice(local.output) : null;
     default:
       return null;
   }
@@ -222,7 +211,7 @@ export function bannerView(
   if (error === null) return null;
   const view = daemonErrorView(error);
   let detail = view.detail;
-  if (error === "cli_outdated" && local.state === "cli_outdated") {
+  if (error === "outdated" && local.state === "outdated") {
     detail = `Found version ${local.version}. ${detail ?? ""}`.trim();
   }
   return {
@@ -243,22 +232,6 @@ export function buildDaemonsScreenView(
     banner: bannerView(error, snapshot.local),
     secretStoreNote: snapshot.secretStore === "file" ? FILE_SECRET_STORE_NOTE : null,
   };
-}
-
-/** The value `setSettings` gets for the CLI path field: trimmed, and `null` when empty ("find it"). */
-export function cliPathFromField(input: string): string | null {
-  const trimmed = input.trim();
-  return trimmed === "" ? null : trimmed;
-}
-
-/** What the CLI path field shows for a saved setting. */
-export function cliPathToField(settings: Pick<DaemonSettings, "cliPath">): string {
-  return settings.cliPath ?? "";
-}
-
-/** Saving is offered only when the field would change the setting. */
-export function cliPathChanged(input: string, settings: Pick<DaemonSettings, "cliPath">): boolean {
-  return cliPathFromField(input) !== settings.cliPath;
 }
 
 /** The message under a settings field when the host refused the value. */

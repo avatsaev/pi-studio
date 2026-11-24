@@ -28,7 +28,7 @@ missing from it fails the gate.
 | Layer | Crates | What belongs here |
 |---|---|---|
 | L0 | none yet | Types with no domain model (geometry, units, colour, storage containers), and standalone crates that parse or encode a foreign format and depend on no workspace crate |
-| L1 | `model` | The settings, the daemon registry (entry kinds `local`, `direct`, `relay`, `ssh`; file version 3) and one entry's stored state, as plain serde data with the limits that keep them valid; `RemoteState`; the address rule (a stored address to the `ws`/`wss` URL the workbench opens), checked against vectors shared with the workbench; the pairing-link parser (`pairing.rs`: `parse(link)` gives the daemon's 32-byte key and a relay or a direct target, `invalid_link` otherwise), checked against `packages/client/src/pairing-link.vectors.json`, which the SDK's test reads too |
+| L1 | `model` | The settings, the daemon registry (entry kinds `local`, `direct`, `relay`, `ssh`; file version 3) and one entry's stored state, as plain serde data with the limits that keep them valid; `RemoteState`; the address rule (a stored address to the `ws`/`wss` URL the workbench opens), checked against vectors shared with the workbench; the pairing-link parser (`pairing.rs`: `parse(link)` gives the daemon's 32-byte key and a relay or a direct target, `invalid_link` otherwise), checked against `packages/client/src/pairing-link.vectors.json`, which the SDK's test reads too; the daemon pin (`pin.rs`: `DaemonPin`, the `{version, assets}` document of `desktop/daemon-pin.json` checked by `parse`, the file compiled in as `BUILT_IN_JSON`, `this_target()` from the compile-time OS and processor), which holds the file's text but reads no file at run time |
 | L2 | none yet | Domain algorithms written as pure functions over L0 and L1 data |
 | L3 | `store` | JSON files: read with a fallback when corrupt, written atomically. Knows no document type; empty on wasm32 |
 | L4 | none yet | Mapping the model to and from foreign formats; a plug-in host |
@@ -236,20 +236,37 @@ socket and the dialogs keep answering during a start), runs the CLI one call at 
 the resulting `LocalState` back as a state change. A launch queues one refresh and does not wait
 for it; the state is `checking` until it ends. To find the CLI it reads the environment of the
 user's login shell once per run (`$SHELL -l -i -c`, random markers around `env`, 5 s limit, the
-app's own environment on failure; Retry reads it again), then looks at `cliPath`, `PATH`, and the
+app's own environment on failure; Retry reads it again), then looks at `PATH` and the
 per-user and system install directories of npm and the Node version managers
-(`cli_find.rs`). A CLI older than 0.0.127 is `cli_outdated` and runs no daemon command. Each
+(`cli_find.rs`); one that is not found is `failed(spawn_failed)`, as one that cannot be run is. A CLI older than 0.0.127 is `outdated` and runs no daemon command. Each
 call has its own limit (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s, `update` 5 min), a
 timed-out process group is killed, and the answer is the last non-empty line of standard output
 read as JSON whatever the exit code. The CLI's `pairingUrl` is discarded where the line is parsed.
 Quitting the app never stops the daemon. On Windows none of this runs (`unsupported`).
 
-**Updating the local daemon.** `daemon.local.update` is enabled when the state is `cli_outdated`,
-`stopped` or `failed(update_failed)`, the retry (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
+**Updating the local daemon.** `daemon.local.update` is enabled when the state is `outdated`,
+`stopped` or `failed` with `download_failed`, `checksum_mismatch` or `install_failed`, the retry (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
 through `run_checked`; the state is `updating`), without reading its output (an outdated CLI's
 format is unknown); a non-zero exit, a timeout or no process keeps the last 20 lines (2000
-characters, control characters removed) as `failed(update_failed)` with `output`. Then it reads
-`--version` (still below the minimum: `cli_outdated`) and starts the daemon as Start does.
+characters, control characters removed) as `failed(install_failed)` with `output`. Then it reads
+`--version` (still below the minimum: `outdated`) and starts the daemon as Start does.
+
+**The daemon pin and the local states.** `desktop/daemon-pin.json` is the one `pi-studio` binary version this
+build installs: `{version, assets: {<target>: {url, sha256, size}}}` for `darwin-arm64`, `darwin-x64`,
+`linux-arm64` and `linux-x64`. It is compiled into the model crate (`model::pin::BUILT_IN_JSON`, an `include_str!`
+of the file: the model is plain data and holds no file access at run time) and checked by `DaemonPin::parse` (a
+`<major>.<minor>.<patch>` version, exactly the four targets, each with an http(s) address, 64 hexadecimal
+digits and a positive size); a test parses the committed file, so an invalid one fails the gate, and the app
+parses it at launch and refuses to start on an invalid one. `--daemon-pin <file>` (debug) replaces it for a
+launch (`src-tauri/src/daemon_pin.rs`; an unreadable or invalid file fails the launch with a message that names
+the option; the log says `daemon pin: <version> (built in|override)` and never an address). The release
+workflow's `version` job overwrites the runner's copy from `daemon-updates/latest.json` before the build.
+`LocalState` is `unsupported`, `checking`, `outdated {version}`, `downloading {received, total}`, `installing`,
+`stopped`, `starting`, `stopping`, `updating`, `running {host, port}` and `failed {reason, output?}` with the
+reasons `not_healthy`, `timeout`, `bad_output`, `spawn_failed`, `download_failed`, `checksum_mismatch` and
+`install_failed` (`snake_case` JSON, pinned by tests; the page reads it). The settings are
+`autoStartLocalDaemon` and `checkForUpdates`: an old file's `cliPath` is an unknown field, ignored and kept.
+`downloading`, `installing` and the two download reasons are not produced by anything yet.
 
 **The SSH entry's daemon.** The engine keeps the `RemoteState` of the current SSH entry's daemon in
 memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`, `updating`,

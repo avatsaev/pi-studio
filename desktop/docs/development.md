@@ -105,8 +105,9 @@ released. A failed Desktop CI run releases nothing.
   reads `daemon-updates/latest.json`, retries every 60 s while its version is below `MIN_CLI_VERSION`,
   fails with `no daemon binary ≥ <min> is published`, and writes `{version, assets}` for the four
   targets; a developer runs it without `--wait-minutes` to refresh the committed `desktop/daemon-pin.json`).
-  In a release run the job `version` runs it, only when `desktop/daemon-pin.json` is committed, and
-  `bundle-release` writes the result into its checkout before the build.
+  In a release run the job `version` runs it (every publishing run, before the build), and
+  `bundle-release` writes the result into its checkout before the build, which compiles it in
+  (`model::pin::BUILT_IN_JSON`; the gate parses the committed file, so an invalid pin fails a build and a test).
 
 The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
 app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.
@@ -239,9 +240,11 @@ the app's directory the same way, and not at all for the app's default directory
 
 ### Pointing the app at a scratch CLI and home
 
-The local daemon is run through the `pi-studio` CLI. Set `cliPath` (`settings.set`, or the Daemons
-screen) to a script of your own to choose which CLI runs, for example one that execs the repository's
-build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`). The CLI inherits
+The local daemon is run through the `pi-studio` CLI, which the supervisor finds on the login shell's `PATH` and in
+the usual install directories (there is no `cliPath` setting). To choose which CLI runs, put an executable named
+`pi-studio` first on that `PATH`, for example a script that execs the repository's
+build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`); the app's tests do it with a
+`SHELL` that prints a chosen environment (`apps/pistudiodesktop-cli/tests/cli.rs`). The CLI inherits
 the app's environment, so start the app with `PI_STUDIO_HOME=<scratch dir>` to keep the daemon's state
 out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
 starts a daemon on launch. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply),
@@ -275,8 +278,8 @@ docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-de
 ```
 
 Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
-`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"cli_missing"},"settings":{"autoStartLocalDaemon":true,"cliPath":null}},"menus":[…],"settings":{…},"ui":{…}}}`
-(the image has no `pi-studio` CLI, hence `cli_missing`).
+`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"failed","reason":"spawn_failed"},"settings":{"autoStartLocalDaemon":true,"checkForUpdates":true}},"menus":[…],"settings":{…},"ui":{…}}}`
+(the image has no `pi-studio` CLI, hence `spawn_failed`).
 This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
 for the webview itself WebKitWebDriver, as below.
 

@@ -33,26 +33,34 @@ fn run_changes_a_setting_in_a_config_dir_and_reads_it_back() {
 
 #[test]
 fn without_a_config_dir_nothing_is_written() {
-    let (ok, out, err) = cli(&["run", "--cmd", r#"settings.set {"key":"cliPath","value":"/x"}"#, "--cmd", "settings.get"]);
+    let (ok, out, err) = cli(&["run", "--cmd", r#"settings.set {"key":"checkForUpdates","value":false}"#, "--cmd", "settings.get"]);
     assert!(ok, "{err}");
     assert_eq!(out.lines().count(), 2);
     let (ok, out, _) = cli(&["run", "--cmd", "settings.get"]);
-    assert!(ok && out.contains(r#""cliPath":null"#), "a new run starts from defaults: {out}");
+    assert!(ok && out.contains(r#""checkForUpdates":true"#), "a new run starts from defaults: {out}");
 }
 
 #[test]
 fn a_failing_command_exits_1_and_a_bad_step_runs_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_str().unwrap();
-    let (ok, out, err) =
-        cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"cliPath","value":"/a"}"#, "--cmd", r#"settings.set {"key":"nope","value":1}"#]);
+    let (ok, out, err) = cli(&[
+        "run",
+        "--config-dir",
+        path,
+        "--cmd",
+        r#"settings.set {"key":"checkForUpdates","value":false}"#,
+        "--cmd",
+        r#"settings.set {"key":"nope","value":1}"#,
+    ]);
     assert!(!ok);
     assert_eq!(out.lines().count(), 1, "the step before the failure reported");
     assert!(err.contains("settings.set: "), "{err}");
-    let (ok, out, err) = cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"cliPath","value":"/b"}"#, "--cmd", "settings.get {not json"]);
+    let (ok, out, err) =
+        cli(&["run", "--config-dir", path, "--cmd", r#"settings.set {"key":"checkForUpdates","value":true}"#, "--cmd", "settings.get {not json"]);
     assert!(!ok && out.is_empty() && err.contains("params are not JSON"), "{out}{err}");
     let saved: Value = serde_json::from_slice(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
-    assert_eq!(saved["cliPath"], "/a", "the step after a typo never ran");
+    assert_eq!(saved["checkForUpdates"], false, "the step after a typo never ran");
 }
 
 #[test]
@@ -122,7 +130,7 @@ fn daemon_commands_work_from_the_cli_and_the_answers_hold_no_secret() {
 
 #[cfg(unix)]
 #[test]
-fn local_daemon_commands_run_the_cli_set_in_cli_path() {
+fn local_daemon_commands_run_the_cli_found_on_the_path() {
     use std::os::unix::fs::PermissionsExt as _;
     let dir = tempfile::tempdir().unwrap();
     let write_exec = |name: &str, body: &str| {
@@ -131,38 +139,26 @@ fn local_daemon_commands_run_the_cli_set_in_cli_path() {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
     };
-    let fake = write_exec("pi-studio", include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    // Found on the PATH of the environment the shell prints, as a terminal finds it.
+    write_exec("pi-studio", include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
     // A shell that prints the environment the way the app asks for it, without start-up files.
     let shell = write_exec("shell", "#!/bin/sh\neval \"$4\"\n");
     let state = dir.path().join("state");
     std::fs::create_dir(&state).unwrap();
     let config = dir.path().join("config");
-    let set_cli = format!(r#"settings.set {{"key":"cliPath","value":"{}"}}"#, fake.display());
     let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
         .env_clear()
-        .env("PATH", "/usr/bin:/bin")
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
         .env("SHELL", &shell)
         .env("FAKE_PI_DIR", &state)
-        .args([
-            "run",
-            "--config-dir",
-            config.to_str().unwrap(),
-            "--secret-store",
-            "file",
-            "--cmd",
-            &set_cli,
-            "--cmd",
-            "daemon.local.start",
-            "--cmd",
-            "daemon.list",
-        ])
+        .args(["run", "--config-dir", config.to_str().unwrap(), "--secret-store", "file", "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
         .output()
         .unwrap();
     let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
     assert!(out.status.success(), "{stderr}");
     let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    assert_eq!(lines[1]["result"], serde_json::json!({"accepted": true}));
-    assert_eq!(lines[2]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
+    assert_eq!(lines[0]["result"], serde_json::json!({"accepted": true}));
+    assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
     assert!(!stdout.contains("S3CRET") && !stderr.contains("S3CRET"));
 }
 

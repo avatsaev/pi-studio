@@ -16,7 +16,6 @@ import {
   saveAutoStart,
   STOP_CONFIRM_MESSAGE,
   stopNeedsConfirm,
-  saveCliPath,
 } from "./daemons-screen-actions.js";
 
 function registry() {
@@ -89,10 +88,10 @@ describe("runLocalAction", () => {
     await daemons.settled();
   });
 
-  it("reports what a missing CLI rejects with, for start and for refresh alike", async () => {
-    const daemons = createTestDaemons({ local: { state: "cli_missing" } });
+  it("reports what an outdated daemon rejects with, for start and for refresh alike", async () => {
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
 
-    expect(await runLocalAction(daemons, "start")).toBe("cli_missing");
+    expect(await runLocalAction(daemons, "start")).toBe("outdated");
     const unsupported = createTestDaemons({ local: { state: "unsupported" } });
     expect(await runLocalAction(unsupported, "refresh")).toBe("unsupported");
   });
@@ -110,7 +109,7 @@ describe("runLocalAction", () => {
 
 describe("update", () => {
   it("updates the local daemon: updating, then the outcome", async () => {
-    const daemons = createTestDaemons({ local: { state: "cli_outdated", version: "0.0.1" } });
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
 
     expect(await runLocalAction(daemons, "update")).toBeNull();
     expect(daemons.snapshot().local.state).toBe("updating");
@@ -176,23 +175,6 @@ function recording() {
 }
 
 describe("settings", () => {
-  it("saves the CLI path trimmed, with one setSettings call", async () => {
-    const { daemons, wrapped, patches } = recording();
-
-    expect(await saveCliPath(wrapped, "  /opt/bin/pi-studio ")).toBeNull();
-
-    expect(patches).toEqual([{ cliPath: "/opt/bin/pi-studio" }]);
-    expect(daemons.snapshot().settings.cliPath).toBe("/opt/bin/pi-studio");
-  });
-
-  it("saves an empty field as null", async () => {
-    const { wrapped, patches } = recording();
-
-    await saveCliPath(wrapped, "   ");
-
-    expect(patches).toEqual([{ cliPath: null }]);
-  });
-
   it("saves the auto-start switch", async () => {
     const { daemons, wrapped, patches } = recording();
 
@@ -206,11 +188,11 @@ describe("settings", () => {
     const daemons = registry();
     const refusing: HostDaemons = {
       ...daemons,
-      setSettings: () => Promise.reject(new Error("The path must be absolute.")),
+      setSettings: () => Promise.reject(new Error("The app could not write its settings.")),
     };
 
-    expect(await saveCliPath(refusing, "relative/pi-studio")).toBe("The path must be absolute.");
-    expect(daemons.snapshot().settings.cliPath).toBeNull();
+    expect(await saveAutoStart(refusing, false)).toBe("The app could not write its settings.");
+    expect(daemons.snapshot().settings.autoStartLocalDaemon).toBe(true);
   });
 });
 

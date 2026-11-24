@@ -94,8 +94,6 @@ pub fn page_command(app: &mut AppShell, id: &str, params: Value) -> Result<Value
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     pub requests: Vec<LocalRequest>,
-    /// The `cliPath` setting.
-    pub cli_path: Option<String>,
     /// The CLI was missing or outdated: the user may have installed it since, so the shell
     /// environment is read again (the Retry of the Daemons screen).
     pub refresh_env: bool,
@@ -162,8 +160,10 @@ fn ssh_op(app: &mut AppShell, op: &SshOp) -> Result<Value, String> {
 /// Take the queued local requests and what they need from the session.
 pub fn take_batch(s: &mut Session) -> Batch {
     let requests = s.take_local_requests();
-    let refresh_env = matches!(s.local_state(), LocalState::CliMissing { .. } | LocalState::CliOutdated { .. });
-    Batch { requests, cli_path: s.settings().cli_path.clone(), refresh_env }
+    // The daemon could not be run or is outdated: the user may have installed a newer CLI since, so
+    // the shell environment is read again (the Retry of the Daemons screen).
+    let refresh_env = matches!(s.local_state(), LocalState::Outdated { .. } | LocalState::Failed { reason: FailReason::SpawnFailed, .. });
+    Batch { requests, refresh_env }
 }
 
 fn request_name(request: LocalRequest) -> &'static str {
@@ -190,7 +190,6 @@ fn request_of(name: &str) -> Option<LocalRequest> {
 fn batch_to_json(batch: &Batch) -> Value {
     json!({
         "requests": batch.requests.iter().map(|r| request_name(*r)).collect::<Vec<_>>(),
-        "cliPath": batch.cli_path,
         "refreshEnv": batch.refresh_env,
     })
 }
@@ -199,7 +198,6 @@ fn batch_to_json(batch: &Batch) -> Value {
 pub fn batch_from_json(value: &Value) -> Batch {
     Batch {
         requests: value["requests"].as_array().map(|names| names.iter().filter_map(|n| request_of(n.as_str()?)).collect()).unwrap_or_default(),
-        cli_path: value["cliPath"].as_str().map(str::to_owned),
         refresh_env: value["refreshEnv"].as_bool().unwrap_or(false),
     }
 }
@@ -331,8 +329,7 @@ pub fn static_code(code: &str) -> &'static str {
         "no_current",
         "not_found",
         "unsupported",
-        "cli_missing",
-        "cli_outdated",
+        "outdated",
         "local_stopped",
         "local_not_ready",
         "invalid_link",
@@ -341,7 +338,15 @@ pub fn static_code(code: &str) -> &'static str {
         "secret_missing",
         "secret_unavailable",
     ];
-    const FAILS: [FailReason; 4] = [FailReason::NotHealthy, FailReason::Timeout, FailReason::BadOutput, FailReason::SpawnFailed];
+    const FAILS: [FailReason; 7] = [
+        FailReason::NotHealthy,
+        FailReason::Timeout,
+        FailReason::BadOutput,
+        FailReason::SpawnFailed,
+        FailReason::DownloadFailed,
+        FailReason::ChecksumMismatch,
+        FailReason::InstallFailed,
+    ];
     KNOWN.iter().copied().find(|known| *known == code).or_else(|| FAILS.iter().map(|f| f.code()).find(|known| *known == code)).unwrap_or("internal")
 }
 
@@ -403,7 +408,7 @@ mod tests {
 
     #[test]
     fn batches_and_dial_plans_survive_the_trip_to_the_owner_thread() {
-        let batch = Batch { requests: vec![LocalRequest::Probe, LocalRequest::Start], cli_path: Some("/x/pi".into()), refresh_env: true };
+        let batch = Batch { requests: vec![LocalRequest::Probe, LocalRequest::Start], refresh_env: true };
         assert_eq!(batch_from_json(&batch_to_json(&batch)), batch);
         assert_eq!(batch_from_json(&Value::Null), Batch::default());
         let entry = EntryId::parse("3f2b8a40-1111-4222-8333-444455556666").unwrap();

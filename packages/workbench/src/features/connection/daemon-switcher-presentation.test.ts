@@ -41,7 +41,7 @@ function snapshot(currentId: string | null, local: LocalDaemonState): DaemonsSna
     entries: [LOCAL, A, B, R],
     local,
     remote: null,
-    settings: { autoStartLocalDaemon: true, cliPath: null },
+    settings: { autoStartLocalDaemon: true },
   };
 }
 
@@ -88,7 +88,7 @@ describe("daemonSwitcherView", () => {
 
   it("does not use the local state for a remote entry", () => {
     const view = daemonSwitcherView({
-      snapshot: snapshot("a", { state: "cli_missing" }),
+      snapshot: snapshot("a", { state: "outdated", version: "0.0.1" }),
       status: "idle",
       error: null,
     });

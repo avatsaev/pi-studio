@@ -91,7 +91,7 @@ describe("connecting to the current entry", () => {
 
   it("dials nothing, keeps the code and asks for the screen when the registry refuses", async () => {
     const transport = refusingTransport();
-    const daemons = createTestDaemons({ local: { state: "cli_missing" } });
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
     const host = createTestHost({ daemons, createTransport: () => transport });
     installHost(host);
 
@@ -99,7 +99,7 @@ describe("connecting to the current entry", () => {
 
     expect(host.calls.some((c) => c.member === "connection.createTransport")).toBe(false);
     expect(transport.dialed).toEqual([]);
-    expect(useDaemonsStore.getState().error).toBe("cli_missing");
+    expect(useDaemonsStore.getState().error).toBe("outdated");
     expect(useDaemonsStore.getState().open).toBe(true);
     expect(useConnectionStore.getState().status).toBe("idle");
   });
@@ -115,11 +115,11 @@ describe("connecting to the current entry", () => {
   });
 
   it("clears a held error once the registry resolves again (Retry)", async () => {
-    const daemons = createTestDaemons({ local: { state: "cli_missing" } });
+    const daemons = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
     installHost(createTestHost({ daemons, createTransport: () => refusingTransport() }));
 
     await useDaemonsStore.getState().connectCurrent();
-    expect(useDaemonsStore.getState().error).toBe("cli_missing");
+    expect(useDaemonsStore.getState().error).toBe("outdated");
 
     daemons.setLocalState({ state: "running", host: "127.0.0.1", port: 7777 });
     await useDaemonsStore.getState().connectCurrent();

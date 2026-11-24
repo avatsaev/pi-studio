@@ -18,6 +18,7 @@ mod bridge;
 mod commands;
 mod control_server;
 mod crash_guard;
+mod daemon_pin;
 mod daemons;
 mod logging;
 mod menu;
@@ -82,6 +83,13 @@ struct Args {
     /// installs a build that is not newer.
     #[arg(long, value_name = "URL")]
     update_manifest: Option<tauri::Url>,
+    /// A file in place of the daemon pin the app was built with (`desktop/daemon-pin.json`: the one
+    /// `pi-studio` binary version the app installs, with the address, SHA-256 and size of its archive for
+    /// each system), for a check that installs a binary of its own. An unreadable or invalid file
+    /// fails the launch with a message that names the option; the log holds the pin's version and
+    /// where it came from, never an address.
+    #[arg(long, value_name = "FILE")]
+    daemon_pin: Option<PathBuf>,
 }
 
 /// A startup error: say what, and leave.
@@ -109,6 +117,12 @@ fn main() {
     let args = Args::parse();
     logging::init();
     crash_guard::install_hook();
+    // The daemon pin of this launch: an invalid file is a startup error, as a bad `--control` port is.
+    let (pin, pin_source) = match daemon_pin::load(args.daemon_pin.as_deref()) {
+        Ok(loaded) => loaded,
+        Err(e) => fail(2, e),
+    };
+    log::info!("daemon pin: {} ({})", pin.version, pin_source.name());
     // Bind before the window opens: a port in use is a startup error, not a silent no-op.
     let control = match args.control.map(|port| control_server::bind(port, args.control_token_file.as_deref())) {
         Some(Ok(bound)) => Some(bound),
@@ -257,6 +271,8 @@ fn main() {
     // the same local supervisor.
     let supervisor = Arc::new(Supervisor::new(services.clone(), Limits::default()));
     app.manage(Arc::clone(&supervisor));
+    // The launch's daemon pin (the compiled-in one or `--daemon-pin`), held in the app's state.
+    app.manage(Arc::new(pin));
     // After a Start left the remote daemon running the page connects again.
     let started = move || resumed();
     let remote = RemoteSupervisor::new(services.clone(), RemoteLimits::default());
@@ -324,5 +340,13 @@ mod tests {
     fn an_update_manifest_that_is_not_an_address_names_the_option() {
         let message = Args::try_parse_from(["pistudiodesktop", "--update-manifest", "not a url"]).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(message.contains("--update-manifest"), "{message}");
+    }
+
+    #[test]
+    fn daemon_pin_is_a_file_and_defaults_to_none() {
+        assert!(Args::try_parse_from(["pistudiodesktop"]).unwrap().daemon_pin.is_none());
+        let given = Args::try_parse_from(["pistudiodesktop", "--daemon-pin", "/tmp/pin.json"]).unwrap();
+        assert_eq!(given.daemon_pin.as_deref(), Some(std::path::Path::new("/tmp/pin.json")));
+        assert!(Args::try_parse_from(["pistudiodesktop", "--daemon-pin"]).is_err());
     }
 }

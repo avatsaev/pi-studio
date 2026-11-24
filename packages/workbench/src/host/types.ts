@@ -57,10 +57,12 @@ export type LocalDaemonState =
   | { state: "checking" }
   /** Windows: no local daemon. */
   | { state: "unsupported" }
-  /** No CLI found. Carries the configured path when one was set and is not an executable file. */
-  | { state: "cli_missing"; path?: string }
-  /** A CLI too old for `--json daemon start`. */
-  | { state: "cli_outdated"; version: string }
+  /** The running daemon is older than the minimum the desktop app drives. */
+  | { state: "outdated"; version: string }
+  /** The daemon's archive is being fetched: bytes received so far, and the archive's size. */
+  | { state: "downloading"; received: number; total: number }
+  /** The fetched archive is being checked, unpacked and put in place. */
+  | { state: "installing" }
   | { state: "stopped" }
   | { state: "starting" }
   | { state: "stopping" }
@@ -68,8 +70,15 @@ export type LocalDaemonState =
   | { state: "updating" }
   | {
       state: "failed";
-      reason: "not_healthy" | "timeout" | "bad_output" | "spawn_failed" | "update_failed";
-      /** With `update_failed`: the last lines `pi-studio update` printed. Shown, never parsed. */
+      reason:
+        | "not_healthy"
+        | "timeout"
+        | "bad_output"
+        | "spawn_failed"
+        | "download_failed"
+        | "checksum_mismatch"
+        | "install_failed";
+      /** With `install_failed`: the last lines of what the install printed. Shown, never parsed. */
       output?: string;
     };
 
@@ -150,7 +159,7 @@ export type DaemonErrorCode =
   | "wrong_kind"
   | "local_not_removable"
   | "unsupported"
-  | "cli_missing"
+  | "outdated"
   | "cli_outdated"
   | "busy"
   | "no_current"
@@ -159,6 +168,9 @@ export type DaemonErrorCode =
   | "timeout"
   | "bad_output"
   | "spawn_failed"
+  | "download_failed"
+  | "checksum_mismatch"
+  | "install_failed"
   | "secret_missing"
   | "secret_unavailable"
   | "secret_store_failed"
@@ -181,8 +193,6 @@ export interface DaemonError extends Error {
 export interface DaemonSettings {
   /** Opening the local entry starts its daemon when it is stopped. */
   autoStartLocalDaemon: boolean;
-  /** An explicit path of the `pi-studio` executable; `null` means "find it". */
-  cliPath: string | null;
 }
 
 /**
@@ -225,7 +235,7 @@ export interface HostDaemons {
     stop(): Promise<void>;
     restart(): Promise<void>;
     refresh(): Promise<void>;
-    /** Runs `pi-studio update`, then starts the daemon. Offered for `cli_outdated` or `stopped`. */
+    /** Installs the version the app was built with, then starts the daemon. Offered for `outdated` or `stopped`. */
     update(): Promise<void>;
   };
   /**

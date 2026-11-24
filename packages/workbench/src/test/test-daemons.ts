@@ -80,7 +80,7 @@ export class DaemonError extends Error implements DaemonErrorShape {
 
 const MAX_ENTRIES = 64;
 const DEFAULT_RUNNING: LocalDaemonState = { state: "running", host: "127.0.0.1", port: 7777 };
-const LOCAL_FAILURES = ["unsupported", "cli_missing", "cli_outdated"] as const;
+const LOCAL_FAILURES = ["unsupported", "outdated"] as const;
 const DEFAULT_DAEMON_PORT = 6767;
 
 function view(entry: StoredEntry): DaemonEntryView {
@@ -144,7 +144,6 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
   let remote: RemoteDaemonState = options.remote ?? { state: "unknown" };
   let settings: DaemonSettings = {
     autoStartLocalDaemon: true,
-    cliPath: null,
     ...options.settings,
   };
   const listeners = new Set<() => void>();

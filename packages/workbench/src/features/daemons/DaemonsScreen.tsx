@@ -1,6 +1,6 @@
 /**
  * DaemonsScreen — the modal that lists the registry's entries, drives the local daemon, holds the
- * two daemon settings and removes entries (`swe/features/desktop-daemon-registry.md` § Public
+ * local daemon setting and removes entries (`swe/features/desktop-daemon-registry.md` § Public
  * contract 4). Mounted once in `WorkspaceShell`; renders nothing when the host has no registry
  * (the browser). Open/closed state and the error shown in the banner live in `useDaemonsStore`;
  * what each row offers and what the banner says is `daemons-screen-view.ts`; what a button does
@@ -14,9 +14,9 @@
  * focus returns to what had it.
  */
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { Button, Dialog, Spinner, Switch, TextInput } from "@av-pi-studio/ui-library";
+import { Button, Dialog, Spinner, Switch } from "@av-pi-studio/ui-library";
 import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { type DaemonSettings, type HostDaemons } from "../../host/types.js";
@@ -31,13 +31,10 @@ import {
   runRemoteAction,
   stopNeedsConfirm,
   saveAutoStart,
-  saveCliPath,
   type ActionOutcome,
 } from "./daemons-screen-actions.js";
 import {
   buildDaemonsScreenView,
-  cliPathChanged,
-  cliPathToField,
   type BannerView,
   LINK_INVALID_LABEL,
   type EntryRowView,
@@ -49,9 +46,7 @@ import { useDaemonsStore } from "./daemons-store.js";
 import { useDaemons } from "./use-daemons.js";
 import styles from "./DaemonsScreen.module.css";
 
-const SETTINGS_FORM_ID = "daemons-settings-form";
 const AUTO_START_ID = "daemons-auto-start";
-const CLI_PATH_ID = "daemons-cli-path";
 
 export function DaemonsScreen() {
   const daemons = getHost().daemons;
@@ -326,27 +321,13 @@ function SettingsSection({
   daemons: HostDaemons;
   settings: DaemonSettings;
 }) {
-  const [cliPath, setCliPath] = useState(() => cliPathToField(settings));
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const changed = cliPathChanged(cliPath, settings);
 
   async function save(outcome: Promise<string | null>): Promise<void> {
     setSaving(true);
     setFailure(await outcome);
     setSaving(false);
-  }
-
-  function handleSubmit(event: FormEvent): void {
-    event.preventDefault();
-    if (!changed || saving) return;
-    void save(
-      saveCliPath(daemons, cliPath).then((reason) => {
-        // A refused value keeps the previous one.
-        if (reason !== null) setCliPath(cliPathToField(settings));
-        return reason;
-      }),
-    );
   }
 
   return (
@@ -365,24 +346,6 @@ function SettingsSection({
           onCheckedChange={(enabled) => void save(saveAutoStart(daemons, enabled))}
         />
       </div>
-      <form id={SETTINGS_FORM_ID} className={styles.settingField} onSubmit={handleSubmit}>
-        <label className={styles.settingLabel} htmlFor={CLI_PATH_ID}>
-          Path of the pi-studio CLI
-        </label>
-        <div className={styles.pathRow}>
-          <TextInput
-            id={CLI_PATH_ID}
-            value={cliPath}
-            placeholder="Empty: find it"
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(event) => setCliPath(event.target.value)}
-          />
-          <Button size="sm" type="submit" disabled={!changed || saving}>
-            Save
-          </Button>
-        </div>
-      </form>
       {failure && (
         <div className={styles.settingError} role="alert">
           {failure}

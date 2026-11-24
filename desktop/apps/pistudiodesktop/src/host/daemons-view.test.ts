@@ -7,7 +7,7 @@ const VIEW = {
   entries: [{ id: "local", kind: "local", name: "This machine", hasPassword: false }],
   local: { state: "stopped" },
   remote: null,
-  settings: { autoStartLocalDaemon: true, cliPath: null },
+  settings: { autoStartLocalDaemon: true },
 };
 
 describe("parseDaemonsView secretStore", () => {
@@ -89,24 +89,55 @@ describe("parseDaemonsView remote", () => {
   );
 });
 
-describe("parseDaemonsView updating and update_failed", () => {
+describe("parseDaemonsView local states", () => {
   it("keeps updating for the local and the remote state", () => {
     expect(parseDaemonsView({ ...VIEW, local: { state: "updating" } })?.local).toEqual({ state: "updating" });
     expect(parseDaemonsView({ ...VIEW, remote: { state: "updating" } })?.remote).toEqual({ state: "updating" });
   });
 
-  it("keeps update_failed with its output, or without", () => {
-    const output = "npm ERR! EACCES";
-    const failed = { state: "failed", reason: "update_failed" };
+  it("keeps outdated with its version, downloading with its counts and installing", () => {
+    expect(parseDaemonsView({ ...VIEW, local: { state: "outdated", version: "0.0.100" } })?.local).toEqual({
+      state: "outdated",
+      version: "0.0.100",
+    });
+    expect(parseDaemonsView({ ...VIEW, local: { state: "downloading", received: 10, total: 20 } })?.local).toEqual({
+      state: "downloading",
+      received: 10,
+      total: 20,
+    });
+    expect(parseDaemonsView({ ...VIEW, local: { state: "installing" } })?.local).toEqual({ state: "installing" });
+  });
+
+  it.each([
+    { state: "outdated" },
+    { state: "downloading", received: 1 },
+    { state: "downloading", received: "1", total: 2 },
+    { state: "cli_missing" },
+    { state: "cli_outdated", version: "0.0.1" },
+    { state: "failed", reason: "update_failed" },
+  ])("drops the view for the local state %j", (local) => {
+    expect(parseDaemonsView({ ...VIEW, local })).toBeNull();
+  });
+
+  it("keeps a failed install with its output, or without", () => {
+    const output = "unpack: refused";
+    const failed = { state: "failed", reason: "install_failed" };
     expect(parseDaemonsView({ ...VIEW, local: { ...failed, output } })?.local).toEqual({ ...failed, output });
     expect(parseDaemonsView({ ...VIEW, local: failed })?.local).toEqual(failed);
+    for (const reason of ["download_failed", "checksum_mismatch"]) {
+      expect(parseDaemonsView({ ...VIEW, local: { state: "failed", reason } })?.local).toEqual({ state: "failed", reason });
+    }
+  });
+
+  it("keeps a failed remote update with its output, or without", () => {
+    const output = "npm ERR! EACCES";
+    const failed = { state: "failed", reason: "update_failed" };
     expect(parseDaemonsView({ ...VIEW, remote: { ...failed, output } })?.remote).toEqual({ ...failed, output });
     expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toEqual(failed);
   });
 
   it("reads a non-string output as a bad state", () => {
-    const failed = { state: "failed", reason: "update_failed", output: 3 };
-    expect(parseDaemonsView({ ...VIEW, local: failed })).toBeNull();
-    expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toBeNull();
+    expect(parseDaemonsView({ ...VIEW, local: { state: "failed", reason: "install_failed", output: 3 } })).toBeNull();
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason: "update_failed", output: 3 } })?.remote).toBeNull();
   });
 });

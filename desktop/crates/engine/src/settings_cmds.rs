@@ -14,7 +14,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Change Setting",
             menu: &[],
             shortcut: None,
-            params: r#"{"key": "autoStartLocalDaemon" | "checkForUpdates" | "cliPath", "value": boolean | string | null}"#,
+            params: r#"{"key": "autoStartLocalDaemon" | "checkForUpdates", "value": boolean}"#,
             enabled: always,
             run: set,
         },
@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 fn current(s: &Session) -> Value {
     let settings = s.settings();
-    json!({"autoStartLocalDaemon": settings.auto_start_local_daemon, "checkForUpdates": settings.check_for_updates, "cliPath": settings.cli_path})
+    json!({"autoStartLocalDaemon": settings.auto_start_local_daemon, "checkForUpdates": settings.check_for_updates})
 }
 
 fn get(s: &mut Session, _: &Value) -> Result<Value> {
@@ -68,11 +68,12 @@ mod tests {
     }
 
     #[test]
-    fn null_clears_the_cli_path() {
+    fn cli_path_is_no_setting() {
         let mut s = Session::new();
-        s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})).unwrap();
-        let answer = s.execute("settings.set", json!({"key": "cliPath", "value": null})).unwrap();
-        assert_eq!(answer, json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+        for value in [json!("/x"), json!(null)] {
+            assert!(matches!(s.execute("settings.set", json!({"key": "cliPath", "value": value})), Err(EngineError::BadParams(_))));
+        }
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
     }
 
     #[test]

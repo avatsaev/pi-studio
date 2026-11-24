@@ -16,7 +16,7 @@ fn the_view_is_the_ui_state_the_settings_and_the_generated_menu_bar() {
     let mut app = app();
     let view = control::view(&mut app);
     assert_eq!(view["ui"], json!({"status": ""}));
-    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null}));
+    assert_eq!(view["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
     assert_eq!(view["menus"][0]["label"], "Daemons");
     assert_eq!(view["menus"].as_array().unwrap().len(), 2);
     assert_eq!(view["menus"][1]["label"], "Help");
@@ -38,7 +38,7 @@ fn a_failed_command_reaches_the_status_bar_and_a_success_clears_it() {
 fn the_control_protocol_drives_and_inspects_the_app() {
     let mut app = app();
     let changed = call(&mut app, "engine.execute", json!({"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}));
-    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}));
+    assert_eq!(changed, json!({"ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true}}));
     let seen = call(&mut app, "ui.inspect", Value::Null);
     assert_eq!(seen["result"]["settings"]["autoStartLocalDaemon"], false);
     assert_eq!(seen["result"]["menus"][0]["label"], "Daemons");
@@ -128,7 +128,7 @@ fn requests_from_a_channel_are_answered_in_order() {
     let (tx, rx) = std::sync::mpsc::channel();
     let (first, first_reply) = Envelope::new(Request::Control {
         method: "engine.execute".into(),
-        params: json!({"command": "settings.set", "params": {"key": "cliPath", "value": "/x"}}),
+        params: json!({"command": "settings.set", "params": {"key": "checkForUpdates", "value": false}}),
     });
     let (second, second_reply) = Envelope::new(Request::StorageSet { key: "pi-studio-pane-layout".into(), value: "{}".into() });
     let (third, third_reply) = Envelope::new(Request::Boot);
@@ -141,7 +141,7 @@ fn requests_from_a_channel_are_answered_in_order() {
         let reply = app.answer(&envelope.request);
         envelope.reply.send(reply).unwrap();
     }
-    assert_eq!(first_reply.try_recv().unwrap()["result"]["cliPath"], "/x");
+    assert_eq!(first_reply.try_recv().unwrap()["result"]["checkForUpdates"], false);
     assert_eq!(second_reply.try_recv().unwrap(), json!({"ok": true, "result": null}));
     let booted = third_reply.try_recv().unwrap();
     assert_eq!(booted["result"]["storage"], json!({"pi-studio-pane-layout": "{}"}), "the page's key is in the snapshot");

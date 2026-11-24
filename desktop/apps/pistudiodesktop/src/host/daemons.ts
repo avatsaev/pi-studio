@@ -26,7 +26,7 @@ const CODES: Record<DaemonErrorCode, true> = {
   wrong_kind: true,
   local_not_removable: true,
   unsupported: true,
-  cli_missing: true,
+  outdated: true,
   cli_outdated: true,
   busy: true,
   no_current: true,
@@ -35,6 +35,9 @@ const CODES: Record<DaemonErrorCode, true> = {
   timeout: true,
   bad_output: true,
   spawn_failed: true,
+  download_failed: true,
+  checksum_mismatch: true,
+  install_failed: true,
   secret_missing: true,
   secret_unavailable: true,
   secret_store_failed: true,
@@ -77,7 +80,7 @@ function entryOf(answer: unknown): DaemonEntryView {
 }
 
 /** The settings, in the order they are written; `settings.set` changes one key per call. */
-const SETTING_KEYS = ["autoStartLocalDaemon", "cliPath"] as const satisfies ReadonlyArray<keyof DaemonSettings>;
+const SETTING_KEYS = ["autoStartLocalDaemon"] as const satisfies ReadonlyArray<keyof DaemonSettings>;
 
 function isIntent(value: unknown): value is ConnectIntent {
   return isRecord(value) && typeof value.connect === "boolean";

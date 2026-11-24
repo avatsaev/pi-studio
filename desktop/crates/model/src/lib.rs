@@ -7,6 +7,7 @@
 
 mod address_rule;
 pub mod pairing;
+pub mod pin;
 mod registry;
 
 pub use address_rule::{address_matches, normalize_daemon_url};
@@ -33,8 +34,6 @@ pub const MAX_KEY_BYTES: usize = 256;
 pub const MAX_KEYS: usize = 256;
 /// Most bytes of values in one scope.
 pub const MAX_SCOPE_BYTES: usize = 16 * 1024 * 1024;
-/// Longest `cliPath`, in characters.
-pub const MAX_CLI_PATH_CHARS: usize = 4096;
 /// The one workbench key that is shared by every daemon entry.
 pub const GLOBAL_KEY: &str = "pi-studio-appearance";
 /// The id of the local daemon's entry.
@@ -71,8 +70,6 @@ pub enum SettingError {
     UnknownKey(String),
     #[error("wrong type for setting `{0}`")]
     WrongType(String),
-    #[error("cliPath is longer than {MAX_CLI_PATH_CHARS} characters")]
-    CliPathTooLong,
 }
 
 /// Where a workbench storage key is kept.
@@ -141,8 +138,6 @@ pub struct Settings {
     /// "Check for Updates…" works either way. Absent reads as `true`.
     #[serde(default = "default_true")]
     pub check_for_updates: bool,
-    #[serde(default)]
-    pub cli_path: Option<String>,
     /// The workbench's global keys.
     #[serde(default)]
     pub workbench: BTreeMap<String, String>,
@@ -156,7 +151,7 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { version: VERSION, auto_start_local_daemon: true, check_for_updates: true, cli_path: None, workbench: BTreeMap::new(), unknown: Map::new() }
+        Settings { version: VERSION, auto_start_local_daemon: true, check_for_updates: true, workbench: BTreeMap::new(), unknown: Map::new() }
     }
 }
 
@@ -170,24 +165,13 @@ impl Settings {
             "checkForUpdates" => {
                 self.check_for_updates = value.as_bool().ok_or_else(|| SettingError::WrongType(name.to_owned()))?;
             }
-            "cliPath" => {
-                let path = match value {
-                    Value::Null => None,
-                    Value::String(s) => Some(s.clone()),
-                    _ => return Err(SettingError::WrongType(name.to_owned())),
-                };
-                if path.as_ref().is_some_and(|p| p.chars().count() > MAX_CLI_PATH_CHARS) {
-                    return Err(SettingError::CliPathTooLong);
-                }
-                self.cli_path = path;
-            }
             _ => return Err(SettingError::UnknownKey(name.to_owned())),
         }
         Ok(())
     }
 
     fn valid(&self) -> bool {
-        self.cli_path.as_ref().is_none_or(|p| p.chars().count() <= MAX_CLI_PATH_CHARS) && check_scope(&self.workbench).is_ok()
+        check_scope(&self.workbench).is_ok()
     }
 }
 
@@ -371,16 +355,23 @@ mod tests {
         assert!(!s.check_for_updates);
         s.set("checkForUpdates", &json!(true)).unwrap();
         assert!(!s.auto_start_local_daemon);
-        assert_eq!(s.set("cliPath", &json!("/bin/pi")), Ok(()));
-        assert_eq!(s.set("cliPath", &json!(null)), Ok(()));
-        assert_eq!(s.cli_path, None);
-        s.set("cliPath", &json!("/x")).unwrap();
         let before = s.clone();
-        assert_eq!(s.set("cliPath", &json!("a".repeat(MAX_CLI_PATH_CHARS + 1))), Err(SettingError::CliPathTooLong));
-        assert_eq!(s.set("cliPath", &json!(3)), Err(SettingError::WrongType("cliPath".into())));
         assert_eq!(s.set("autoStartLocalDaemon", &json!("yes")), Err(SettingError::WrongType("autoStartLocalDaemon".into())));
         assert_eq!(s.set("nope", &json!(1)), Err(SettingError::UnknownKey("nope".into())));
+        // `cliPath` was a setting until the app installed its own binary (S12): now it is no setting.
+        assert_eq!(s.set("cliPath", &json!("/bin/pi")), Err(SettingError::UnknownKey("cliPath".into())));
+        assert_eq!(s.set("cliPath", &json!(null)), Err(SettingError::UnknownKey("cliPath".into())));
         assert_eq!(s, before);
-        assert_eq!(s.set("cliPath", &json!("a".repeat(MAX_CLI_PATH_CHARS))), Ok(()));
+    }
+
+    #[test]
+    fn an_old_cli_path_is_an_unknown_field() {
+        let old = decode_settings(br#"{"version":1,"autoStartLocalDaemon":false,"cliPath":"/opt/pi-studio","workbench":{"k":"v"}}"#).unwrap();
+        assert!(!old.auto_start_local_daemon);
+        assert_eq!(old.workbench.get("k").map(String::as_str), Some("v"));
+        assert_eq!(old.unknown.get("cliPath"), Some(&json!("/opt/pi-studio")));
+        // Not even a wrong type or an over-long value stops the file from loading.
+        assert!(decode_settings(br#"{"version":1,"cliPath":7}"#).is_ok());
+        assert!(decode_settings(format!(r#"{{"version":1,"cliPath":"{}"}}"#, "a".repeat(5000)).as_bytes()).is_ok());
     }
 }

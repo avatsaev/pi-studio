@@ -21,7 +21,15 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const FAIL_REASONS = ["not_healthy", "timeout", "bad_output", "spawn_failed", "update_failed"] as const;
+const FAIL_REASONS = [
+  "not_healthy",
+  "timeout",
+  "bad_output",
+  "spawn_failed",
+  "download_failed",
+  "checksum_mismatch",
+  "install_failed",
+] as const;
 const REMOTE_FAIL_REASONS = [
   "not_healthy",
   "timeout",
@@ -48,13 +56,14 @@ function parseLocalState(value: unknown): LocalDaemonState | null {
     case "stopping":
     case "updating":
       return { state: value.state };
-    case "cli_missing": {
-      const path = optionalString(value.path);
-      if (path === null) return null;
-      return path === undefined ? { state: "cli_missing" } : { state: "cli_missing", path };
-    }
-    case "cli_outdated":
-      return typeof value.version === "string" ? { state: "cli_outdated", version: value.version } : null;
+    case "installing":
+      return { state: "installing" };
+    case "outdated":
+      return typeof value.version === "string" ? { state: "outdated", version: value.version } : null;
+    case "downloading":
+      return typeof value.received === "number" && typeof value.total === "number"
+        ? { state: "downloading", received: value.received, total: value.total }
+        : null;
     case "running":
       return typeof value.host === "string" && typeof value.port === "number"
         ? { state: "running", host: value.host, port: value.port }
@@ -153,10 +162,9 @@ export function parseEntryView(value: unknown): DaemonEntryView | null {
 
 function parseSettings(value: unknown): DaemonSettings | null {
   if (!isRecord(value)) return null;
-  const { autoStartLocalDaemon, cliPath } = value;
+  const { autoStartLocalDaemon } = value;
   if (typeof autoStartLocalDaemon !== "boolean") return null;
-  if (cliPath !== null && typeof cliPath !== "string") return null;
-  return { autoStartLocalDaemon, cliPath };
+  return { autoStartLocalDaemon };
 }
 
 /** The view `{ currentId, entries, local, remote, settings, secretStore? }`, or `null` when it is not the expected shape. */

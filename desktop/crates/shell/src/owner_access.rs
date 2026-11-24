@@ -166,9 +166,9 @@ mod tests {
         Supervisor::probe_now(&access).unwrap();
         assert_eq!(supervisor.pump(&access), 1);
         assert_eq!(supervisor.pump(&access), 0);
-        // The missing CLI is the state reached, so the next batch re-reads the environment.
+        // The CLI that could not be run is the state reached, so the next batch re-reads the environment.
         assert_eq!(access.ask(LocalOp::Request("daemon.list".into())), Ok(Value::Null));
-        assert_eq!(access.take(), Batch { requests: vec![], cli_path: None, refresh_env: true });
+        assert_eq!(access.take(), Batch { requests: vec![], refresh_env: true });
     }
 
     #[test]
@@ -256,14 +256,13 @@ mod tests {
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut session = Session::new();
         session.set_local_supported(true);
-        session.execute("settings.set", json!({"key": "cliPath", "value": cli.display().to_string()})).unwrap();
         session.execute("daemon.local.start", json!({})).unwrap();
         let (tx, rx) = channel();
         let store = session.secret_store();
         let mut app = AppShell::new(session, Services::default());
         let worker = std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
         let env = vec![
-            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("PATH".to_owned(), format!("{}:/usr/bin:/bin", dir.path().display())),
             ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string()),
             ("FAKE_PI_MODE".to_owned(), "slow".to_owned()),
         ];

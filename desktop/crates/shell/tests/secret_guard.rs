@@ -224,7 +224,7 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     execute(&mut app, &mut seen, "daemon.nope", json!({"password": PASSWORD}));
     execute(&mut app, &mut seen, "command.list", json!({}));
     execute(&mut app, &mut seen, "settings.get", Value::Null);
-    execute(&mut app, &mut seen, "settings.set", json!({"key": "cliPath", "value": "/usr/bin/pi"}));
+    execute(&mut app, &mut seen, "settings.set", json!({"key": "checkForUpdates", "value": false}));
     execute(&mut app, &mut seen, "settings.set", json!({"key": "autoStartLocalDaemon", "value": false}));
     control_call(&mut app, &mut seen, "ui.inspect", Value::Null);
     execute(&mut app, &mut seen, "daemon.remove", json!({"id": relay_id}));
@@ -256,10 +256,10 @@ fn no_answer_and_no_log_line_contains_a_secret() {
         let cli = dir.path().join("pi-studio");
         std::fs::write(&cli, include_str!("fixtures/fake-pi-studio.sh")).expect("write cli");
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        let env = vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned()), ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string())];
+        let env = vec![("PATH".to_owned(), format!("{}:/usr/bin:/bin", dir.path().display())), ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string())];
         let supervisor = Supervisor::with_env(process::native_services(), Limits::default(), env);
         for request in [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Restart, LocalRequest::Stop, LocalRequest::Update] {
-            let state = supervisor.carry_out(request, cli.to_str(), false);
+            let state = supervisor.carry_out(request, false);
             assert!(leaks(&format!("{state:?}")).is_none(), "{state:?}");
         }
     }

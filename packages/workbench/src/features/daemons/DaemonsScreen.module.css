@@ -244,12 +244,6 @@
   gap: var(--pi-spacing-12);
 }
 
-.settingField {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pi-spacing-6);
-}
-
 .settingLabel {
   min-width: 0;
   font-size: var(--pi-font-size-xs);

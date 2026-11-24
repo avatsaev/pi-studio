@@ -48,7 +48,7 @@ enum Command {
         /// session keeps no secret.
         #[arg(long, value_name = "keychain|file", requires = "config_dir")]
         secret_store: Option<secret_choice::Preference>,
-        /// A command id, optionally followed by its JSON params: --cmd 'settings.set {"key":"cliPath","value":"/x"}'.
+        /// A command id, optionally followed by its JSON params: --cmd 'settings.set {"key":"checkForUpdates","value":false}'.
         /// Arguments show in the process list and the shell history: a password or pairing link passed
         /// here is visible there; that is the caller's choice.
         #[arg(long = "cmd", value_name = "ID [JSON]")]
@@ -61,7 +61,7 @@ fn execute(session: &Mutex<Session>, id: &str, params: Value) -> Result<Value, S
     pistudiodesktop_engine::execute_unlocked(session, id, params).map_err(|e| e.to_string())
 }
 
-/// `settings.set {"key":"cliPath","value":null}` to (`settings.set`, params).
+/// `settings.set {"key":"checkForUpdates","value":false}` to (`settings.set`, params).
 fn parse_step(step: &str) -> Result<(&str, Value), String> {
     let step = step.trim();
     match step.split_once(char::is_whitespace) {
@@ -102,8 +102,8 @@ fn run(cli: Cli) -> Result<(), String> {
                 None => Session::new(),
             };
             // Local daemon commands are carried out here, with the real CLI, as the app does: the
-            // state is probed before the first of them (so `cliPath` set by an earlier step counts),
-            // and every request is run to completion before the next step.
+            // state is probed before the first of them, and every request is run to completion
+            // before the next step.
             let supervisor = Supervisor::new(native_services(), Limits::default());
             session.set_local_supported(cfg!(unix));
             let session = Mutex::new(session);

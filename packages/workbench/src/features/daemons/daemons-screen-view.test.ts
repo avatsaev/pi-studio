@@ -5,7 +5,6 @@ import {
   type RemoteDaemonState,
 } from "../../host/types.js";
 import {
-  INSTALL_CLI_COMMAND,
   MIN_REMOTE_CLI_VERSION,
   REMOTE_INSTALL_COMMAND,
   UPDATE_CLI_COMMAND,
@@ -13,9 +12,6 @@ import {
 import {
   bannerView,
   buildDaemonsScreenView,
-  cliPathChanged,
-  cliPathFromField,
-  cliPathToField,
   FILE_SECRET_STORE_NOTE,
   LINK_INVALID_LABEL,
   settingsFailureText,
@@ -47,7 +43,7 @@ function snapshot(
     entries,
     local,
     remote: null,
-    settings: { autoStartLocalDaemon: true, cliPath: null },
+    settings: { autoStartLocalDaemon: true },
   };
 }
 
@@ -202,24 +198,26 @@ describe("the local row", () => {
     expect(running.notice).toBeNull();
   });
 
-  it("names a configured path that is not an executable file, and offers Retry", () => {
-    const row = localRow({ state: "cli_missing", path: "/opt/bin/pi-studio" });
-    expect(row.label).toContain("/opt/bin/pi-studio");
-    expect(row.actions.map((a) => a.kind)).toEqual(["retry"]);
-    expect(row.notice?.command).toBe(INSTALL_CLI_COMMAND);
-  });
-
-  it("shows the install command when the CLI is missing", () => {
-    const row = localRow({ state: "cli_missing" });
-    expect(row.notice?.command).toBe(INSTALL_CLI_COMMAND);
-    expect(row.actions.map((a) => a.kind)).toEqual(["retry"]);
-  });
-
-  it("shows the update command and the found version when the CLI is outdated", () => {
-    const row = localRow({ state: "cli_outdated", version: "0.0.100" });
-    expect(row.notice?.command).toBe(UPDATE_CLI_COMMAND);
+  it("shows the found version and offers Update and Retry when the daemon is outdated", () => {
+    const row = localRow({ state: "outdated", version: "0.0.100" });
     expect(row.notice?.text).toContain("0.0.100");
+    expect(row.notice?.command).toBeUndefined();
     expect(row.actions.map((a) => a.kind)).toEqual(["update", "retry"]);
+  });
+
+  it("shows a busy row without actions while the daemon is downloaded and installed", () => {
+    expect(localRow({ state: "downloading", received: 1, total: 4 })).toMatchObject({
+      label: "Downloading the daemon… 25%",
+      tone: "busy",
+      actions: [],
+      notice: null,
+    });
+    expect(localRow({ state: "installing" })).toMatchObject({
+      label: "Installing the daemon…",
+      tone: "busy",
+      actions: [],
+      notice: null,
+    });
   });
 
   it("explains an unsupported system and offers nothing", () => {
@@ -239,27 +237,29 @@ describe("the local row", () => {
     expect(row).toMatchObject({ label: "Updating…", tone: "busy", actions: [], notice: null });
   });
 
-  it("shows the last lines of a failed update with the command to run by hand, and Update", () => {
+  it("shows the last lines of a failed install, and Update", () => {
     const row = localRow({
       state: "failed",
-      reason: "update_failed",
-      output: "\nnpm ERR! EACCES\n",
+      reason: "install_failed",
+      output: "\nunpack: refused\n",
     });
-    expect(row.label).toBe("The update failed");
+    expect(row.label).toBe("The daemon could not be installed");
     expect(row.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: UPDATE_CLI_COMMAND,
-      output: "npm ERR! EACCES",
+      text: "Update tries the install again.",
+      output: "unpack: refused",
     });
     expect(row.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
   });
 
-  it("shows a failed update without output as the command alone", () => {
-    const row = localRow({ state: "failed", reason: "update_failed" });
-    expect(row.notice).toEqual({
-      text: "Run the update yourself, then retry.",
-      command: UPDATE_CLI_COMMAND,
-    });
+  it("shows a failed download or checksum as a plain notice, and Update", () => {
+    for (const reason of ["download_failed", "checksum_mismatch"] as const) {
+      const row = localRow({ state: "failed", reason });
+      expect(row.notice, reason).toEqual({ text: "Update tries the install again." });
+      expect(
+        row.actions.map((a) => a.call),
+        reason,
+      ).toEqual(["update", "refresh"]);
+    }
   });
 });
 
@@ -278,21 +278,16 @@ describe("the banner", () => {
     expect(bannerView("no_current", { state: "stopped" })?.tone).toBe("info");
   });
 
-  it("carries the update command and the version for cli_outdated", () => {
-    const banner = bannerView("cli_outdated", { state: "cli_outdated", version: "0.0.100" });
+  it("carries the version for outdated, and a remote host's old CLI keeps the update command", () => {
+    const banner = bannerView("outdated", { state: "outdated", version: "0.0.100" });
     expect(banner?.tone).toBe("error");
-    expect(banner?.command).toBe(UPDATE_CLI_COMMAND);
+    expect(banner?.command).toBeUndefined();
     expect(banner?.detail).toContain("0.0.100");
+    expect(bannerView("cli_outdated", { state: "stopped" })?.command).toBe(UPDATE_CLI_COMMAND);
   });
 
   it("leaves the detail alone when the local state no longer says which version", () => {
-    expect(bannerView("cli_outdated", { state: "stopped" })?.detail).toBe("Update it, then retry.");
-  });
-
-  it("carries the install command for cli_missing", () => {
-    const banner = bannerView("cli_missing", { state: "cli_missing" });
-    expect(banner?.command).toBe(INSTALL_CLI_COMMAND);
-    expect(banner?.tone).toBe("error");
+    expect(bannerView("outdated", { state: "stopped" })?.detail).toBe("Update it, then retry.");
   });
 
   it("words an action failure with the message of the code", () => {
@@ -308,27 +303,6 @@ describe("the banner", () => {
   it("is built into the view from the store's error", () => {
     const view = buildDaemonsScreenView(snapshot({ state: "stopped" }, "local"), "spawn_failed");
     expect(view.banner?.message).toBe("The pi-studio CLI could not be run.");
-  });
-});
-
-describe("the CLI path field", () => {
-  it("trims the value and maps empty to null", () => {
-    expect(cliPathFromField("  /usr/local/bin/pi-studio \n")).toBe("/usr/local/bin/pi-studio");
-    expect(cliPathFromField("")).toBeNull();
-    expect(cliPathFromField("   ")).toBeNull();
-  });
-
-  it("shows an empty field for no configured path", () => {
-    expect(cliPathToField({ cliPath: null })).toBe("");
-    expect(cliPathToField({ cliPath: "/x/pi-studio" })).toBe("/x/pi-studio");
-  });
-
-  it("offers Save only when the field would change the setting", () => {
-    expect(cliPathChanged("", { cliPath: null })).toBe(false);
-    expect(cliPathChanged("  ", { cliPath: null })).toBe(false);
-    expect(cliPathChanged("/x", { cliPath: null })).toBe(true);
-    expect(cliPathChanged(" /x ", { cliPath: "/x" })).toBe(false);
-    expect(cliPathChanged("", { cliPath: "/x" })).toBe(true);
   });
 });
 

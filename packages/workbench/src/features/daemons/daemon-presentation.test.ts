@@ -15,9 +15,10 @@ import {
 const ALL_LOCAL_STATES: LocalDaemonState[] = [
   { state: "checking" },
   { state: "unsupported" },
-  { state: "cli_missing" },
-  { state: "cli_missing", path: "/opt/bin/pi-studio" },
-  { state: "cli_outdated", version: "0.0.100" },
+  { state: "outdated", version: "0.0.100" },
+  { state: "downloading", received: 0, total: 0 },
+  { state: "downloading", received: 1024, total: 2048 },
+  { state: "installing" },
   { state: "stopped" },
   { state: "starting" },
   { state: "stopping" },
@@ -26,7 +27,9 @@ const ALL_LOCAL_STATES: LocalDaemonState[] = [
   { state: "failed", reason: "timeout" },
   { state: "failed", reason: "bad_output" },
   { state: "updating" },
-  { state: "failed", reason: "update_failed", output: "npm ERR!" },
+  { state: "failed", reason: "install_failed", output: "unpack failed" },
+  { state: "failed", reason: "download_failed" },
+  { state: "failed", reason: "checksum_mismatch" },
   { state: "failed", reason: "spawn_failed" },
 ];
 
@@ -129,32 +132,41 @@ describe("localStateView", () => {
     );
     expect(localStateView({ state: "stopped" }).label).toBe("Stopped");
     expect(localStateView({ state: "starting" }).label).toBe("Starting…");
-    expect(localStateView({ state: "cli_missing" }).label).toBe("The pi-studio CLI was not found");
-    expect(localStateView({ state: "cli_missing", path: "/x/pi-studio" }).label).toContain(
-      "/x/pi-studio",
+    expect(localStateView({ state: "outdated", version: "0.0.100" }).label).toContain("0.0.100");
+    expect(localStateView({ state: "downloading", received: 1024, total: 2048 }).label).toBe(
+      "Downloading the daemon… 50%",
     );
-    expect(localStateView({ state: "cli_outdated", version: "0.0.100" }).label).toContain(
-      "0.0.100",
+    expect(localStateView({ state: "downloading", received: 0, total: 0 }).label).toBe(
+      "Downloading the daemon…",
     );
+    expect(localStateView({ state: "installing" }).label).toBe("Installing the daemon…");
   });
 
   it("offers Start when stopped, Stop and Restart when running, Retry when something failed", () => {
     expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
     expect(kinds({ state: "running", host: "h", port: 1 })).toEqual(["stop", "restart"]);
     expect(kinds({ state: "failed", reason: "timeout" })).toEqual(["retry"]);
-    expect(kinds({ state: "cli_missing" })).toEqual(["retry"]);
-    expect(kinds({ state: "cli_outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
+    expect(kinds({ state: "outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
   });
 
-  it("offers nothing while checking, starting, stopping, or without local support", () => {
-    for (const state of ["checking", "starting", "stopping", "unsupported"] as const) {
+  it("offers nothing while checking, downloading, installing, starting, stopping, or without local support", () => {
+    for (const state of [
+      "checking",
+      "installing",
+      "starting",
+      "stopping",
+      "unsupported",
+    ] as const) {
       expect(kinds({ state })).toEqual([]);
     }
+    expect(kinds({ state: "downloading", received: 1, total: 2 })).toEqual([]);
   });
 
-  it("points Retry at a probe for a missing CLI and at a start for a failed daemon", () => {
-    expect(localStateView({ state: "cli_missing" }).actions[0]?.call).toBe("refresh");
-    expect(localStateView({ state: "cli_outdated", version: "0.0.1" }).actions[1]?.call).toBe(
+  it("points Retry at a probe for an outdated daemon and a failed install, and at a start for a failed start", () => {
+    expect(localStateView({ state: "outdated", version: "0.0.1" }).actions[1]?.call).toBe(
+      "refresh",
+    );
+    expect(localStateView({ state: "failed", reason: "install_failed" }).actions[1]?.call).toBe(
       "refresh",
     );
     expect(localStateView({ state: "failed", reason: "bad_output" }).actions[0]?.call).toBe(
@@ -162,35 +174,40 @@ describe("localStateView", () => {
     );
   });
 
-  it("offers Update for an outdated CLI and a stopped daemon, and after a failed update", () => {
-    expect(kinds({ state: "cli_outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
+  it("offers Update for an outdated daemon and a stopped one, and after a failed download or install", () => {
+    expect(kinds({ state: "outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
     expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
-    expect(kinds({ state: "failed", reason: "update_failed", output: "x" })).toEqual([
-      "update",
-      "retry",
-    ]);
-    expect(localStateView({ state: "cli_outdated", version: "0.0.1" }).actions[0]?.call).toBe(
-      "update",
-    );
+    for (const reason of ["download_failed", "checksum_mismatch", "install_failed"] as const) {
+      expect(kinds({ state: "failed", reason, output: "x" }), reason).toEqual(["update", "retry"]);
+    }
+    expect(localStateView({ state: "outdated", version: "0.0.1" }).actions[0]?.call).toBe("update");
   });
 
-  it("shows a busy row without actions while updating, and words a failed update", () => {
+  it("shows a busy row without actions while updating, and words a failed install", () => {
     expect(localStateView({ state: "updating" })).toEqual({
       label: "Updating…",
       tone: "busy",
       actions: [],
     });
-    expect(localStateView({ state: "failed", reason: "update_failed" })).toMatchObject({
-      label: "The update failed",
+    expect(localStateView({ state: "failed", reason: "download_failed" })).toMatchObject({
+      label: "The daemon could not be downloaded",
       tone: "error",
     });
+    expect(localStateView({ state: "failed", reason: "checksum_mismatch" }).label).toContain(
+      "checksum",
+    );
+    expect(localStateView({ state: "failed", reason: "install_failed" }).label).toContain(
+      "installed",
+    );
   });
 
   it("flags failures as errors and a stopped daemon as neutral", () => {
     expect(localStateView({ state: "stopped" }).tone).toBe("neutral");
     expect(localStateView({ state: "running", host: "h", port: 1 }).tone).toBe("ok");
     expect(localStateView({ state: "failed", reason: "timeout" }).tone).toBe("error");
-    expect(localStateView({ state: "cli_missing" }).tone).toBe("error");
+    expect(localStateView({ state: "outdated", version: "0.0.1" }).tone).toBe("error");
+    expect(localStateView({ state: "downloading", received: 1, total: 2 }).tone).toBe("busy");
+    expect(localStateView({ state: "installing" }).tone).toBe("busy");
   });
 });
 
@@ -215,7 +232,7 @@ describe("daemonErrorView", () => {
         "wrong_kind",
         "local_not_removable",
         "unsupported",
-        "cli_missing",
+        "outdated",
         "cli_outdated",
         "busy",
         "no_current",
@@ -224,6 +241,9 @@ describe("daemonErrorView", () => {
         "timeout",
         "bad_output",
         "spawn_failed",
+        "download_failed",
+        "checksum_mismatch",
+        "install_failed",
         "secret_missing",
         "secret_unavailable",
         "secret_store_failed",
@@ -238,12 +258,11 @@ describe("daemonErrorView", () => {
     );
   });
 
-  it("gives the install command for a missing CLI and the update command for an old one", () => {
-    const missing = daemonErrorView("cli_missing");
-    expect(missing.command).toBe(INSTALL_CLI_COMMAND);
+  it("gives the update command for an old remote CLI and none for an old local daemon", () => {
     expect(INSTALL_CLI_COMMAND).toBe("npm i -g @av-pi-studio/cli");
-    expect(missing.detail).toContain("Node");
     expect(daemonErrorView("cli_outdated").command).toBe(UPDATE_CLI_COMMAND);
+    expect(daemonErrorView("not_installed").command).toBe(INSTALL_CLI_COMMAND);
+    expect(daemonErrorView("outdated").command).toBeUndefined();
   });
 
   it("explains that a local daemon needs macOS, Linux or WSL", () => {
@@ -263,15 +282,15 @@ describe("daemonErrorView", () => {
 
 describe("daemonFailureOf", () => {
   it("reads the code of a DaemonError-shaped rejection", () => {
-    expect(daemonFailureOf(Object.assign(new Error("cli_missing"), { code: "cli_missing" }))).toBe(
-      "cli_missing",
+    expect(daemonFailureOf(Object.assign(new Error("outdated"), { code: "outdated" }))).toBe(
+      "outdated",
     );
   });
 
   it("maps anything else to unexpected", () => {
     expect(daemonFailureOf(new Error("boom"))).toBe("unexpected");
     expect(daemonFailureOf(Object.assign(new Error("x"), { code: "toString" }))).toBe("unexpected");
-    expect(daemonFailureOf("cli_missing")).toBe("unexpected");
+    expect(daemonFailureOf("outdated")).toBe("unexpected");
     expect(daemonFailureOf(null)).toBe("unexpected");
   });
 

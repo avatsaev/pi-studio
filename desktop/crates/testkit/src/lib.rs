@@ -14,7 +14,7 @@ pub fn adversarial_params() -> Vec<Value> {
         json!({}),
         json!({"key": -1, "value": "yes", "filter": {}}),
         json!({"key": "autoStartLocalDaemon", "value": 7, "filter": []}),
-        json!({"key": "cliPath", "value": long, "filter": long}),
+        json!({"key": "checkForUpdates", "value": long, "filter": long}),
         json!({"key": "", "value": null, "filter": "\\"}),
         json!({"key": [1], "value": {"a": 1}, "unknown": true}),
         json!({"key": "\u{202e}\u{0}\n", "value": 1e300}),

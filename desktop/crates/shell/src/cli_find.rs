@@ -33,11 +33,9 @@ pub const HOME_VERSIONED_DIRS: &[(&str, &str)] = &[
 /// Where system-wide installs go.
 pub const SYSTEM_BIN_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"];
 
-/// No file can be run as the CLI. `path` is the `cliPath` setting that was tried, when one was set.
+/// No file can be run as the CLI.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CliMissing {
-    pub path: Option<String>,
-}
+pub struct CliMissing;
 
 /// The directories of the usual install locations for `home`; `list_dir` lists a directory.
 pub fn candidate_dirs(home: Option<&Path>, list_dir: &dyn Fn(&Path) -> Vec<PathBuf>) -> Vec<PathBuf> {
@@ -60,14 +58,11 @@ pub fn lookup_in_path(path_var: &str, name: &str, is_executable: &dyn Fn(&Path) 
     std::env::split_paths(path_var).filter(|dir| !dir.as_os_str().is_empty()).map(|dir| dir.join(name)).find(|file| is_executable(file))
 }
 
-/// Find the CLI. `cli_path` is the user's setting; when set it is the only place looked at.
-/// `env` is the shell environment ([`crate::shell_env`]). Without an `is_executable` hook nothing is found.
-pub fn find(services: &Services, env: &[(String, String)], cli_path: Option<&str>) -> Result<PathBuf, CliMissing> {
-    let Some(is_executable) = services.is_executable.as_ref() else { return Err(CliMissing { path: cli_path.map(str::to_string) }) };
-    if let Some(set) = cli_path {
-        let file = PathBuf::from(set);
-        return if is_executable(&file) { Ok(file) } else { Err(CliMissing { path: Some(set.to_string()) }) };
-    }
+/// Find the CLI the way a terminal would: `PATH` of the shell environment `env`
+/// ([`crate::shell_env`]), then the usual install locations. Without an `is_executable` hook
+/// nothing is found.
+pub fn find(services: &Services, env: &[(String, String)]) -> Result<PathBuf, CliMissing> {
+    let Some(is_executable) = services.is_executable.as_ref() else { return Err(CliMissing) };
     let path_var = env.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.as_str()).unwrap_or_default();
     if let Some(found) = lookup_in_path(path_var, CLI_NAME, is_executable.as_ref()) {
         return Ok(found);
@@ -78,7 +73,7 @@ pub fn find(services: &Services, env: &[(String, String)], cli_path: Option<&str
         Some(list) => candidate_dirs(home.as_deref(), list.as_ref()),
         None => candidate_dirs(home.as_deref(), &no_listing),
     };
-    dirs.into_iter().map(|dir| dir.join(CLI_NAME)).find(|file| is_executable(file)).ok_or(CliMissing { path: None })
+    dirs.into_iter().map(|dir| dir.join(CLI_NAME)).find(|file| is_executable(file)).ok_or(CliMissing)
 }
 
 #[cfg(test)]
@@ -105,22 +100,9 @@ mod tests {
     }
 
     #[test]
-    fn a_set_cli_path_that_is_not_executable_is_missing_without_a_search() {
-        let services = fake(&["/usr/bin/pi-studio"], "/home/u", &[]);
-        let missing = find(&services, &path("/usr/bin"), Some("/opt/nope/pi-studio"));
-        assert_eq!(missing, Err(CliMissing { path: Some("/opt/nope/pi-studio".into()) }));
-    }
-
-    #[test]
-    fn a_set_cli_path_that_is_executable_wins_over_path() {
-        let services = fake(&["/usr/bin/pi-studio", "/opt/pi/pi-studio"], "/home/u", &[]);
-        assert_eq!(find(&services, &path("/usr/bin"), Some("/opt/pi/pi-studio")), Ok(PathBuf::from("/opt/pi/pi-studio")));
-    }
-
-    #[test]
     fn the_path_of_the_shell_environment_is_searched_in_order() {
         let services = fake(&["/b/pi-studio", "/c/pi-studio"], "/home/u", &[]);
-        assert_eq!(find(&services, &path("/a::/b:/c"), None), Ok(PathBuf::from("/b/pi-studio")));
+        assert_eq!(find(&services, &path("/a::/b:/c")), Ok(PathBuf::from("/b/pi-studio")));
     }
 
     #[test]
@@ -130,21 +112,21 @@ mod tests {
             "/home/u",
             &[("/home/u/.nvm/versions/node", &["/home/u/.nvm/versions/node/v18.0.0", "/home/u/.nvm/versions/node/v22.1.0"])],
         );
-        assert_eq!(find(&services, &path("/usr/bin"), None), Ok(PathBuf::from("/home/u/.nvm/versions/node/v22.1.0/bin/pi-studio")));
+        assert_eq!(find(&services, &path("/usr/bin")), Ok(PathBuf::from("/home/u/.nvm/versions/node/v22.1.0/bin/pi-studio")));
     }
 
     #[test]
     fn a_plain_npm_prefix_under_home_and_system_prefixes_are_found() {
         let services = fake(&["/home/u/.npm-global/bin/pi-studio"], "/home/u", &[]);
-        assert_eq!(find(&services, &[], None), Ok(PathBuf::from("/home/u/.npm-global/bin/pi-studio")));
+        assert_eq!(find(&services, &[]), Ok(PathBuf::from("/home/u/.npm-global/bin/pi-studio")));
         let services = fake(&["/opt/homebrew/bin/pi-studio"], "/home/u", &[]);
-        assert_eq!(find(&services, &[], None), Ok(PathBuf::from("/opt/homebrew/bin/pi-studio")));
+        assert_eq!(find(&services, &[]), Ok(PathBuf::from("/opt/homebrew/bin/pi-studio")));
     }
 
     #[test]
     fn nothing_found_is_missing_without_a_path() {
         let services = fake(&[], "/home/u", &[]);
-        assert_eq!(find(&services, &path("/usr/bin"), None), Err(CliMissing { path: None }));
+        assert_eq!(find(&services, &path("/usr/bin")), Err(CliMissing));
     }
 
     #[test]

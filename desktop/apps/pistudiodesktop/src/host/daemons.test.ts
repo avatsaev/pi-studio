@@ -13,7 +13,7 @@ const BOOT: DaemonsView = {
   ],
   local: { state: "checking" },
   remote: null,
-  settings: { autoStartLocalDaemon: true, cliPath: null },
+  settings: { autoStartLocalDaemon: true },
 };
 const NEXT: DaemonsView = { ...BOOT, currentId: "d1", local: { state: "running", host: "127.0.0.1", port: 6767 } };
 const ENTRY = { id: "d2", kind: "relay", name: "Office", hasPassword: false };
@@ -239,14 +239,11 @@ describe("registry commands", () => {
     await expect(harness(() => ({ id: 1 })).daemons.add({ kind: "relay", name: "x", pairingLink: "y" })).rejects.toThrow(/unexpected entry/);
   });
 
-  it("setSettings writes each given key and no other", async () => {
+  it("setSettings writes the given key", async () => {
     const h = harness();
-    await h.daemons.setSettings({ cliPath: "/opt/pi-studio" });
-    await h.daemons.setSettings({ autoStartLocalDaemon: false, cliPath: null });
+    await h.daemons.setSettings({ autoStartLocalDaemon: false });
     expect(h.engineCalls().map((c) => c.args)).toEqual([
-      { id: "settings.set", params: { key: "cliPath", value: "/opt/pi-studio" } },
       { id: "settings.set", params: { key: "autoStartLocalDaemon", value: false } },
-      { id: "settings.set", params: { key: "cliPath", value: null } },
     ]);
   });
 

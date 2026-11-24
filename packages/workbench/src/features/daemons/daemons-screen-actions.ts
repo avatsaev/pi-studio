@@ -20,7 +20,7 @@ import {
   type LocalAction,
   type RemoteAction,
 } from "./daemon-presentation.js";
-import { cliPathFromField, settingsFailureText } from "./daemons-screen-view.js";
+import { settingsFailureText } from "./daemons-screen-view.js";
 
 /** What a `HostDaemons` call that has no value to return came to. */
 export type ActionOutcome = DaemonFailure | null;
@@ -116,9 +116,4 @@ async function saveSettings(
 
 export function saveAutoStart(daemons: HostDaemons, enabled: boolean): Promise<SettingsOutcome> {
   return saveSettings(daemons, { autoStartLocalDaemon: enabled });
-}
-
-/** The field's text, trimmed; empty means "find it" (`null`). */
-export function saveCliPath(daemons: HostDaemons, input: string): Promise<SettingsOutcome> {
-  return saveSettings(daemons, { cliPath: cliPathFromField(input) });
 }

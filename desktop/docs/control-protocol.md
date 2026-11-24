@@ -33,6 +33,13 @@ cargo run -p pistudiodesktop -- --control 7878 --control-token-file control.toke
   updater refuses any other scheme except in a test build. It still verifies every file's signature
   against the key built into the app and never installs a build that is not newer. A value that is
   not an address fails the launch with a message that names the option.
+- `--daemon-pin <FILE>`: a file in place of the daemon pin the app was built with (`desktop/daemon-pin.json`:
+  `{version, assets: {<target>: {url, sha256, size}}}`, the one `pi-studio` binary version the app installs,
+  for `darwin-arm64`, `darwin-x64`, `linux-arm64` and `linux-x64`), for a check that installs a binary of its
+  own. The file is read at launch: one that cannot be read, is longer than 64 KiB or is not a valid pin (a
+  `<major>.<minor>.<patch>` version, the four targets, each with an http(s) address, a 64-digit SHA-256 and a
+  positive size) fails the launch with a message that names the option and holds no address or path. The log
+  says `daemon pin: <version> (built in)` or `(override)` and never an address.
 
 The wire format is JSON lines over TCP: one request per line, one reply per line.
 
@@ -40,7 +47,7 @@ The wire format is JSON lines over TCP: one request per line, one reply per line
 {"id": 1, "method": "auth", "params": {"token": "<64 hex>"}}
 {"id": 1, "ok": true, "result": {"authenticated": true}}
 {"id": 2, "method": "engine.execute", "params": {"command": "settings.set", "params": {"key": "autoStartLocalDaemon", "value": false}}}
-{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true, "cliPath": null}}
+{"id": 2, "ok": true, "result": {"autoStartLocalDaemon": false, "checkForUpdates": true}}
 ```
 
 - The first line on a connection must be `auth`. Anything else, or a wrong token, gets
@@ -87,12 +94,12 @@ All are run through `engine.execute`. The registry lives in `<config dir>/daemon
 | `daemon.update` / `daemon.remove` | `{id, name?, address?, password?, pairingLink?, host?, user?, port?, identityFile?, jump?, daemonPort?, sshPassword?, passphrase?}` (`null` clears an optional field or a secret; `wrong_kind` for a field the kind does not have) / `{id}` | the entry / `{"removed": true}` (plus `notices`, see below) |
 | `daemon.switch` | `{id}` | null. Records `lastUsedId` and flushes the entry left; the page reload is done by the app, not the command |
 | `daemon.local.start` / `.stop` / `.restart` / `.refresh` | none | `{"accepted": true}` at once; the work runs in the background, and an error `busy` is the answer while another request is running. Read the outcome in `daemon.list`'s `local` |
-| `daemon.local.update` | none | `{"accepted": true}` at once; runs `pi-studio update` (5 min), reads `--version` again, then starts the daemon as `start` does. Enabled only when `local` is `cli_outdated`, `stopped`, or `failed` with reason `update_failed` (the retry) (`command.list` says why not: `unsupported`, `cli_missing`, `update_not_offered`). While it runs `local` is `updating`; it ends `running`, `cli_outdated` (still below the minimum), or `failed` with reason `update_failed` and the `output`'s last lines (or any start failure's reason) |
+| `daemon.local.update` | none | `{"accepted": true}` at once; runs `pi-studio update` (5 min), reads `--version` again, then starts the daemon as `start` does. Enabled only when `local` is `outdated`, `stopped`, or `failed` with reason `download_failed`, `checksum_mismatch` or `install_failed` (the retry) (`command.list` says why not: `unsupported`, `update_not_offered`). While it runs `local` is `updating`; it ends `running`, `outdated` (still below the minimum), or `failed` with reason `install_failed` and the `output`'s last lines (or any start failure's reason) |
 | `daemon.remote.start` / `.refresh` | none | `{"accepted": true}` at once; the current SSH entry's daemon is started (`pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` on the host) or probed again in the background. Errors: `wrong_kind` (the current entry is not `ssh`), `no_current`, `busy`; `start` also `not_installed` and `cli_outdated`. Read the outcome in `daemon.list`'s `remote` |
 | `daemon.remote.update` | none | `{"accepted": true}` at once; runs `pi-studio -H 127.0.0.1:<daemonPort> update 2>&1` (5 min) on the host over the entry's SSH session (`-H`: the update's restart step then finds this entry's daemon, not whatever listens on the CLI's default port), then `pi-studio --version`, then the daemon start as `daemon.remote.start` does. Enabled only when `remote` is `cli_outdated`, `stopped`, or `failed` with reason `update_failed` (the retry) (`command.list` says why not: `no_current`, `wrong_kind`, `not_installed`, `update_not_offered`); `busy` while another request runs. While it runs `remote` is `updating`; it ends `running`, `cli_outdated` (still below the minimum), `not_installed`, or `failed` with reason `update_failed` and the `output`'s last lines (a timeout says so in `output`; or any start failure's reason). After a successful update the page connects again, as after a start |
 
-`local` is one of `{"state": "stopped"}`, `{"state": "running", "host", "port"}`, `{"state": "failed", "reason": "not_healthy" | "bad_output" | "timeout" | "spawn_failed" | "update_failed", "output"?}` (`output`: the last lines `pi-studio update` printed, only with `update_failed`; shown to the user, never parsed),
-`{"state": "cli_outdated", "version"}` or `{"state": "cli_missing", "path"?}`; while a request runs it is `checking`, `starting`, `stopping` or `updating`.
+`local` is one of `{"state": "stopped"}`, `{"state": "running", "host", "port"}`, `{"state": "failed", "reason": "not_healthy" | "bad_output" | "timeout" | "spawn_failed" | "download_failed" | "checksum_mismatch" | "install_failed", "output"?}` (`output`: the last lines of what a failed update printed, only with `install_failed`; shown to the user, never parsed),
+`{"state": "outdated", "version"}`, `{"state": "downloading", "received", "total"}` (bytes) or `{"state": "installing"}`; while a request runs it is `checking`, `starting`, `stopping` or `updating`. `downloading`, `installing`, `download_failed` and `checksum_mismatch` are in the model and are not produced yet; a CLI the supervisor cannot find is `failed` with `spawn_failed`.
 
 `remote` is one of `{"state": "unknown"}`, `checking`, `running`, `stopped`, `not_installed`, `starting`, `updating`, `{"state": "cli_outdated", "version"}` or `{"state": "failed", "reason": "not_healthy" | "timeout" | "bad_output" | "exec_failed" | "no_shell" | "update_failed", "output"?}` (`output`: the last lines `pi-studio update` printed, only with `update_failed`; shown to the user, never parsed). It is in memory only and is reset to `unknown` when another entry is opened.
 
@@ -102,7 +109,7 @@ All are run through `engine.execute`. The registry lives in `<config dir>/daemon
 
 **The transfers.** `transfers` is the transfer engine's view: `{"mode", "connection": {"state", "entryId", "opens"}, "active": […], "queued", "totals": {"done", "failed", "cancelled"}, "peakHeld", "lastError"}`. `mode` is `"engine"` or `"page"`, the launch's `--transfers`. `connection.state` is `"closed"`, `"connecting"`, `"open"` or `"waiting"`; `entryId` is the entry the bulk connection serves, or `null`; `opens` counts how often it was opened in this run. Each `active` item is `{"id", "kind": "upload"|"save", "state": "running"|"waiting", "bytesDone", "bytesTotal": number|null, "restarts"}`; `queued` counts transfers waiting behind the active ones. `totals` counts transfers that ended in this run. `peakHeld` is the most bytes the engine held for transfers in memory at one moment. `lastError` is `{"code", "atMs"}` or `null`. Without the app's hook the section holds the mode, a closed connection, an empty list, zeros and `null`. It never holds a path, an address, a handle or a secret.
 
-Run against the real CLI (`cliPath` set, auto-start off), then `ui.inspect`:
+Run against the real CLI (auto-start off; recorded when the CLI was named by a `cliPath` setting, which no longer exists), then `ui.inspect`:
 
 ```text
 {"id":12,"ok":true,"result":{"address":"ws://127.0.0.1:6893","hasPassword":false,"id":"2586e9a9-2707-4e4b-8a0f-cadba6868eac","kind":"direct","name":"Box B"}}

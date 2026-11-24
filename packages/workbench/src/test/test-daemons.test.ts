@@ -69,8 +69,8 @@ describe("resolveCurrent", () => {
     const running = createTestDaemons({ local: { state: "running", host: "h", port: 1 } });
     expect(await running.resolveCurrent()).toEqual({ url: "ws://h:1", connect: true });
 
-    const missing = createTestDaemons({ local: { state: "cli_missing" } });
-    expect(await codeOf(missing.resolveCurrent())).toBe("cli_missing");
+    const outdated = createTestDaemons({ local: { state: "outdated", version: "0.0.1" } });
+    expect(await codeOf(outdated.resolveCurrent())).toBe("outdated");
 
     const off = createTestDaemons({ settings: { autoStartLocalDaemon: false } });
     expect(await codeOf(off.resolveCurrent())).toBe("local_stopped");

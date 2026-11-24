@@ -546,7 +546,7 @@ fn the_menu_item_is_enabled_as_the_state_allows() {
 
 #[test]
 fn the_schedule_reads_the_setting_and_checks_at_launch_and_then_when_due() {
-    let owner = FakeOwner::default().answering("settings.get", Ok(json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "cliPath": null})));
+    let owner = FakeOwner::default().answering("settings.get", Ok(json!({"autoStartLocalDaemon": true, "checkForUpdates": true})));
     let rig = rig(Ok(CheckOutcome::UpToDate), false, owner);
     rig.runner.scheduled(Trigger::Launch);
     assert_eq!(rig.hook.checks.load(Ordering::SeqCst), 1);

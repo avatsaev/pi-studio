@@ -130,18 +130,20 @@ impl Supervisor {
 
     /// Carry out one request and say what state it reached. Blocks until the CLI answers or its
     /// limit passes; whoever calls it must not be the thread that owns the session.
-    pub fn carry_out(&self, request: LocalRequest, cli_path: Option<&str>, refresh_env: bool) -> LocalState {
+    pub fn carry_out(&self, request: LocalRequest, refresh_env: bool) -> LocalState {
         let _one_at_a_time = self.gate.lock().unwrap_or_else(|e| e.into_inner());
         let env = if refresh_env { self.env.refresh(&self.services) } else { self.env.get(&self.services) };
-        let state = self.carry_out_in(request, cli_path, &env);
+        let state = self.carry_out_in(request, &env);
         log::info!("local daemon: {request:?} gave {}", state_name(&state));
         state
     }
 
-    fn carry_out_in(&self, request: LocalRequest, cli_path: Option<&str>, env: &[(String, String)]) -> LocalState {
-        let program = match cli_find::find(&self.services, env, cli_path) {
+    fn carry_out_in(&self, request: LocalRequest, env: &[(String, String)]) -> LocalState {
+        // The CLI is found the way a terminal finds it. Until the supervisor installs the pinned
+        // binary itself, one that is not there is a daemon that cannot be run.
+        let program = match cli_find::find(&self.services, env) {
             Ok(program) => program,
-            Err(cli_find::CliMissing { path }) => return LocalState::CliMissing { path },
+            Err(cli_find::CliMissing) => return failed(FailReason::SpawnFailed),
         };
         if request == LocalRequest::Update
             && let Some(state) = self.run_update(&program, env)
@@ -152,7 +154,7 @@ impl Supervisor {
             Err(failure) => return failed(fail_of(failure)),
             Ok(out) => match cli_answers::check_version(&out) {
                 VersionCheck::Ok => {}
-                VersionCheck::Outdated { version } => return LocalState::CliOutdated { version },
+                VersionCheck::Outdated { version } => return LocalState::Outdated { version },
                 VersionCheck::BadOutput => return failed(FailReason::BadOutput),
             },
         }
@@ -185,7 +187,7 @@ impl Supervisor {
     /// not parsed (an outdated CLI's format is unknown): a failure keeps its last lines for the
     /// screen, which are not expected to hold a secret.
     fn run_update(&self, program: &Path, env: &[(String, String)]) -> Option<LocalState> {
-        let update_failed = |output: &str| LocalState::Failed { reason: FailReason::UpdateFailed, output: Some(output.to_owned()) };
+        let update_failed = |output: &str| LocalState::Failed { reason: FailReason::InstallFailed, output: Some(output.to_owned()) };
         let Some(run) = self.services.run_checked.as_ref() else {
             return Some(update_failed("`pi-studio update` could not be run"));
         };
@@ -214,7 +216,7 @@ impl Supervisor {
                 return done;
             }
             for request in batch.requests {
-                let state = self.carry_out(request, batch.cli_path.as_deref(), batch.refresh_env);
+                let state = self.carry_out(request, batch.refresh_env);
                 access.apply(state);
                 done += 1;
             }
@@ -273,8 +275,9 @@ fn fail_of(failure: RunFailure) -> FailReason {
 fn state_name(state: &LocalState) -> &'static str {
     match state {
         LocalState::Unsupported => "unsupported",
-        LocalState::CliMissing { .. } => "cli_missing",
-        LocalState::CliOutdated { .. } => "cli_outdated",
+        LocalState::Outdated { .. } => "outdated",
+        LocalState::Downloading { .. } => "downloading",
+        LocalState::Installing => "installing",
         LocalState::Checking => "checking",
         LocalState::Stopped => "stopped",
         LocalState::Starting => "starting",

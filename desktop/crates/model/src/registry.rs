@@ -790,8 +790,13 @@ pub enum FailReason {
     Timeout,
     BadOutput,
     SpawnFailed,
-    /// `pi-studio update` failed; the state carries the output's last lines.
-    UpdateFailed,
+    /// The daemon's archive could not be fetched (no answer, a refused request, a stall, a wrong size).
+    DownloadFailed,
+    /// The archive's SHA-256 is not the pin's; the file is deleted.
+    ChecksumMismatch,
+    /// The archive could not be unpacked, or the binary in it does not answer `--version` with the
+    /// pinned version; the state carries the output's last lines.
+    InstallFailed,
 }
 
 impl FailReason {
@@ -802,28 +807,35 @@ impl FailReason {
             FailReason::Timeout => "timeout",
             FailReason::BadOutput => "bad_output",
             FailReason::SpawnFailed => "spawn_failed",
-            FailReason::UpdateFailed => "update_failed",
+            FailReason::DownloadFailed => "download_failed",
+            FailReason::ChecksumMismatch => "checksum_mismatch",
+            FailReason::InstallFailed => "install_failed",
         }
     }
 }
 
-/// The local daemon's state. JSON form: `{ "state": "...", ... }`.
+/// The local daemon's state (S10 of `swe/features/single-binary-daemon.md`). JSON form:
+/// `{ "state": "...", ... }`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum LocalState {
     Unsupported,
-    CliMissing {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-    },
-    CliOutdated {
+    /// The running daemon is older than the app's minimum version.
+    Outdated {
         version: String,
     },
     Checking,
+    /// The pinned binary's archive is being fetched: bytes received so far and the pin's size.
+    Downloading {
+        received: u64,
+        total: u64,
+    },
+    /// The archive is being checked, unpacked and put in place.
+    Installing,
     Stopped,
     Starting,
     Stopping,
-    /// `pi-studio update` is running, then the version is read again and the daemon started.
+    /// The pinned binary is being installed over an outdated one, then the daemon started.
     Updating,
     Running {
         host: String,
@@ -831,8 +843,8 @@ pub enum LocalState {
     },
     Failed {
         reason: FailReason,
-        /// The last lines `pi-studio update` printed, for `update_failed`: shown to the user,
-        /// never parsed.
+        /// The last lines of what a failed install printed, for `install_failed`: shown to the
+        /// user, never parsed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
     },
@@ -1066,9 +1078,9 @@ mod tests {
     fn local_state_json() {
         let cases = [
             (LocalState::Unsupported, json!({"state":"unsupported"})),
-            (LocalState::CliMissing { path: None }, json!({"state":"cli_missing"})),
-            (LocalState::CliMissing { path: Some("/x".into()) }, json!({"state":"cli_missing","path":"/x"})),
-            (LocalState::CliOutdated { version: "0.0.118".into() }, json!({"state":"cli_outdated","version":"0.0.118"})),
+            (LocalState::Outdated { version: "0.0.118".into() }, json!({"state":"outdated","version":"0.0.118"})),
+            (LocalState::Downloading { received: 1024, total: 67_980_464 }, json!({"state":"downloading","received":1024,"total":67_980_464})),
+            (LocalState::Installing, json!({"state":"installing"})),
             (LocalState::Checking, json!({"state":"checking"})),
             (LocalState::Stopped, json!({"state":"stopped"})),
             (LocalState::Starting, json!({"state":"starting"})),
@@ -1079,14 +1091,38 @@ mod tests {
             (LocalState::Failed { reason: FailReason::Timeout, output: None }, json!({"state":"failed","reason":"timeout"})),
             (LocalState::Failed { reason: FailReason::BadOutput, output: None }, json!({"state":"failed","reason":"bad_output"})),
             (LocalState::Failed { reason: FailReason::SpawnFailed, output: None }, json!({"state":"failed","reason":"spawn_failed"})),
+            (LocalState::Failed { reason: FailReason::DownloadFailed, output: None }, json!({"state":"failed","reason":"download_failed"})),
+            (LocalState::Failed { reason: FailReason::ChecksumMismatch, output: None }, json!({"state":"failed","reason":"checksum_mismatch"})),
+            (LocalState::Failed { reason: FailReason::InstallFailed, output: None }, json!({"state":"failed","reason":"install_failed"})),
             (
-                LocalState::Failed { reason: FailReason::UpdateFailed, output: Some("npm ERR! x".into()) },
-                json!({"state":"failed","reason":"update_failed","output":"npm ERR! x"}),
+                LocalState::Failed { reason: FailReason::InstallFailed, output: Some("unpack: refused".into()) },
+                json!({"state":"failed","reason":"install_failed","output":"unpack: refused"}),
             ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);
             assert_eq!(serde_json::from_value::<LocalState>(value).unwrap(), state);
+        }
+    }
+
+    #[test]
+    fn the_removed_local_states_and_reasons_are_unknown() {
+        for gone in [json!({"state":"cli_missing"}), json!({"state":"cli_outdated","version":"0.0.1"}), json!({"state":"failed","reason":"update_failed"})] {
+            assert!(serde_json::from_value::<LocalState>(gone.clone()).is_err(), "{gone}");
+        }
+        assert!(serde_json::from_value::<LocalState>(json!({"state":"downloading","received":1})).is_err());
+        let codes = [
+            (FailReason::NotHealthy, "not_healthy"),
+            (FailReason::Timeout, "timeout"),
+            (FailReason::BadOutput, "bad_output"),
+            (FailReason::SpawnFailed, "spawn_failed"),
+            (FailReason::DownloadFailed, "download_failed"),
+            (FailReason::ChecksumMismatch, "checksum_mismatch"),
+            (FailReason::InstallFailed, "install_failed"),
+        ];
+        for (reason, code) in codes {
+            assert_eq!(reason.code(), code);
+            assert_eq!(serde_json::to_value(reason).unwrap(), json!(code));
         }
     }
 

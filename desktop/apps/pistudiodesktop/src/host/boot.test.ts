@@ -11,7 +11,7 @@ const daemons = {
   ],
   local: { state: "running", host: "127.0.0.1", port: 6767 },
   remote: null,
-  settings: { autoStartLocalDaemon: true, cliPath: null },
+  settings: { autoStartLocalDaemon: true },
 };
 
 const good = {
