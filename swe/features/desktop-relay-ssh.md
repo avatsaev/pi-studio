@@ -7,6 +7,11 @@
 > decision the table says so. **Compatibility is not a concern** (owner, 2026-11-22): nothing here
 > keeps an older path alive.
 
+> **Changed by milestone 6 (specified 2026-11-24, not built):** an SSH host without a daemon gets an
+> Install button; the app runs the binary it installed by its absolute path and never the host's npm
+> CLI; `cli_outdated` becomes `outdated`, `update_failed` goes — see
+> [desktop-ssh-daemon-install.md](desktop-ssh-daemon-install.md).
+
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Dependencies: [../architecture/relay-protocol.md](../architecture/relay-protocol.md) (the wire the
 > relay client implements, unchanged), [../architecture/ssh-gateway-connections.md](../architecture/ssh-gateway-connections.md)

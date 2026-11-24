@@ -7,6 +7,10 @@
 > [../architecture/daemon-bootstrap.md](../architecture/daemon-bootstrap.md),
 > [../architecture/persistence.md](../architecture/persistence.md)
 
+> **Changed by milestone 6 (specified 2026-11-24, not built):** a daemon running as the single binary
+> neither installs nor loads the sources in `BINARY_EXCLUDED_PACKAGES`
+> (`npm:@99percentpeople/pi-background-tasks`) — see [single-binary-daemon.md](single-binary-daemon.md).
+
 ## Purpose
 
 A fresh Pi-Studio install runs a bare `pi` agent. Pi has a rich package ecosystem

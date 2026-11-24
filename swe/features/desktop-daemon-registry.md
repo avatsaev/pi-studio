@@ -7,6 +7,10 @@
 > for a person with those machines (`desktop/docs/platform-checks.md`).**
 > Milestone 1 of the desktop client, with [desktop-native-host.md](desktop-native-host.md); done for Linux.
 
+> **Changed by milestone 6 (specified 2026-11-24, not built):** the local entry runs the binary the
+> app downloads instead of an installed CLI; `cliPath`, the CLI search, `cli_missing` and
+> `cli_outdated` go — see [single-binary-daemon.md](single-binary-daemon.md).
+
 > **Amended by [desktop-relay-ssh.md](desktop-relay-ssh.md) (2026-11-22, milestone 4).** The registry
 > has a fourth kind, `ssh`, and `daemons.json` is version 3 (§ 1). `daemon.add` and `daemon.update` take
 > the SSH fields; `daemon.remote.start` and `.refresh` and `daemon.list`'s `remote` are new (§ 2).
