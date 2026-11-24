@@ -3,7 +3,11 @@ import type { PiStudioClient } from "@av-pi-studio/client";
 import type { DaemonUpdateStatus } from "@av-pi-studio/protocol";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { resetDaemonUpdateState } from "../../test/reset-stores.js";
-import { useDaemonUpdateStore } from "./daemon-update-store.js";
+import {
+  RESTART_EXCUSE_MS,
+  isRestartExpected,
+  useDaemonUpdateStore,
+} from "./daemon-update-store.js";
 import { daemonUpdateView } from "./daemon-update-presentation.js";
 import { bindDaemonUpdate } from "./use-daemon-update.js";
 
@@ -179,5 +183,36 @@ describe("daemon update binding", () => {
     await flush();
 
     expect(useDaemonUpdateStore.getState().status).toBeNull();
+  });
+});
+
+describe("the announced restart", () => {
+  it("is remembered when the status says restarting, and outlives the disconnect", () => {
+    const restarting = {
+      ...status("0.0.131"),
+      state: { kind: "restarting", version: "0.0.131" },
+    } as const;
+    useDaemonUpdateStore.getState().apply(restarting);
+    expect(useDaemonUpdateStore.getState().restartAnnouncedAt).not.toBeNull();
+
+    useDaemonUpdateStore.getState().reset();
+
+    expect(useDaemonUpdateStore.getState().status).toBeNull();
+    expect(useDaemonUpdateStore.getState().restartAnnouncedAt).not.toBeNull();
+  });
+
+  it("is forgotten when a later status says anything else", () => {
+    const store = useDaemonUpdateStore.getState();
+    store.apply({ ...status("0.0.131"), state: { kind: "restarting", version: "0.0.131" } });
+
+    store.apply({ ...status("0.0.131"), state: { kind: "idle" } });
+
+    expect(useDaemonUpdateStore.getState().restartAnnouncedAt).toBeNull();
+  });
+
+  it("excuses a drop for four minutes at most", () => {
+    expect(isRestartExpected(null, 1_000)).toBe(false);
+    expect(isRestartExpected(1_000, 1_000 + RESTART_EXCUSE_MS - 1)).toBe(true);
+    expect(isRestartExpected(1_000, 1_000 + RESTART_EXCUSE_MS)).toBe(false);
   });
 });

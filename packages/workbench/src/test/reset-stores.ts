@@ -43,7 +43,7 @@ export function resetDraftStore(): void {
 
 /** The daemon update status and the dialog's open flag. */
 export function resetDaemonUpdateState(): void {
-  useDaemonUpdateStore.setState({ status: null, revision: 0 });
+  useDaemonUpdateStore.setState({ status: null, revision: 0, restartAnnouncedAt: null });
   useUiStore.setState({ daemonUpdateDialogOpen: false });
 }
 

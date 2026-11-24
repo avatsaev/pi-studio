@@ -9,8 +9,8 @@
  * reads the facts from the registry and the connection store, applies the decision through
  * injected effects and returns the unsubscribe. A restart changes nothing here: the connection is
  * kept and the SDK's reconnection covers the gap. The workbench never starts a daemon by itself;
- * when one that was started (from the screen or the native menu) comes up while the window is
- * connected to nothing, it connects.
+ * when one that was started or updated (from the screen or the native menu) comes up while the
+ * window is connected to nothing, it connects.
  */
 
 import { type ConnectionState, type RelayConnectReason } from "@av-pi-studio/client";
@@ -21,6 +21,7 @@ import {
   type RemoteDaemonState,
 } from "../../host/types.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { isRestartExpected, useDaemonUpdateStore } from "../connection/daemon-update-store.js";
 import { remoteNeedsScreen } from "./daemon-presentation.js";
 
 /** What the decision looks at: the registry's current entry and the connection. */
@@ -32,6 +33,8 @@ export interface LifecycleFacts {
   remote: RemoteDaemonState["state"] | null;
   status: ConnectionState;
   errorReason: RelayConnectReason | null;
+  /** The daemon announced `restarting` (a self-update): a drop of its socket is not a stop. */
+  restartExpected: boolean;
 }
 
 export type LifecycleReaction =
@@ -73,15 +76,24 @@ export function lifecycleReactions(
   }
 
   // `open` straight to `closed` is the socket going away; a manual disconnect passes `closing`.
-  if (next.currentKind === "local" && prev.status === "open" && next.status === "closed") {
+  // A daemon that announced its restart is not probed: the probe would find it down for the
+  // moment between the old process and the new one, and a `stopped` local daemon is never dialled
+  // again (`local_not_ready`), so the window would stay on "Stopped" with the daemon back.
+  if (
+    next.currentKind === "local" &&
+    prev.status === "open" &&
+    next.status === "closed" &&
+    !next.restartExpected
+  ) {
     reactions.push({ kind: "refreshLocal" });
   }
 
   // `idle` is "never connected" or "left on purpose". A restart keeps the connection, so it is not
   // idle; a daemon started from a terminal appears as running without passing through `starting`.
+  // Update (`updating`) ends in a start, so it connects like one.
   if (
     next.currentKind === "local" &&
-    prev.local === "starting" &&
+    (prev.local === "starting" || prev.local === "updating") &&
     next.local === "running" &&
     next.status === "idle"
   ) {
@@ -143,6 +155,10 @@ function readFacts(daemons: HostDaemons): LifecycleFacts {
     remote: snapshot.remote?.state ?? null,
     status,
     errorReason,
+    restartExpected: isRestartExpected(
+      useDaemonUpdateStore.getState().restartAnnouncedAt,
+      Date.now(),
+    ),
   };
 }
 

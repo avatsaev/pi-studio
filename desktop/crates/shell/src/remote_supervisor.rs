@@ -84,7 +84,11 @@ fn fail_of(failure: RemoteRunFailure) -> RemoteFailReason {
 }
 
 /// `pi-studio update`, as typed on the host: standard error joins the output, which is all the hook gives.
-const UPDATE_COMMAND: &str = "pi-studio update 2>&1";
+/// `-H` names the entry's daemon: after the install, `update` restarts the daemon that answers at that
+/// address, not whatever listens on the CLI's default port (another user's daemon, say).
+fn update_command(daemon_port: u16) -> String {
+    format!("pi-studio -H 127.0.0.1:{daemon_port} update 2>&1")
+}
 
 fn start_command(daemon_port: u16) -> String {
     format!("pi-studio --json -H 127.0.0.1:{daemon_port} daemon start")
@@ -107,7 +111,7 @@ impl RemoteSupervisor {
     fn carry_out_in(&self, action: RemoteAction, daemon_port: u16, seen_up: bool) -> RemoteState {
         // An update runs on the version the host reported before, and the version is read again after it.
         if action == RemoteAction::Update
-            && let Some(state) = self.run_update()
+            && let Some(state) = self.run_update(daemon_port)
         {
             return state;
         }
@@ -148,9 +152,9 @@ impl RemoteSupervisor {
     /// (the hook gives only that). `None` when it exited with success; otherwise the state reached.
     /// The output is not parsed (an outdated CLI's format is unknown): a failure keeps its last
     /// lines for the screen, which are not expected to hold a secret.
-    fn run_update(&self) -> Option<RemoteState> {
+    fn run_update(&self, daemon_port: u16) -> Option<RemoteState> {
         let update_failed = |output: &str| RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, output: Some(output.to_owned()) };
-        match self.run(UPDATE_COMMAND, self.limits.update) {
+        match self.run(&update_command(daemon_port), self.limits.update) {
             Ok(out) if out.status == 0 => None,
             Ok(out) => Some(update_failed(&cli_answers::output_tail(&out.stdout))),
             Err(RemoteRunFailure::TimedOut) => Some(update_failed("`pi-studio update` took too long and was stopped")),

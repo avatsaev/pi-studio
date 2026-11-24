@@ -55,6 +55,14 @@ interface ConnectionStoreState {
   disconnect(): void;
 }
 
+/**
+ * Stops the live daemon's state changes from reaching the store. `disconnect()` calls it first:
+ * the transport's close arrives after `disconnect()` returned, and the late `closed` would
+ * otherwise turn the `idle` of a manual disconnect into `closed`, a state the window takes for
+ * a dropped connection (it probes the local daemon, and a restarted one is not connected again).
+ */
+let detachDaemonState: (() => void) | null = null;
+
 function generateClientId(): string {
   return "web-" + Math.random().toString(36).slice(2, 10);
 }
@@ -120,7 +128,7 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
       clearTimer: (handle) => timers.clearTimer(handle),
     });
 
-    daemon.onStateChange((state) => set({ status: state }));
+    detachDaemonState = daemon.onStateChange((state) => set({ status: state }));
     reconnection.onReconnected(() => set({ error: null, errorReason: null }));
     reconnection.onReconnectFailed((error) => set(connectFailure(error)));
 
@@ -139,6 +147,8 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
   disconnect() {
     const { daemon, reconnection } = get();
     reconnection?.stop();
+    detachDaemonState?.();
+    detachDaemonState = null;
     daemon?.close();
     // A reconnect must not leak object URLs pointing at a now-dead transfer instance
     // (`transferFor` is per-daemon-instance; this cache is global — see its module header).

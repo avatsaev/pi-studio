@@ -5,7 +5,7 @@
 //! [`Session::take_local_requests`], does the work and applies the new state with
 //! [`Session::apply_local_outcome`].
 
-use pistudiodesktop_model::{EntryId, EntryV3, Kind, LocalState, Secret};
+use pistudiodesktop_model::{EntryId, EntryV3, FailReason, Kind, LocalState, Secret};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always};
@@ -294,10 +294,11 @@ fn restart(s: &mut Session, _: &Value) -> Result<Value> {
 }
 
 fn update_offered(state: &LocalState) -> bool {
-    matches!(state, LocalState::CliOutdated { .. } | LocalState::Stopped)
+    matches!(state, LocalState::CliOutdated { .. } | LocalState::Stopped | LocalState::Failed { reason: FailReason::UpdateFailed, .. })
 }
 
-/// Update is offered for an outdated CLI and a stopped daemon; the reason says why not otherwise.
+/// Update is offered for an outdated CLI, a stopped daemon and a failed update (the screen shows it
+/// there as the retry); the reason says why not otherwise.
 fn update_enabled(s: &Session) -> std::result::Result<(), String> {
     match s.local_state() {
         LocalState::Unsupported => Err("unsupported".to_owned()),
@@ -426,9 +427,10 @@ mod tests {
     }
 
     #[test]
-    fn update_is_enabled_for_stopped_and_an_outdated_cli_only() {
+    fn update_is_enabled_for_stopped_an_outdated_cli_and_a_failed_update_only() {
         let outdated = LocalState::CliOutdated { version: "0.0.1".into() };
-        let failed = LocalState::Failed { reason: FailReason::UpdateFailed, output: None };
+        let update_failed = LocalState::Failed { reason: FailReason::UpdateFailed, output: Some("npm ERR!".into()) };
+        let start_failed = LocalState::Failed { reason: FailReason::Timeout, output: None };
         let cases = [
             (LocalState::Stopped, None),
             (outdated.clone(), None),
@@ -439,7 +441,8 @@ mod tests {
             (LocalState::Stopping, Some("update_not_offered")),
             (LocalState::Updating, Some("update_not_offered")),
             (LocalState::Running { host: "h".into(), port: 1 }, Some("update_not_offered")),
-            (failed, Some("update_not_offered")),
+            (update_failed, None),
+            (start_failed, Some("update_not_offered")),
         ];
         for (state, refusal) in cases {
             let mut s = Session::new();

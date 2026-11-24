@@ -243,8 +243,8 @@ timed-out process group is killed, and the answer is the last non-empty line of 
 read as JSON whatever the exit code. The CLI's `pairingUrl` is discarded where the line is parsed.
 Quitting the app never stops the daemon. On Windows none of this runs (`unsupported`).
 
-**Updating the local daemon.** `daemon.local.update` is enabled when the state is `cli_outdated` or
-`stopped` (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
+**Updating the local daemon.** `daemon.local.update` is enabled when the state is `cli_outdated`,
+`stopped` or `failed(update_failed)`, the retry (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
 through `run_checked`; the state is `updating`), without reading its output (an outdated CLI's
 format is unknown); a non-zero exit, a timeout or no process keeps the last 20 lines (2000
 characters, control characters removed) as `failed(update_failed)` with `output`. Then it reads
@@ -268,8 +268,9 @@ same check, then `pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` (90 s
 when the command could not be run, `no_shell` when the account runs no commands); `pairingUrl` is
 discarded. After a successful Start or Update Rust emits `connection_resume`, so the page connects
 again. A start is never run without the button. Update (`daemon.remote.update`, enabled for
-`cli_outdated` and `stopped`, not `not_installed`) runs `pi-studio update 2>&1` (300 s; the hook
-gives only standard output, so standard error is merged into it) while the state is `updating`; a
+`cli_outdated`, `stopped` and `failed(update_failed)`, the retry; not `not_installed`) runs `pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`
+(300 s; `-H` so that the update's restart step finds this entry's daemon and not whatever listens on
+the CLI's default port; the hook gives only standard output, so standard error is merged into it) while the state is `updating`; a
 non-zero exit is `failed(update_failed)` with the last 20 lines (at most 2000 characters, control
 characters removed: `cli_answers::output_tail`, the local supervisor's helper) as `output`, a timeout
 is `update_failed` saying so, an SSH-level failure keeps its `exec_failed` / `no_shell` reason. Then

@@ -9,7 +9,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 use pistudiodesktop_model::Secret;
-use pistudiodesktop_model::{EntryId, Kind, RemoteState, SshFields};
+use pistudiodesktop_model::{EntryId, Kind, RemoteFailReason, RemoteState, SshFields};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always};
@@ -211,10 +211,11 @@ fn start(s: &mut Session, _: &Value) -> Result<Value> {
 }
 
 fn update_offered(state: &RemoteState) -> bool {
-    matches!(state, RemoteState::CliOutdated { .. } | RemoteState::Stopped)
+    matches!(state, RemoteState::CliOutdated { .. } | RemoteState::Stopped | RemoteState::Failed { reason: RemoteFailReason::UpdateFailed, .. })
 }
 
-/// Update is offered for an outdated CLI and a stopped daemon of the current SSH entry; the reason
+/// Update is offered for an outdated CLI, a stopped daemon and a failed update of the current SSH
+/// entry (the screen shows it there as the retry); the reason
 /// says why not otherwise (`not_installed` has nothing to update).
 fn update_enabled(s: &Session) -> std::result::Result<(), String> {
     let entry = s.current_entry_id().ok_or("no_current")?;

@@ -167,7 +167,7 @@ fn update_failed(output: &str) -> RemoteState {
 fn update_runs_the_update_then_the_version_then_the_start() {
     let (s, calls) = scripted(vec![out(0, "updated\n"), out(0, "0.0.130"), out(0, UP)]);
     assert_eq!(s.carry_out(RemoteAction::Update, PORT, false), RemoteState::Running);
-    assert_eq!(commands(&calls), ["pi-studio update 2>&1", "pi-studio --version", "pi-studio --json -H 127.0.0.1:7878 daemon start"]);
+    assert_eq!(commands(&calls), ["pi-studio -H 127.0.0.1:7878 update 2>&1", "pi-studio --version", "pi-studio --json -H 127.0.0.1:7878 daemon start"]);
     let limits: Vec<Duration> = calls.lock().unwrap().iter().map(|(_, l)| *l).collect();
     assert_eq!(limits, [Duration::from_secs(300), Duration::from_secs(15), Duration::from_secs(90)]);
 }

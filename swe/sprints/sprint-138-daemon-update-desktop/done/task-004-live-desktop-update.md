@@ -1,7 +1,7 @@
 # Task 004 — Live check: the app updates an outdated local daemon and an SSH one
 
 - **Sprint:** sprints/sprint-138-daemon-update-desktop
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** desktop (xvfb container)
 - **Priority:** P1

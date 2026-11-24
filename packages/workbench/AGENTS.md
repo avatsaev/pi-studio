@@ -228,7 +228,8 @@ src/
                            `errorReason` — the `RelayConnectError` reason, via connect-failure.ts —
                            beside `error`, sprint-110; also handles
                            relay-transport pairing-link connections; constructs
-                           ReconnectionManager with createWorkerTimers()'s injected timers —
+                           ReconnectionManager with createWorkerTimers()'s injected timers (`disconnect()`
+                           detaches the daemon's state listener first, so a late close stays `idle`) —
                            sprint-050), resolve-connect-target (pure routing: plain address vs.
                            pairing link, direct vs. relay + tests), normalize-url (accepts
                            ws/wss/http/https/bare-host, maps http→ws / https→wss; its cases are
@@ -537,7 +538,9 @@ src/
                             manual disconnect + open the screen — when the current local entry goes
                             `stopping` or the current entry is removed; mark a relay entry "pairing
                             link no longer valid" on `wrong_key`, clear it on connect or a saved new
-                            link; `local.refresh()` once per dropped local connection; a restart
+                            link; `local.refresh()` once per dropped local connection, except while a
+                            restart is expected (`restartExpected`); the page connects when the local
+                            entry reaches `running` from `starting` or `updating`; a restart
                             changes nothing; `watchDaemonLifecycle` applies it and opens the screen on
                             `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
                             WorkspaceShell). Stop on the current local entry while connected asks
@@ -616,7 +619,10 @@ src/
                             DaemonUpdateIndicator.tsx, left of the app's pill, from
                             daemon-update-store.ts (`status: DaemonUpdateStatus | null` + a `revision`
                             that drops a `getDaemonUpdateStatus()` answer a broadcast or a disconnect
-                            overtook; `hydrate` sends nothing without the `daemonUpdate` capability)
+                            overtook; `restartAnnouncedAt` — set when a status says `restarting`, kept
+                            across the disconnect's `reset()`, `isRestartExpected` for 4 minutes — so
+                            the lifecycle does not probe the local daemon for the drop the restart
+                            causes; `hydrate` sends nothing without the `daemonUpdate` capability)
                             kept by use-daemon-update.ts (`bindDaemonUpdate(status, client)` — open +
                             capable: subscribe to `onDaemonUpdateStatus`, then fetch; otherwise clear;
                             `useDaemonUpdateBoot` runs it per connection, mounted in WorkbenchBoot after

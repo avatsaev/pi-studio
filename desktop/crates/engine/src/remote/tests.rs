@@ -232,12 +232,13 @@ fn a_missing_or_old_cli_refuses_start_but_not_a_refresh() {
 }
 
 #[test]
-fn update_is_offered_for_stopped_and_an_outdated_cli_only() {
+fn update_is_offered_for_stopped_an_outdated_cli_and_a_failed_update_only() {
     let dir = tempfile::tempdir().unwrap();
     let (mut s, _, id) = on_ssh(dir.path());
     let entry = EntryId::parse(&id).unwrap();
     let outdated = RemoteState::CliOutdated { version: "0.0.1".into() };
-    let failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::UpdateFailed, output: Some("x".into()) };
+    let update_failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::UpdateFailed, output: Some("x".into()) };
+    let start_failed = RemoteState::Failed { reason: pistudiodesktop_model::RemoteFailReason::Timeout, output: None };
     let cases = [
         (RemoteState::Stopped, None),
         (outdated, None),
@@ -247,7 +248,8 @@ fn update_is_offered_for_stopped_and_an_outdated_cli_only() {
         (RemoteState::Starting, Some("update_not_offered")),
         (RemoteState::Updating, Some("update_not_offered")),
         (RemoteState::Running, Some("update_not_offered")),
-        (failed, Some("update_not_offered")),
+        (update_failed, None),
+        (start_failed, Some("update_not_offered")),
     ];
     for (state, refusal) in cases {
         assert!(s.apply_remote_outcome(&entry, state.clone()));
