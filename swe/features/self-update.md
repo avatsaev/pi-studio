@@ -1,7 +1,8 @@
 # Feature — Daemon self-update
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
-> Status: scoped 2026-11-23 from the grill [../grills/daemon-self-update.md](../grills/daemon-self-update.md)
+> Status: **built and verified on Linux 2026-11-24** (sprints 135–138) from the grill
+> [../grills/daemon-self-update.md](../grills/daemon-self-update.md)
 > (D1–D16 owner, P1–P15 agent). Roadmap step 5b. Replaces the text of 2026-08-26, which was never built.
 > Dependencies: [../architecture/daemon-bootstrap.md](../architecture/daemon-bootstrap.md) (start, PID
 > lock, shutdown), [cli.md](cli.md) (`update`, `daemon stop|restart`),
@@ -347,37 +348,65 @@ daemon in its stored state.
 
 ## Acceptance criteria
 
-- [ ] A global npm install reports `npm-global`; with a newer version on npm every connected client
+Evidence: `packages/server/docs/daemon-update-live-results.md` (real `npm i -g` in containers, local
+registry), `desktop/docs/platform-checks.md` (daemon rows D-U1…, real webview), the browser check of
+sprint 137/t004 (headless Chromium, dark and light, two clients), and the unit tests.
+
+- [x] A global npm install reports `npm-global`; with a newer version on npm every connected client
       shows "Daemon X" without a reload. Docker and a checkout report `cannot_update` with their
-      command, and a forged apply against them is refused.
-- [ ] The dialog's counts include a terminal opened by another client.
-- [ ] Update on an npm install: the version is installed, extensions updated, the daemon restarts on
+      command, and a forged apply against them is refused. *(Live: npm-global, offer to three clients,
+      a forged apply against a read-only folder refused. Docker and checkout: unit tests and the dev
+      daemon's `source` kind; not run inside a Docker image.)*
+- [x] The dialog's counts include a terminal opened by another client. *(Browser check; agents are
+      counted from `list_agents_request`, a defect found there.)*
+- [x] Update on an npm install: the version is installed, extensions updated, the daemon restarts on
       the same address (a daemon bound to `0.0.0.0:6767` stays there), a direct and a relay client
-      reconnect by themselves and show "Updated to X".
-- [ ] After that restart no `pi --mode rpc` process of the old daemon is left, and `pi-studio.pid`
+      reconnect by themselves and show "Updated to X". *(Live: three clients, one through the relay.)*
+- [x] After that restart no `pi --mode rpc` process of the old daemon is left, and `pi-studio.pid`
       names the new daemon. After `pi-studio daemon stop` the file is gone.
-- [ ] A failed install (a folder made read-only after the check) leaves the old daemon running, with
+- [x] A failed install (a folder made read-only after the check) leaves the old daemon running, with
       the message shown and no restart.
-- [ ] A new version that does not start is rolled back: the old version answers again and clients
+- [x] A new version that does not start is rolled back: the old version answers again and clients
       show "failed, back on Y".
-- [ ] A second apply during an update is refused with `in_progress`.
-- [ ] `PI_STUDIO_UPDATE_AUTOCHECK=false`: no check at start, no timer; "Check now" works; the switch
-      in Settings writes `config.json`.
-- [ ] `pi-studio daemon restart` ends with a new process every time (run 20 times in a loop);
+- [x] A second apply during an update is refused with `in_progress`.
+- [x] `PI_STUDIO_UPDATE_AUTOCHECK=false`: no check at start, no timer; "Check now" works; the switch
+      in Settings writes `config.json`. *(The 6 h timer itself: fake-timer tests only.)*
+- [x] `pi-studio daemon restart` ends with a new process every time (run 20 times in a loop);
       `pi-studio update` restarts a running daemon.
-- [ ] `/api/health` carries the version; the Docker health check still passes.
-- [ ] Desktop: a local daemon below the minimum, and a stopped SSH one, is updated and started by
-      Update; a failure shows the output's last lines.
-- [ ] The browser client without the flag (an older daemon) shows no pill and no Daemon category.
+- [x] `/api/health` carries the version; the Docker health check still passes. *(The health body is
+      tested and the check reads only `status`; the Docker image's check was not run.)*
+- [x] Desktop: a local daemon below the minimum, and a stopped SSH one, is updated and started by
+      Update; a failure shows the output's last lines. *(Linux, real webview. The "outdated" CLI was
+      this repository's build relabelled below the minimum.)*
+- [x] The browser client without the flag (an older daemon) shows no pill and no Daemon category.
+      *(A scratch script stripped the flag; not a build of an older commit.)*
+
+## Resolved by the build (2026-11-23/24, sprints 135–138)
+
+- `pi --mode rpc` exits by itself within 1 s when the daemon is killed with SIGKILL (idle or stuck
+  turn; grandchildren of a long tool call not tested). The shutdown closes sessions regardless.
+- `npm install -g <previous>` with the registry unreachable stalls to its limit; with
+  `--prefer-offline` it installs from npm's cache in about 2 s and fails only when the cache was
+  cleaned. The helper uses `--prefer-offline` for the rollback.
+- In an npm global install the server is nested at
+  `<root>/@av-pi-studio/cli/node_modules/@av-pi-studio/server/dist/daemon/main.js`; the helper tries
+  the hoisted path and the nested one and takes the one whose `package.json` version matches.
+- A daemon started by the CLI has to boot through `runDaemon` (signal handlers and the restart hook),
+  not `startDaemon`; the CLI's starter does since sprint 136/t004.
+- The helper writes `update-result.json` after the new daemon answers health, so the daemon polls the
+  file for 30 s after start; reading it once at start missed it.
+- Found in the desktop run: the SSH update must pass `-H 127.0.0.1:<port>`; a manual disconnect must
+  end `idle`; a restart longer than the probe must not mark the local daemon `stopped`; Update must be
+  allowed after a failed update.
 
 ## TODO(verify)
 
-- Does `pi --mode rpc` exit when the daemon dies without `close()`? Decides only whether orphans
-  exist today; the shutdown closes them either way. — agent, when writing the shutdown test.
 - Is `npm` on the PATH of a daemon started by the desktop app on macOS (GUI apps get a short PATH;
-  the app finds the CLI through the login shell's environment)? If not, the daemon keeps the PATH
-  the CLI was found with. — agent, during the build; a Mac is not available: [INFERENCE] until seen.
-- Does `npm install -g <previous>` work with no network (npm's cache)? Decides only how often the
-  rollback's own failure happens. — agent.
-- The daemon's entry path after an install under each npm layout (hoisted and nested). — agent, in
-  the live check.
+  the app finds the CLI through the login shell's environment)? — a Mac is not available:
+  [INFERENCE] until seen.
+- After a rollback the next check offers the broken version again (at the next start and every 6 h).
+  Skipping a version that was just rolled back until a newer one appears is not specified. — owner.
+- macOS and Windows: no live run (owner's decision); Windows hosts report
+  `cannot_update(unsupported_platform)`.
+- Not seen live: a hoisted npm layout; the 6 h timer; dialog counts with agents running in the real
+  app; a truly old CLI's update output; a rollback seen from the desktop app.

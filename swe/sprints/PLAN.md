@@ -3671,6 +3671,17 @@ In sequence. The sprint may run beside sprint 136's t004 and t005.
 
 t001 and t002 may run beside sprints 136 and 137 (Rust only).
 
+> **Close note (2026-11-24).** Sprints 135–138 are done on `feat/daemon-self-update`. Found by running it
+> (all fixed with tests): the CLI started the daemon through `startDaemon`, so a CLI-started daemon could
+> not update itself or close on SIGTERM (now `runDaemon`); the new daemon never reported the result (the
+> helper wrote the file after it had been read: polled 30 s); a rollback with the registry unreachable
+> stalled 120 s (`--prefer-offline`); the page did not connect after a local Update, the SSH update used the
+> wrong port (`-H`), a manual disconnect ended `closed`, a long restart left the page on "Stopped", Update was
+> refused after a failed update; the dialog undercounted running agents. Not seen: macOS and Windows, a
+> hoisted npm layout, the 6 h timer live, a truly old CLI. Open (owner): after a rollback the broken version
+> is offered again at the next check. Milestone 5b is closed; the next roadmap step is 6 (single-binary
+> daemon and install over SSH).
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate

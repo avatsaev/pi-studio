@@ -200,6 +200,9 @@ docker run -d --name pi-studio-daemon \
 | `PI_STUDIO_RELAY_ENABLED` / `_ENDPOINT` / `_USE_TLS` | `false` / — / `false` | Dial out to a relay |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — the compose stack sets this to `http://localhost:${PI_STUDIO_WEB_PORT:-8080}` |
 
+A client that asks the container's daemon to update gets `cannot_update` with the command
+`docker compose pull && docker compose up -d`; nothing is installed inside the container.
+
 The daemon logs its full lifecycle to stdout as NDJSON (startup, client connect/disconnect, agent
 create/turn lifecycle, terminal open/exit, `pi` process spawn/exit, relay dial events), so
 `docker logs -f pi-studio-daemon` works out of the box; a rotating copy also lands in

@@ -250,6 +250,12 @@ After a successful install, a local daemon that answers at `--host` is restarted
 address and `daemon restarted: <version>` is printed. No running daemon means nothing is started;
 a failed restart exits non-zero (the install stays).
 
+A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
+installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
+screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that
+host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 10 s for the old
+process to exit and report `still_running` if it does not.
+
 ### Feature groups
 
 `chat`, `terminal`, `loop`, `schedule`, `provider`, and `worktree` are sibling top-level

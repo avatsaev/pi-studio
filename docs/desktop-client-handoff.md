@@ -728,8 +728,13 @@ view state in TypeScript, so the scaffold's own `AGENTS.md` had to change. State
    asks over its connection (the `daemon_update_*` RPCs), so it works for local, direct, relay and SSH
    daemons and in the browser client too; it installs through `npm install -g`, restarts through a
    helper process and rolls back when the new version does not start. The app also gets an Update
-   button for a local or SSH daemon that is stopped or below its minimum. *State (2026-11-23):
-   grilled and scoped (`swe/grills/daemon-self-update.md`, `swe/features/self-update.md`), not built.*
+   button for a local or SSH daemon that is stopped or below its minimum. *State (2026-11-24): built on the
+   branch `feat/daemon-self-update` (sprints 135–138) and verified: the engine and the pill, dialog and
+   Settings → Daemon switch live against a real `npm i -g` in containers
+   (`packages/server/docs/daemon-update-live-results.md`: update, rollback, rollback with the registry stopped,
+   read-only folder, auto-check off), the Daemons screen's Update in the Linux webview
+   (`desktop/docs/platform-checks.md` § Daemon self-update rows). Not seen: macOS and Windows (Windows
+   reports `cannot_update`). Spec `swe/features/self-update.md`, grill `swe/grills/daemon-self-update.md`.*
    Milestone 6 adds a `binary` install kind to the same mechanism.
 6. **Single-binary daemon.** A daemon the app can run without an installed CLI: one Bun-compiled
    binary, downloaded on first use (`swe/architecture/single-binary-daemon.md`, exploration of
@@ -795,3 +800,4 @@ order after it (owner, 2026-11-23):** 5, 5b, 6, 7, 8.
 | Milestone 3 (transfer engine) | `swe/features/desktop-transfer-engine.md`, grill `swe/grills/desktop-transfer-engine.md` |
 | Milestone 4 (relay in Rust, SSH entries) | `swe/features/desktop-relay-ssh.md`, grill `swe/grills/desktop-relay-ssh.md` |
 | Milestone 5 (app self-update) | `swe/features/desktop-self-update.md`, grill `swe/grills/desktop-self-update.md` |
+| Milestone 5b (daemon self-update) | `swe/features/self-update.md`, grill `swe/grills/daemon-self-update.md`, `packages/server/docs/daemon-update-live-results.md` |

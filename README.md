@@ -112,6 +112,17 @@ A password can also be set on an already-running daemon: `pi-studio daemon set-p
 (bcrypt-hashed into `config.json`, enforced on next start). To revoke every pairing link/QR ever
 issued (e.g. one leaked), mint a fresh keypair: `pi-studio daemon rotate-key`.
 
+### Updating the daemon
+
+Any connected client can update a daemon that was installed with `npm i -g @av-pi-studio/cli`: the web UI
+shows a "Daemon X" pill when a newer version is on npm (checked at start and every 6 h; Settings → Daemon
+has "Check now" and a switch, or set `PI_STUDIO_UPDATE_AUTOCHECK=false`), and the desktop app's Daemons
+screen offers Update for a local or SSH daemon that is stopped or too old. The update installs the new
+version, restarts the daemon on the same address, and puts the previous version back if the new one does not
+start; clients reconnect by themselves. A daemon in Docker, a source checkout, a read-only npm folder or
+Windows does not update itself and says which command to run. From a terminal, `pi-studio update`
+updates the CLI and restarts a running local daemon.
+
 ## Optional: E2EE relay (reaching a daemon behind NAT/firewall)
 
 By default a client connects **directly** to the daemon's WebSocket. When the daemon can't accept

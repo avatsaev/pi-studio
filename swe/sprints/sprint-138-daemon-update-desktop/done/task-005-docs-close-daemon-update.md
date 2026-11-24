@@ -1,7 +1,7 @@
 # Task 005 — Documents and spec close for the daemon self-update
 
 - **Sprint:** sprints/sprint-138-daemon-update-desktop
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs
 - **Priority:** P1

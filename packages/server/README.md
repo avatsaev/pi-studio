@@ -126,6 +126,26 @@ curl http://127.0.0.1:6767/api/health
 
 `/api/health` is exempt from Host-allowlist and auth checks, so it always answers.
 
+### Updating the daemon
+
+A connected client (workbench pill and dialog, the desktop Daemons screen, or any SDK client) can ask the
+daemon to update itself with the `daemon_update_*` RPCs, gated by `server_info.features.daemonUpdate`.
+The daemon checks the npm registry at start and every 6 h (`daemon.update.autoCheck`, env
+`PI_STUDIO_UPDATE_AUTOCHECK`; "Check now" always works) and broadcasts every change as `daemon_update_status`.
+Applying runs `npm install -g @av-pi-studio/cli@<version>`, then `pi update --extensions`, then hands over
+to a detached helper that waits for the old daemon to exit (up to 30 s), starts the new version on the same
+address and checks `/api/health` for the new `version`. If the new version does not start after three tries,
+the helper reinstalls the previous one (`npm install -g … --prefer-offline`, so a dead registry does not
+stall it) and starts that. The outcome is written to `update-result.json` and shown to clients as
+`lastResult` (`updated`, `rolled_back` or `failed`); the helper logs to `$PI_STUDIO_HOME/logs/update-restart.log`.
+
+Only a global npm install of `@av-pi-studio/cli` can update itself (the server sits nested under the CLI
+there). Docker, a source checkout and an unknown install, a read-only npm folder, a missing `npm` and Windows
+(`unsupported_platform`) report `cannot_update` with the command to run by hand. The CLI starts the daemon
+through `runDaemon` (SIGINT/SIGTERM close then exit, plus the restart hook the update needs); an embedder that
+calls `startDaemon` without `onUpdateRestart` has its apply refused before anything is installed.
+Live results: [`docs/daemon-update-live-results.md`](docs/daemon-update-live-results.md).
+
 ### Dev daemon
 
 `src/daemon/dev-main.ts` is a development entry that wires only a **minimal handler subset**
@@ -186,6 +206,9 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | _(unset)_ | Public base URL advertised for proxied services |
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
+| `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Daemon self-update checks (`daemon.update.autoCheck`): `false`/`0` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json` |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; decides whether the daemon can update itself. The Docker image sets `docker` |
+| `PI_STUDIO_DEV_UPDATE` | _(unset)_ | Dev daemon only: `available`, `cannot`, `fail` or `rollback` scripts the update flow with no npm |
 
 > Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` (opt-in) and connecting via the
 > server's IP needs no extra config. To reach the daemon by **hostname**, add it to
@@ -351,6 +374,7 @@ update-result.json               Written by the update restart helper once the n
 server-id                        Stable server identity (plain UUID via randomUUID())
 daemon-keypair.json              Persistent Curve25519 keypair (pairing / outbound relay E2EE)
 logs/                            Rotating NDJSON log files (pino)
+logs/update-restart.log            The update restart helper's own log
 agents/
   <sanitized-cwd>/
     <agentId>.json               Agent record (status, config, timeline seq, labels, …)

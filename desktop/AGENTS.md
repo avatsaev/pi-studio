@@ -69,6 +69,18 @@ the installer at the restart. Every update file is signed with the key of the Gi
 AppImage, `.rpm`, `.msi`, a graphical polkit Cancel, and the first publishing run (after the merge). Both
 users install 0.3.0 by hand once: earlier builds cannot update themselves.
 
+The daemon's self-update (roadmap 5b, `swe/features/self-update.md`) is built on the app's side too: the Daemons
+screen offers Update beside Retry for a local or SSH daemon that is `cli_outdated`, and beside Start when it is
+`stopped` (`daemon.local.update`, `daemon.remote.update`; the local one is refused with `unsupported`, `cli_missing`,
+`update_not_offered` or `busy`, the SSH one with `not_installed`, `wrong_kind`, `no_current` or `update_not_offered`). The supervisor runs `pi-studio update` on the machine (over SSH:
+`pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`, so the CLI restarts that host's daemon and not one on its own
+default port), 5 minutes at most, then `--version` and the same Start; the state is `updating`, then `running`,
+`cli_outdated` or `failed(update_failed)` with the last 20 lines of output (an Update on a failed row runs again).
+The page reconnects after an Update like after a Start; an announced `restarting` (the workbench pill's update) is
+not probed as a crash. Checked live on Linux in the real webview, scripted (`docs/platform-checks.md` § Daemon
+self-update rows, D-U1 to D-U7: five defects found and fixed); not seen: macOS and Windows (owner's decision), a real
+old CLI, the pill on an SSH entry's daemon, a rollback seen from the app.
+
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
 of the repository root, so its dependencies are in the root `package-lock.json`: install them with
