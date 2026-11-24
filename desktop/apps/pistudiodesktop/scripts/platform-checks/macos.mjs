@@ -3,8 +3,8 @@
 // (`desktop/docs/control-protocol.md`) and the files.
 //
 // Native host (sprint-106/task-004):  config dir default, ui.inspect, settings.set, clean quit.
-// Daemon registry (sprint-111/task-004): the CLI found through the login shell (zsh and bash),
-// start, quit leaves the daemon, stop, a direct entry's password, an outdated CLI.
+// Daemon registry (sprint-111/task-004): the binary under the login shell's PI_STUDIO_HOME (zsh and bash),
+// start, quit leaves the daemon, stop, a direct entry's password, an outdated running daemon.
 // Milestone 2 (sprint-117/task-002): after the local daemon starts, one open transport with frames in
 // (a window and its page exist); the app's process stopped 15 s and continued, `resumeSignals.wake`
 // rises (inside `lifecycleChecks`); and `macos-keychain.mjs`, the one launch that uses the login keychain.
@@ -27,7 +27,8 @@
 
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -44,7 +45,7 @@ import { Abort, sleep, waitFor } from "./wait.mjs";
 
 const execFileAsync = promisify(execFile);
 
-/** The oldest CLI the app accepts is 0.0.127; this one is older, and the fake CLI answers it for `--version`. */
+/** The oldest daemon the app accepts is 0.0.127; a running daemon of this version is older, and the check's health endpoint answers it. */
 const OUTDATED_VERSION = "0.0.118";
 
 /** The per-user directory of the app on `platform`, relative to the home directory. */
@@ -158,19 +159,26 @@ export class MacosRun {
     return { graceful, detail, code: ended.code, signal: ended.signal };
   }
 
-  /** A scratch home whose only start-up file puts the CLI on PATH, for `shell`. */
+  /**
+   * A scratch home whose only start-up file puts `node` on PATH and sets PI_STUDIO_HOME, for `shell`. The repository's CLI is
+   * installed where the app looks for its binary, `$PI_STUDIO_HOME/bin/current/pi-studio`; the app reads that home from the login
+   * shell and runs it. Its version is the repository's, which is not below the pin; a build whose pin is newer would download
+   * the pinned daemon instead (macOS has not been run for this layout: sprint-143/task-003).
+   */
   async world(shell) {
     const root = this.scratch(`world-${shell}`);
-    const [home, bin, piHome, configDir] = ["home", "bin", "pi-home", "config"].map((name) => this.scratch(`world-${shell}`, name));
+    const [home, piHome, configDir] = ["home", "pi-home", "config"].map((name) => this.scratch(`world-${shell}`, name));
     const port = await freePort();
-    const wrapper = path.join(bin, "pi-studio");
+    const installed = this.scratch(`world-${shell}`, "pi-home", "bin", "versions", "fake");
+    const wrapper = path.join(installed, "pi-studio");
     writeFileSync(wrapper, cliWrapperText({ cliEntry: path.resolve(this.cliEntry), host: `127.0.0.1:${port}` }));
     chmodSync(wrapper, 0o755);
-    writeFileSync(path.join(home, SHELLS[shell].profile), profileText({ binDirs: [bin, path.dirname(process.execPath)], piHome }));
+    symlinkSync("versions/fake", path.join(piHome, "bin", "current"));
+    writeFileSync(path.join(home, SHELLS[shell].profile), profileText({ binDirs: [path.dirname(process.execPath)], piHome }));
     // Auto-start off: a daemon starts only when a check asks.
     writeFileSync(path.join(configDir, "settings.json"), JSON.stringify({ version: 1, autoStartLocalDaemon: false }));
     const env = dockEnvironment({ home, shell, tmpdir: tmpdir(), user: userInfo().username });
-    const world = { shell, root, home, bin, piHome, configDir, port, wrapper, env };
+    const world = { shell, root, home, piHome, configDir, port, wrapper, env };
     this.worlds.push(world);
     return world;
   }
@@ -284,46 +292,57 @@ async function controlChecks(run) {
 
 // --- daemon registry -----------------------------------------------------------------------
 
-async function cliOutdatedCheck(run) {
+/**
+ * A running daemon older than the minimum is `outdated`: the fake binary (a version above the pin, so nothing is installed)
+ * says a daemon is up at the port of a stand-in health endpoint, which answers the old version, as an npm daemon would.
+ */
+async function daemonOutdatedCheck(run) {
   const dir = run.scratch("fake-cli");
-  const fake = path.join(dir, "pi-studio");
-  copyFileSync(run.fakeCli, fake);
-  chmodSync(fake, 0o755);
+  const piHome = run.scratch("fake-pi-home");
+  const installed = run.scratch("fake-pi-home", "bin", "versions", "fake");
+  copyFileSync(run.fakeCli, path.join(installed, "pi-studio"));
+  chmodSync(path.join(installed, "pi-studio"), 0o755);
+  symlinkSync("versions/fake", path.join(piHome, "bin", "current"));
+  writeFileSync(path.join(dir, "running"), "");
+  const health = createServer((request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ status: "ok", version: OUTDATED_VERSION }));
+  });
+  await new Promise((resolve) => health.listen(0, "127.0.0.1", resolve));
   const home = run.scratch("home-fake");
   const env = dockEnvironment({
     home,
     shell: "zsh",
     tmpdir: tmpdir(),
     user: userInfo().username,
-    extra: { FAKE_PI_DIR: dir, FAKE_PI_VERSION: OUTDATED_VERSION },
+    extra: { PI_STUDIO_HOME: piHome, FAKE_PI_DIR: dir, FAKE_PI_PORT: String(health.address().port), FAKE_PI_VERSION: "999.0.0" },
   });
   const configDir = run.scratch("config-fake");
   writeFileSync(path.join(configDir, "settings.json"), JSON.stringify({ version: 1, autoStartLocalDaemon: false }));
-  await run.report.run("registry.macos.cli-outdated", `a CLI reporting ${OUTDATED_VERSION} gives cli_outdated`, async ({ note }) => {
+  await run.report.run("registry.macos.daemon-outdated", `a running daemon reporting ${OUTDATED_VERSION} is outdated`, async ({ note }) => {
     const session = await run.start("fake-cli", { env, configDir });
     try {
-      await settledLocal(session.control);
-      await session.control.execute("settings.set", { key: "cliPath", value: fake });
-      await executeWhenFree(session.control, "daemon.local.refresh");
-      const local = await waitLocal(session.control, "cli_outdated", (s) => (s.state === "cli_outdated" ? s : null), 20_000);
-      if (local.version !== OUTDATED_VERSION) throw new Error(`cli_outdated names version ${local.version}, expected ${OUTDATED_VERSION}`);
+      const local = await settledLocal(session.control);
+      if (local.state !== "outdated") throw new Error(`the local daemon is ${JSON.stringify(local)}, expected outdated`);
+      if (local.version !== OUTDATED_VERSION) throw new Error(`outdated names version ${local.version}, expected ${OUTDATED_VERSION}`);
       note(`state: ${JSON.stringify(local)}`);
     } finally {
       await run.quitApp(session).catch(() => {});
+      health.close();
     }
   });
 }
 
-/** The state is `stopped`: the CLI and `node` were both found by the login shell, so the probe ran `daemon status`. */
+/** The state is `stopped`: PI_STUDIO_HOME and `node` were both read from the login shell, so the probe ran the binary's `daemon status`. */
 async function foundCheck(run, world) {
   const { shell } = world;
   let session = null;
-  const found = await run.report.run(`registry.macos.cli-found.${shell}`, `${shell}: the CLI is found through the login shell's start-up file alone`, async ({ note }) => {
+  const found = await run.report.run(`registry.macos.cli-found.${shell}`, `${shell}: the binary under PI_STUDIO_HOME is found through the login shell's start-up file alone`, async ({ note }) => {
     session = await run.start(`cli-${shell}`, { env: world.env, configDir: world.configDir });
     try {
       const local = await settledLocal(session.control);
       if (local.state !== "stopped") {
-        throw new Error(`the local daemon is ${JSON.stringify(local)}, expected {"state":"stopped"}. PATH of the app was ${world.env.PATH}; ${SHELLS[shell].profile} put ${world.bin} and ${path.dirname(process.execPath)} on it`);
+        throw new Error(`the local daemon is ${JSON.stringify(local)}, expected {"state":"stopped"}. PATH of the app was ${world.env.PATH}; ${SHELLS[shell].profile} put ${path.dirname(process.execPath)} on it and set PI_STUDIO_HOME=${world.piHome}`);
       }
     } catch (error) {
       // One app at a time (single instance): this one must be gone before the next check starts.
@@ -331,7 +350,7 @@ async function foundCheck(run, world) {
       throw error;
     }
     note(`${shell} (${SHELLS[shell].path} -l -i) found ${world.wrapper}`);
-    run.report.fact(`CLI found through the login shell: ${shell}`, `${world.wrapper} via ~/${SHELLS[shell].profile}`);
+    run.report.fact(`Binary found through the login shell: ${shell}`, `${world.wrapper} via ~/${SHELLS[shell].profile}`);
   });
   return found ? session : null;
 }
@@ -458,7 +477,7 @@ async function shellChecks(run, shell, withLifecycle) {
 
 /**
  * Run the real CLI's `--version` once, before the app does, and print how long that first run took.
- * The app allows `--version` 5 s; the first run on a macOS runner (cold files, Gatekeeper) took
+ * The app allows `--version` 15 s; the first run on a macOS runner (cold files, Gatekeeper) took
  * over that once (run of 2026-11-20: `failed`/`timeout` under zsh) and about 4.5 s another time,
  * which is a fact about a cold machine, not about the shell lookup these checks are for.
  */
@@ -466,7 +485,7 @@ async function warmCli(run) {
   const began = Date.now();
   try {
     await execFileAsync(process.execPath, [path.resolve(run.cliEntry), "--version"], { timeout: 60_000 });
-    run.report.fact("The real CLI's first `--version` (cold), run before the app's checks", `${((Date.now() - began) / 1000).toFixed(1)} s (the app allows 5 s)`);
+    run.report.fact("The real CLI's first `--version` (cold), run before the app's checks", `${((Date.now() - began) / 1000).toFixed(1)} s (the app allows 15 s)`);
   } catch (error) {
     run.report.fact("The real CLI's first `--version` (cold)", `failed: ${error.message.split("\n")[0]}`);
   }
@@ -478,7 +497,7 @@ export async function runMacosChecks(run) {
   try {
     await configDirCheck(run);
     await controlChecks(run);
-    await cliOutdatedCheck(run);
+    await daemonOutdatedCheck(run);
     for (const [index, shell] of run.shells.entries()) await shellChecks(run, shell, index === 0);
     await keychainCheck(run);
   } finally {

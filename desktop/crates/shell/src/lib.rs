@@ -19,8 +19,9 @@
 //! Uploading a file works the same way ([`picked`]): Rust shows the open dialog, keeps the paths and
 //! the page holds only a handle, a name and a size for each file.
 //!
-//! The local daemon ([`supervisor`]) is driven through the `pi-studio` CLI: the engine queues what was
-//! asked, the supervisor runs it off the session's thread and hands back the state reached.
+//! The local daemon ([`supervisor`]) is the `pi-studio` binary the app installs: the engine queues what was
+//! asked, the supervisor makes sure the pinned binary is in place, runs it off the session's thread and hands
+//! back the state reached.
 //!
 //! The HTML documents the page previews ([`preview`]) are held in memory and served to the webview
 //! from a custom scheme of the app, so their scripts can run in a frame isolated from the page.
@@ -47,7 +48,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod cli_answers;
-pub mod cli_find;
 pub mod control;
 pub mod daemons;
 #[cfg(not(target_arch = "wasm32"))]

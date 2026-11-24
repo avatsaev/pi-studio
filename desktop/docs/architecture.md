@@ -81,8 +81,7 @@ Where new code goes, stopping at the first yes:
    through service hooks.
 4. **`Services`** (`crates/shell/src/services.rs`): optional function hooks the app binary fills
    in — `confirm`, `alert`, `open_url`, `pick_save_path` and `pick_files` (the open dialog, several files), built from the dialog and opener
-   plug-ins in `src-tauri/src/services.rs`, and for the CLI `run` (a process with a time limit) and `run_checked` (the same, with the exit status and standard error kept, for `pi-studio update`),
-   `is_executable`, `env`, `home_dir` and `list_dir`, built from `shell::process`. The shell and
+   plug-ins in `src-tauri/src/services.rs`, and for the daemon binary `run` (a process with a time limit), `env`, `home_dir`, `daemon_version` (the version a running daemon reports on `GET /api/health`, `src-tauri/src/daemon_health.rs`) and `installer` (the pinned binary's install: `src-tauri/src/daemon_install.rs` over the `install` crate; the trait `Installer` is the shell's view of it), built from `shell::process`. The shell and
    the engine never call the OS themselves;
    the shell checks first (`links::check`: http, https and mailto only, at most 8,192 characters;
    `dialogs::cap_text`: 8,192 characters). Hooks may block, so the page's commands run them on the
@@ -228,28 +227,44 @@ others, and a `*.corrupt-*` copy keeps that mode. Views (`EntryView`) carry `has
 secret; an SSH entry's view has `address` (`[user@]host[:port]`) and `ssh`. `daemon.list` also carries
 `remote`, the state above for the current SSH entry and `null` otherwise.
 
-**The supervisor** (`crates/shell/src/supervisor.rs`) runs the local daemon through the installed
-`pi-studio` CLI. The engine cannot run a process, so `daemon.local.start`, `.stop`, `.restart` and
-`.refresh` only queue a request and answer `{ accepted: true }`; a background runner thread takes
+**The supervisor** (`crates/shell/src/supervisor.rs`) installs and runs the local daemon's `pi-studio`
+binary. The engine cannot run a process, so `daemon.local.start`, `.stop`, `.restart`, `.refresh` and
+`.update` only queue a request and answer `{ accepted: true }`; a background runner thread takes
 the queue through `LocalAccess` (a few short requests to the owner thread, so storage, the control
-socket and the dialogs keep answering during a start), runs the CLI one call at a time, and hands
-the resulting `LocalState` back as a state change. A launch queues one refresh and does not wait
-for it; the state is `checking` until it ends. To find the CLI it reads the environment of the
-user's login shell once per run (`$SHELL -l -i -c`, random markers around `env`, 5 s limit, the
-app's own environment on failure; Retry reads it again), then looks at `PATH` and the
-per-user and system install directories of npm and the Node version managers
-(`cli_find.rs`); one that is not found is `failed(spawn_failed)`, as one that cannot be run is. A CLI older than 0.0.127 is `outdated` and runs no daemon command. Each
-call has its own limit (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s, `update` 5 min), a
-timed-out process group is killed, and the answer is the last non-empty line of standard output
-read as JSON whatever the exit code. The CLI's `pairingUrl` is discarded where the line is parsed.
-Quitting the app never stops the daemon. On Windows none of this runs (`unsupported`).
+socket and the dialogs keep answering during a start or a download), carries each request out one at a
+time, and hands the resulting `LocalState` back as a state change (`LocalAccess::progress` stores the states a request
+passes through, `apply` its outcome). A launch queues one refresh and does not wait for it; the state is `checking`
+until it ends. The binary is `$PI_STUDIO_HOME/bin/current/pi-studio`: the supervisor reads the environment of the
+user's login shell once per run (`$SHELL -l -i -c`, random markers around `env`, 5 s limit, the app's own
+environment on failure; Retry reads it again), takes `PI_STUDIO_HOME` from it (`shell_env::pi_studio_home`: an
+absolute path, else `~/.pi-studio`) and runs the binary in that environment. **Every request first makes sure the
+pinned binary is installed** (`ensure_binary`, S7): `current/pi-studio --version` (15 s) at or above the pin is used
+as it is, so a newer binary is never replaced (P11); otherwise the pin is installed through `Services::installer`:
+`versions/<pin>` already there and answering the pin is switched to (no download), else the archive comes from the
+cache or a download (`downloading {received, total}`, stored at most every 250 ms, then `installing`), is checked
+against the pin's SHA-256, unpacked and switched in. A failed download is `failed(download_failed)`; an archive
+that is not the pinned file is deleted and is `failed(checksum_mismatch)` with nothing unpacked or run; a failed unpack, a
+binary that does not answer the pin, or a `current` that cannot be switched is `failed(install_failed)` with the
+output; a `PI_STUDIO_HOME` that is not a folder is `failed(install_failed)` too. Without an installer (the headless CLI,
+tests) the binary in place is run as it is, and none is `failed(spawn_failed)`. After a Start, Restart or Update that
+reached `running` the installer tidies: version folders other than `current` and the previous one are removed, and the
+archive cache keeps the pin's only. A running daemon older than 0.0.127, which `GET /api/health` tells (`pi-studio daemon status` has no
+version), is `outdated {version}`: that is how an npm daemon that was running before the app is found, through the binary's
+`daemon status` (the PID file and the folder are shared), and used as it is when it is current. Each call has its own
+limit (`--version` 15 s, `status` 5 s, `start` and `restart` 90 s, `stop` 15 s; a download has a 60 s stall limit and no
+total), a timed-out process group is killed, and the answer is the last non-empty line of standard output read as JSON
+whatever the exit code. The binary's `pairingUrl` is discarded where the line is parsed. `daemon_resolve_current`
+waits for a local daemon that is changing state for the longest call plus 10 s after the last sign of life, so it waits
+for a download however long it takes. Quitting the app never stops the daemon. On Windows none of this runs
+(`unsupported`).
 
 **Updating the local daemon.** `daemon.local.update` is enabled when the state is `outdated`,
-`stopped` or `failed` with `download_failed`, `checksum_mismatch` or `install_failed`, the retry (otherwise `command.list` gives the reason). The supervisor runs `pi-studio update` (5 min,
-through `run_checked`; the state is `updating`), without reading its output (an outdated CLI's
-format is unknown); a non-zero exit, a timeout or no process keeps the last 20 lines (2000
-characters, control characters removed) as `failed(install_failed)` with `output`. Then it reads
-`--version` (still below the minimum: `outdated`) and starts the daemon as Start does.
+`stopped` or `failed` with `download_failed`, `checksum_mismatch` or `install_failed`, the retry (otherwise `command.list`
+gives the reason). The supervisor (state `updating`) stops a running outdated daemon with the binary's `daemon stop`,
+installs the pin when the binary in place is older (as above), and starts the daemon. It is refused (nothing is stopped,
+installed or started; the state is what `daemon status` says) when the binary in place is the pin's or newer and the daemon
+is not outdated: the app never downgrades (P11), and a newer binary moves itself forward. A failed install ends in the
+install's reasons.
 
 **The daemon pin and the local states.** `desktop/daemon-pin.json` is the one `pi-studio` binary version this
 build installs: `{version, assets: {<target>: {url, sha256, size}}}` for `darwin-arm64`, `darwin-x64`,
@@ -266,7 +281,6 @@ workflow's `version` job overwrites the runner's copy from `daemon-updates/lates
 reasons `not_healthy`, `timeout`, `bad_output`, `spawn_failed`, `download_failed`, `checksum_mismatch` and
 `install_failed` (`snake_case` JSON, pinned by tests; the page reads it). The settings are
 `autoStartLocalDaemon` and `checkForUpdates`: an old file's `cliPath` is an unknown field, ignored and kept.
-`downloading`, `installing` and the two download reasons are not produced by anything yet.
 
 **The SSH entry's daemon.** The engine keeps the `RemoteState` of the current SSH entry's daemon in
 memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `cli_outdated`, `starting`, `updating`,
@@ -433,7 +447,7 @@ lives, what runs off the owner thread, which windows exist).
 | Where the UI and its state live | In the workbench, in TypeScript | One UI for the browser and the desktop; the limits that motivate this app are in the browser sandbox, not in the components (`docs/desktop-client-handoff.md` at the repository root) |
 | How the frontend gets the workbench | From source, through Vite aliases to `packages/*/src`, as `packages/web-client` does | A workbench change shows up without building it, and `vite build` needs no package's `dist` |
 | Which host the window uses | The desktop host: the browser host with storage, dialogs, links, save-to-disk, preview, the registry, the transport (`connection.createTransport`, through Rust, for every kind of current entry) and `files` (a picker, uploads and saves through the transfer engine: `src/host/transfers.ts`, chosen once when the host is built from `boot.transfers`) replaced by Rust-backed members; the timers, the view URLs, a dropped file and `--transfers page` stay the browser host's. Outside Tauri, the plain browser host | Rust replaces host members one at a time; the snapshot tool and a dev-server browser have no Rust to ask |
-| Local daemon | Supervise an installed `pi-studio` CLI (`pi-studio --json daemon start\|stop\|restart`); no bundled daemon for now | Cheap, and reuses the CLI's lifecycle code. A daemon that needs no installed CLI was explored on 2026-11-22 (one Bun-compiled executable the app downloads on first use; `swe/architecture/single-binary-daemon.md`) and is not built; Windows has no local daemon (POSIX-only) and connects to remote or WSL2 daemons |
+| Local daemon | The app installs the `pi-studio` binary it is pinned to (`daemon-pin.json`, downloaded on first use into `$PI_STUDIO_HOME/bin/`) and supervises that: `pi-studio --json daemon start\|stop\|restart\|status`; it no longer looks for an installed CLI | The daemon needs no Node and no npm on the machine (`swe/features/single-binary-daemon.md`); the lifecycle code is still the CLI's, in the binary. A newer binary in place is used as it is, and a running npm daemon is found through the binary's `daemon status`. Windows has no local daemon (POSIX-only, no binary) and connects to remote or WSL2 daemons |
 | Where a secret-store call runs | The session never calls the store on the thread that owns it, except at launch. A read is split in two: the session's `plan_dial` (pure, on the owner thread) answers with a `DialPlan` that is already final (`Ready`), names the item to read for a relay entry (`PairingLink { entry }`), or, for a local or direct entry, carries a `BridgePlan` (`Open`: the entry, the address, where the password is); the caller finishes it (`DialPlan::finish(&dyn SecretStore)`) on its own thread, and that reads the store for a pairing link only, never for a password (`Dial::Connect` has no password field: the page is told the address). The supervisor's `OwnerAccess` holds the session's `Arc<dyn SecretStore>` (`Session::secret_store()`). The bridge's dial reads the password the same way: `Session::plan_bridge` answers that `BridgePlan` (entry, url, `BridgePassword::{None, Held, Stored}`) and `BridgePlan::read_password(&dyn SecretStore)` runs on the blocking pool (`OwnerAccess::bridge_plan` / `bridge_password`). Migration of a version 1 `daemons.json` runs once in `Session::with_config_dir`, before the owner thread has answered anything. `daemon.add`, `daemon.update` and `daemon.remove` are split the same way into a `SecretJob`: `Session::plan_secret_command` (pure, validates, builds the job), `SecretJob::store` (the calls that come before the file: set a secret, delete a cleared password; caller's thread), `Session::commit_secret_job` (planned again against the registry as it is then, written; under the lock) and `SecretJob::finish` (the calls after it: a removed entry's items, or taking back an added entry's secret when the file would not write; caller's thread). The owner loop (`shell/src/deferred.rs`) runs the store steps on worker threads and answers the asker when the job is done, so the page, the control socket and `OwnerAccess` need no change; `execute_unlocked(&Mutex<Session>, ..)` does the same for the CLI. `Session::execute` still runs the steps in a row (blocking) for a caller that owns its thread. A delete that fails on remove is logged with the entry id and the store's code, and the answer carries `notices: [{kind: "secret_not_removed", entry}]`; the entry is removed all the same | A keychain call can block on a system prompt, and the owner thread must keep answering storage writes, the control socket and dialogs meanwhile. A plan that names the item keeps the engine free of a thread or a hook it would have to wait on, and the owner never waits: a store that blocks 3 s holds up nothing, and an `add`/`update`/`remove` against a slow store answers other requests meanwhile (`owner_access.rs` tests). A direct entry's page dial makes no store call at all, so a connect asks a keychain once (for `transport_open`), not twice. Committing against the registry as it is then, not as it was planned, keeps two commands that overlap from overwriting each other's file write; the owner loop polls every 20 ms only while a store step is outstanding, and at quit waits up to 30 s for those |
 | A migration the store refuses | The version 1 file is left byte for byte as it was, this run serves its secrets from memory, and one `secrets_not_moved` notice is returned. While they are held, `daemon.add`, `.update` and `.remove` answer `secret_store_failed` and a switch does not rewrite the file | A version 2 file would claim secrets that only this run has: writing it would lose them when the app closes. The next launch tries again |
 | Which secret store a launch uses | `--secret-store keychain\|file`, else the keychain when it can be used, else `secrets.json` in the configuration directory (`shell/src/secret_choice.rs`, shared by the app and its CLI). "Can be used" is a check on a thread of its own, within 2 s in all: the platform store is opened and a missing item read (`KeychainStore::probe`), then a throwaway item (fixed name, deleted at once, also when the launch has stopped waiting) is written and deleted. A refusal, no answer or a failure means the file, with a `secret_store_fallback` notice that names the code (`unavailable`, `denied`, `failed`); `--secret-store keychain` fails the launch instead, naming the option; `file` never touches the keychain. The check starts before the window is built (the keychain's scope depends on the arguments alone) and is collected after the configuration directory is known (the file store needs it); no session opens a directory before that. The kind chosen is `secretStore` in the registry view (`boot`, `daemons_changed`) and in `ui.inspect` (`connection.secretStore`) | The read alone passes on a Secret Service whose default collection is locked or absent, and the first real `set` would then fail with `denied`: only a write finds that out. A prompt (macOS) must not hold up the window, so the wait is bounded and the window opens on the file. Scratch runs pass `file` so that no check writes to a person's keychain |

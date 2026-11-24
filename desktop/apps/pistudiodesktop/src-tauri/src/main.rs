@@ -18,6 +18,8 @@ mod bridge;
 mod commands;
 mod control_server;
 mod crash_guard;
+mod daemon_health;
+mod daemon_install;
 mod daemon_pin;
 mod daemons;
 mod logging;
@@ -210,6 +212,13 @@ fn main() {
     // thread holds the same ones.
     let dialogs = services::Native::new(app.handle(), title.clone());
     let mut services = services::native(&dialogs);
+    // The daemon's binary: the launch's pin, and the archives kept in the app's data folder (S9; in the folder
+    // `--config-dir` names when one is given, so that a scripted run leaves the real folders alone).
+    let data_dir = match args.config_dir.clone().map_or_else(|| app.path().app_data_dir(), Ok) {
+        Ok(dir) => dir,
+        Err(e) => fail(2, format!("cannot find the data directory ({e}); pass --config-dir <DIR>")),
+    };
+    services.installer = Some(Arc::new(daemon_install::LocalInstaller::new(pin.clone(), data_dir.join(daemon_install::ARCHIVE_DIR))));
     // The self-update: the plug-in behind the shell's hook, the shell's state over it (it reads `--update-manifest`),
     // and the runner that begins what the `update.*` commands accept and carries out the schedule.
     services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), update::Env::detect())));

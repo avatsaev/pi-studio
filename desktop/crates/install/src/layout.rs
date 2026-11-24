@@ -77,8 +77,16 @@ pub fn prune(bin_dir: &Path, keep: &[&str]) -> io::Result<()> {
 }
 
 /// Makes `current` point to `versions/<version>`: a link `current.new` is made beside it and renamed over it, so a
-/// reader sees the old target or the new one, never none.
-pub(crate) fn switch_current(bin_dir: &Path, version: &str) -> io::Result<()> {
+/// reader sees the old target or the new one, never none. For a version folder that is already installed (the app
+/// uses it when the pinned version is in `versions/` and `current` points elsewhere); [`crate::install_version`] calls
+/// it after unpacking.
+///
+/// # Errors
+/// `InvalidInput` for a version that is not one plain file name; otherwise the link could not be made or renamed.
+pub fn switch_current(bin_dir: &Path, version: &str) -> io::Result<()> {
+    if !is_plain_name(version) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "the version is not a plain name"));
+    }
     let staging = bin_dir.join(CURRENT_NEW);
     match fs::remove_file(&staging) {
         Ok(()) => {}
@@ -189,6 +197,15 @@ mod tests {
             reader.join().unwrap();
             assert!(reads.load(Ordering::Relaxed) >= 200, "the reader looked while the switches ran");
         });
+    }
+
+    #[test]
+    fn the_switch_refuses_a_version_that_is_not_a_plain_name() {
+        let bin = tempfile::tempdir().unwrap();
+        for bad in ["", "..", "a/b", "../x"] {
+            assert_eq!(switch_current(bin.path(), bad).unwrap_err().kind(), io::ErrorKind::InvalidInput, "{bad}");
+        }
+        assert!(!bin.path().join("current").exists() && !bin.path().join("current.new").exists());
     }
 
     #[test]

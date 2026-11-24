@@ -60,6 +60,14 @@ describe("lifecycleReactions", () => {
     expect(react(updating, { local: "failed" })).toEqual([]);
   });
 
+  it("connects when a download or an install ends in a running local daemon and the window is connected to nothing", () => {
+    for (const local of ["downloading", "installing"] as const) {
+      const installing: LifecycleFacts = { ...LOCAL_UP, local, status: "idle" };
+      expect(react(installing, { local: "running" }), local).toEqual([{ kind: "connect" }]);
+      expect(react(installing, { local: "failed" }), local).toEqual([]);
+    }
+  });
+
   it("does not connect for a restart, a daemon started elsewhere, or another entry kind", () => {
     expect(react({ ...LOCAL_UP, local: "starting" }, { local: "running" })).toEqual([]);
     expect(react({ ...LOCAL_UP, local: "stopped", status: "idle" }, { local: "running" })).toEqual(

@@ -53,29 +53,58 @@ pub enum RunFailure {
 /// CLI's answer is in its output. Blocks until the program ends or its limit passes.
 pub type RunHook = Arc<dyn Fn(&RunSpec) -> Result<String, RunFailure> + Send + Sync>;
 
-/// What a program that ran to its end left: whether it exited with success, and its standard output
-/// and error together, as they arrived (lossy UTF-8).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CheckedOutput {
-    pub success: bool,
-    pub output: String,
-}
-
-/// Like [`RunHook`], for a program whose success matters and whose output is read by a person, not
-/// parsed (`pi-studio update`). Blocks until the program ends or its limit passes.
-pub type RunCheckedHook = Arc<dyn Fn(&RunSpec) -> Result<CheckedOutput, RunFailure> + Send + Sync>;
-
-/// Whether the path is a file the user may run.
-pub type IsExecutableHook = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
-
 /// The environment of the app's own process.
 pub type EnvHook = Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
 
 /// The user's home directory.
 pub type HomeDirHook = Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>;
 
-/// The entries of a directory (full paths); empty when it cannot be read.
-pub type ListDirHook = Arc<dyn Fn(&Path) -> Vec<PathBuf> + Send + Sync>;
+/// The version the daemon listening on `host:port` (the address the supervisor connects to) reports on its health
+/// endpoint; `None` when it cannot be read within a few seconds. The app fills it with an HTTP request to the
+/// loopback; the shell holds no socket. Blocks.
+pub type DaemonVersionHook = Arc<dyn Fn(&str, u16) -> Option<String> + Send + Sync>;
+
+/// What an install of the pinned daemon binary failed with, as the local daemon's states name it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstallFailure {
+    /// The archive could not be fetched (no network, a refused or stalled download, a disk that cannot hold it):
+    /// `download_failed`.
+    Download,
+    /// The archive is not the pinned file; it was deleted and nothing of it was run: `checksum_mismatch`.
+    Checksum,
+    /// The archive could not be unpacked, or its program does not answer the pinned version, or `current` could not be
+    /// switched: `install_failed`. `output` is what the unpacked program printed, when it ran.
+    Install { output: Option<String> },
+}
+
+/// How far an install has come.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallProgress {
+    /// Bytes received of the archive's size, reported on every piece (the supervisor throttles what the page sees).
+    Downloading { received: u64, total: u64 },
+    /// The archive is complete and verified; it is being unpacked and checked.
+    Installing,
+}
+
+/// The daemon installer, behind the shell's one view of it: `crates/install` is above the shell, so the app fills this
+/// hook with an object over that crate and over the launch's pin. Every method blocks (a download takes as long as the
+/// link needs): whoever calls it ([`crate::supervisor`]) must not own the session.
+pub trait Installer: Send + Sync {
+    /// The pinned version.
+    fn version(&self) -> &str;
+
+    /// Whether `<bin_dir>/versions/<pinned version>` already holds a program that answers the pinned version; when it
+    /// does, `current` is switched to it and `true` is answered, with no download.
+    fn adopt_installed(&self, bin_dir: &Path) -> bool;
+
+    /// Fetch the pinned archive (the cache, or a download), check it, unpack it into `<bin_dir>/versions/<version>`
+    /// and switch `current` to it. Reports its progress; nothing of an archive that failed its checksum is run.
+    fn install(&self, bin_dir: &Path, progress: &mut dyn FnMut(InstallProgress)) -> Result<(), InstallFailure>;
+
+    /// After a start that left the daemon running: remove the version folders other than `current` and the previous
+    /// one, and every archive of the cache but the pin's. Best effort.
+    fn tidy(&self, bin_dir: &Path);
+}
 
 /// What the app's proxied daemon connections look like now, for `ui.inspect`
 /// (`connection.transports`, `connection.lastError`). Runs on the thread that owns the session:
@@ -132,14 +161,17 @@ pub struct Services {
     pub pick_save_path: Option<PickSavePathHook>,
     pub pick_files: Option<PickFilesHook>,
     pub run: Option<RunHook>,
-    pub run_checked: Option<RunCheckedHook>,
-    pub is_executable: Option<IsExecutableHook>,
     pub env: Option<EnvHook>,
     pub home_dir: Option<HomeDirHook>,
-    pub list_dir: Option<ListDirHook>,
     pub transports: Option<TransportsHook>,
     pub transfers: Option<TransfersHook>,
     pub remote_run: Option<RemoteRunHook>,
+    /// The daemon binary's installer (the pin, the archive cache, the download). Missing in the headless CLI
+    /// and in tests that run a binary that is already in place: the supervisor then runs `current/pi-studio` as it
+    /// finds it and installs nothing.
+    pub installer: Option<Arc<dyn Installer>>,
+    /// The version a running local daemon reports; without it a running daemon is never `outdated`.
+    pub daemon_version: Option<DaemonVersionHook>,
     /// The self-update: the plug-in behind [`crate::update::Updater`]. Missing in the browser
     /// build and in tests that do not drive an update: every update action is then refused.
     pub updater: Option<Arc<dyn crate::update::UpdaterHook>>,

@@ -109,7 +109,7 @@ describe("daemonSwitcherView", () => {
     expect(view.action).toMatchObject({ label: "Retry", intent: "retry", disabled: false });
   });
 
-  it("offers no Retry for a stopped local daemon or a missing CLI", () => {
+  it("offers no Retry for a stopped local daemon or one that is not available", () => {
     for (const local of [{ state: "stopped" }, { state: "unsupported" }] as const) {
       const view = daemonSwitcherView({
         snapshot: snapshot("local", local),
@@ -117,6 +117,50 @@ describe("daemonSwitcherView", () => {
         error: null,
       });
       expect(view.action).toBeNull();
+    }
+  });
+
+  it("says what the local daemon's install is doing, drawn as busy with no button", () => {
+    const cases: [LocalDaemonState, string][] = [
+      [{ state: "downloading", received: 21, total: 50 }, "Downloading the daemon · 42 %"],
+      [{ state: "downloading", received: 21, total: 0 }, "Downloading the daemon"],
+      [{ state: "installing" }, "Installing the daemon"],
+    ];
+    for (const [local, label] of cases) {
+      const view = daemonSwitcherView({
+        snapshot: snapshot("local", local),
+        status: "idle",
+        error: null,
+      });
+      expect(view.statusLabel).toBe(label);
+      expect(view.title).toBe(`This computer · ${label}`);
+      expect(view.kind).toBe("connecting");
+      expect(view.action).toBeNull();
+    }
+  });
+
+  it("draws a failed download or install as an error with Retry, and an outdated daemon likewise", () => {
+    const cases: [LocalDaemonState, string][] = [
+      [{ state: "failed", reason: "download_failed" }, "The download failed"],
+      [
+        { state: "failed", reason: "checksum_mismatch" },
+        "The file did not match its checksum and was deleted",
+      ],
+      [
+        { state: "failed", reason: "install_failed", output: "unpack: refused" },
+        "Installing the daemon failed",
+      ],
+      [{ state: "outdated", version: "0.0.100" }, "The pi-studio daemon 0.0.100 is too old"],
+    ];
+    for (const [local, label] of cases) {
+      const view = daemonSwitcherView({
+        snapshot: snapshot("local", local),
+        status: "idle",
+        error: null,
+      });
+      expect(view.kind).toBe("error");
+      expect(view.statusLabel).toBe(label);
+      expect(view.action).toMatchObject({ label: "Retry", intent: "retry" });
     }
   });
 

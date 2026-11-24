@@ -10,8 +10,8 @@
 // stand-in daemon, the resume signal, and the Credential Manager.
 //
 // The same checks run on Linux in `rehearse-webdriver` mode against WebKitWebDriver, to try the
-// script without a Windows machine; there the local daemon is `cli_missing` and the process
-// checks are skipped.
+// script without a Windows machine; there the local entry is not `unsupported` (the app installs the pinned daemon), so that
+// check is skipped, and so are the process checks.
 
 // What the first runs on a runner showed (windows-latest, WebView2 157, 2026-11-20, pull request #59):
 //  - `tauri:options.args` reaches msedgedriver as `ms:edgeOptions.args` and the app starts with them.
@@ -73,10 +73,6 @@ export class WindowsRun {
     this.driver = null;
     this.sessions = [];
     this.imageName = path.basename(app);
-  }
-
-  get expectedLocal() {
-    return this.flavor === "windows" ? "unsupported" : "cli_missing";
   }
 
   scratch(name) {
@@ -179,17 +175,19 @@ async function bootCheck(run, session, boot) {
 
 /** Registry 1: the local daemon is `unsupported` (Windows), the Daemons screen explains it and offers no Start. */
 async function localStateCheck(run, session, boot) {
-  const expected = run.expectedLocal;
-  await run.report.run("registry.windows.local-unsupported", `the local entry is ${expected}, the Daemons screen explains it and has no Start`, async ({ note }) => {
+  await run.report.run("registry.windows.local-unsupported", "the local entry is unsupported, the Daemons screen explains it and has no Start", async ({ note }) => {
+    // The rehearsal on Linux runs a machine that has a daemon binary: the app would download the pinned one the first time it
+    // needs the local daemon, which a rehearsal does not do (it has no scratch home for it).
+    if (run.flavor !== "windows") throw new Skip("only a Windows machine has an unsupported local entry; on Linux the local entry installs the pinned daemon");
     const state = boot.daemons?.local?.state;
-    if (state !== expected) throw new Error(`boot says the local daemon is ${JSON.stringify(boot.daemons?.local)}, expected ${expected}`);
+    if (state !== "unsupported") throw new Error(`boot says the local daemon is ${JSON.stringify(boot.daemons?.local)}, expected unsupported`);
     await showDaemonsScreen(session, "This machine");
     const text = await bodyText(session);
-    const wanted = expected === "unsupported" ? ["Not available on this system", "Running a daemon on this machine needs"] : ["The pi-studio CLI was not found"];
+    const wanted = ["Not available on this system", "Running a daemon on this machine needs"];
     const missing = wanted.filter((fragment) => !text.includes(fragment));
     if (missing.length > 0) throw new Error(`the Daemons screen does not say ${missing.map((m) => JSON.stringify(m)).join(", ")}; it says: ${text.slice(0, 400)}`);
     const buttons = await dialogButtonTexts(session);
-    if (expected === "unsupported" && buttons.includes("Start")) throw new Error(`the Daemons screen has a Start button (buttons: ${buttons.join(", ")})`);
+    if (buttons.includes("Start")) throw new Error(`the Daemons screen has a Start button (buttons: ${buttons.join(", ")})`);
     await session.screenshot(run.shot("02-daemons-screen"));
     note(`the screen says ${wanted.map((w) => JSON.stringify(w)).join(" and ")}; buttons: ${buttons.filter(Boolean).join(", ")}; 02-daemons-screen.png`);
   });

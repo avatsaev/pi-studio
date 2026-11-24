@@ -81,6 +81,13 @@ export class DaemonError extends Error implements DaemonErrorShape {
 const MAX_ENTRIES = 64;
 const DEFAULT_RUNNING: LocalDaemonState = { state: "running", host: "127.0.0.1", port: 7777 };
 const LOCAL_FAILURES = ["unsupported", "outdated"] as const;
+const BUSY_LOCAL: LocalDaemonState["state"][] = [
+  "downloading",
+  "installing",
+  "starting",
+  "stopping",
+  "updating",
+];
 const DEFAULT_DAEMON_PORT = 6767;
 
 function view(entry: StoredEntry): DaemonEntryView {
@@ -231,7 +238,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
     if (busy.includes(local.state)) throw new DaemonError("busy");
   };
   const startAction = async (): Promise<void> => {
-    begin(["starting", "stopping", "updating"]);
+    begin(BUSY_LOCAL);
     setLocal({ state: "starting" });
     pending = runAction();
   };
@@ -383,7 +390,7 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
       start: startAction,
       restart: startAction,
       stop: async () => {
-        begin(["starting", "stopping", "updating"]);
+        begin(BUSY_LOCAL);
         setLocal({ state: "stopping" });
         pending = (async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
@@ -395,9 +402,9 @@ export function createTestDaemons(options: TestDaemonsOptions = {}): TestDaemons
         notify();
       },
       update: async () => {
-        // An outdated CLI is what an update is for: only a busy daemon refuses it.
+        // An outdated daemon is what an update is for: only a busy daemon refuses it.
         if (local.state === "unsupported") throw new DaemonError("unsupported");
-        if (["starting", "stopping", "updating"].includes(local.state)) {
+        if (BUSY_LOCAL.includes(local.state)) {
           throw new DaemonError("busy");
         }
         setLocal({ state: "updating" });

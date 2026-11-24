@@ -35,20 +35,54 @@ export interface LocalNotice {
   output?: string;
 }
 
+export const OUTPUT_MAX_LINES = 8;
+export const OUTPUT_MAX_CHARS = 600;
+
+/**
+ * The tail of what a failed install or update printed, as plain text for the row: the last
+ * `OUTPUT_MAX_LINES` non-empty lines, and at most the last `OUTPUT_MAX_CHARS` characters (cut with
+ * a leading "…"). `undefined` when nothing is left.
+ */
+export function truncateOutput(output: string | undefined): string | undefined {
+  const lines = (output ?? "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "")
+    .slice(-OUTPUT_MAX_LINES);
+  if (lines.length === 0) return undefined;
+  const text = lines.join("\n");
+  return text.length <= OUTPUT_MAX_CHARS ? text : `…${text.slice(-OUTPUT_MAX_CHARS)}`;
+}
+
 /** What the SSH row says under "The update failed": the command to run by hand, and the last lines `pi-studio update` printed. */
 function updateFailedNotice(command: string, output: string | undefined): LocalNotice {
-  const lines = output?.trim();
+  const lines = truncateOutput(output);
   return {
     text: "Run the update yourself, then retry.",
     command,
-    ...(lines ? { output: lines } : {}),
+    ...(lines === undefined ? {} : { output: lines }),
   };
 }
 
-/** What the local row says under a failed download or install: Update tries again, with what the install printed. */
-function installFailedNotice(output: string | undefined): LocalNotice {
-  const lines = output?.trim();
-  return { text: "Update tries the install again.", ...(lines ? { output: lines } : {}) };
+const INSTALL_FAILED_TEXTS: Record<
+  "download_failed" | "checksum_mismatch" | "install_failed",
+  string
+> = {
+  download_failed: "Check the internet connection, then retry.",
+  checksum_mismatch: "The file was not unpacked. Retry downloads it again.",
+  install_failed: "Retry installs the daemon again.",
+};
+
+/** What the local row says under a failed download or install: what Retry does, and what the install printed. */
+function installFailedNotice(
+  reason: keyof typeof INSTALL_FAILED_TEXTS,
+  output: string | undefined,
+): LocalNotice {
+  const lines = truncateOutput(output);
+  return {
+    text: INSTALL_FAILED_TEXTS[reason],
+    ...(lines === undefined ? {} : { output: lines }),
+  };
 }
 
 export interface LocalRowView {
@@ -118,9 +152,13 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
       return detail === undefined ? null : { text: detail };
     }
     case "outdated":
-      return { text: `Found version ${local.version}. Update it, then retry.` };
+      return {
+        text: `Found version ${local.version}. Update installs the version this app was built with and starts it; Retry looks again.`,
+      };
     case "failed":
-      return isInstallFailure(local.reason) ? installFailedNotice(local.output) : null;
+      return isInstallFailure(local.reason)
+        ? installFailedNotice(local.reason, local.output)
+        : null;
     default:
       return null;
   }

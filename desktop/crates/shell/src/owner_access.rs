@@ -109,6 +109,12 @@ impl LocalAccess for OwnerAccess {
         self.ask(LocalOp::Take).map(|value| daemons::batch_from_json(&value)).unwrap_or_default()
     }
 
+    fn progress(&self, state: LocalState) {
+        if let Err(e) = self.ask(LocalOp::Progress(state)) {
+            log::warn!("local daemon: the progress could not be stored: {e}");
+        }
+    }
+
     fn apply(&self, state: LocalState) {
         if let Err(e) = self.ask(LocalOp::Apply(state)) {
             log::warn!("local daemon: the outcome could not be stored: {e}");
@@ -162,11 +168,12 @@ mod tests {
         session.set_local_state(LocalState::Stopped);
         let (access, _worker) = running_owner(AppShell::new(session, Services::default()));
         // No process hooks: the probe fails at once, and the outcome lands in the session.
-        let supervisor = Supervisor::with_env(Services::default(), Limits::default(), vec![]);
+        let env = vec![("PI_STUDIO_HOME".to_owned(), "/nonexistent/pi-studio-home".to_owned())];
+        let supervisor = Supervisor::with_env(Services::default(), Limits::default(), env);
         Supervisor::probe_now(&access).unwrap();
         assert_eq!(supervisor.pump(&access), 1);
         assert_eq!(supervisor.pump(&access), 0);
-        // The CLI that could not be run is the state reached, so the next batch re-reads the environment.
+        // The binary that could not be run is the state reached, so the next batch re-reads the environment.
         assert_eq!(access.ask(LocalOp::Request("daemon.list".into())), Ok(Value::Null));
         assert_eq!(access.take(), Batch { requests: vec![], refresh_env: true });
     }
@@ -251,9 +258,12 @@ mod tests {
         use std::time::Instant;
 
         let dir = tempfile::tempdir().unwrap();
-        let cli = dir.path().join("pi-studio");
+        let version = dir.path().join("bin").join("versions").join("fake");
+        std::fs::create_dir_all(&version).unwrap();
+        let cli = version.join("pi-studio");
         std::fs::write(&cli, include_str!("../tests/fixtures/fake-pi-studio.sh")).unwrap();
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink("versions/fake", dir.path().join("bin").join("current")).unwrap();
         let mut session = Session::new();
         session.set_local_supported(true);
         session.execute("daemon.local.start", json!({})).unwrap();
@@ -262,7 +272,8 @@ mod tests {
         let mut app = AppShell::new(session, Services::default());
         let worker = std::thread::spawn(move || owner::serve(&mut app, &rx, Duration::from_secs(3600)));
         let env = vec![
-            ("PATH".to_owned(), format!("{}:/usr/bin:/bin", dir.path().display())),
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("PI_STUDIO_HOME".to_owned(), dir.path().display().to_string()),
             ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string()),
             ("FAKE_PI_MODE".to_owned(), "slow".to_owned()),
         ];

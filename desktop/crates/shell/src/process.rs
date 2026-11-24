@@ -11,7 +11,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::services::{CheckedOutput, RunFailure, RunSpec};
+use crate::services::{RunFailure, RunSpec};
 
 /// How often the limit is checked.
 const POLL: Duration = Duration::from_millis(10);
@@ -21,13 +21,7 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(200);
 
 /// Run `spec` and return its standard output. Standard input and error are closed.
 pub fn run(spec: &RunSpec) -> Result<String, RunFailure> {
-    run_with(spec, false).map(|checked| checked.output)
-}
-
-/// Run `spec` and return whether it exited with success and its standard output and error
-/// together, in the order they arrived. Standard input is closed.
-pub fn run_checked(spec: &RunSpec) -> Result<CheckedOutput, RunFailure> {
-    run_with(spec, true)
+    run_with(spec)
 }
 
 fn pump(mut source: impl Read + Send + 'static, chunks: std::sync::mpsc::Sender<Vec<u8>>) {
@@ -42,10 +36,10 @@ fn pump(mut source: impl Read + Send + 'static, chunks: std::sync::mpsc::Sender<
     });
 }
 
-fn run_with(spec: &RunSpec, with_stderr: bool) -> Result<CheckedOutput, RunFailure> {
+fn run_with(spec: &RunSpec) -> Result<String, RunFailure> {
     let mut command = Command::new(&spec.program);
     command.args(&spec.args).env_clear().envs(spec.env.iter().map(|(k, v)| (k, v))).stdin(Stdio::null()).stdout(Stdio::piped());
-    command.stderr(if with_stderr { Stdio::piped() } else { Stdio::null() });
+    command.stderr(Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -85,8 +79,9 @@ fn run_with(spec: &RunSpec, with_stderr: bool) -> Result<CheckedOutput, RunFailu
             return Err(RunFailure::TimedOut);
         }
     }
-    let success = child.wait().is_ok_and(|status| status.success());
-    Ok(CheckedOutput { success, output: String::from_utf8_lossy(&output).into_owned() })
+    // Reaped either way: the output is the answer.
+    let _ = child.wait();
+    Ok(String::from_utf8_lossy(&output).into_owned())
 }
 
 fn wait_until(child: &mut std::process::Child, deadline: Instant) -> bool {
@@ -116,15 +111,7 @@ fn kill_tree(child: &mut std::process::Child) {
 /// Every process hook filled from this module; the dialog and link hooks are the app's own.
 pub fn native_services() -> crate::Services {
     use std::sync::Arc;
-    crate::Services {
-        run: Some(Arc::new(run)),
-        run_checked: Some(Arc::new(run_checked)),
-        is_executable: Some(Arc::new(is_executable)),
-        env: Some(Arc::new(process_env)),
-        home_dir: Some(Arc::new(home_dir)),
-        list_dir: Some(Arc::new(list_dir)),
-        ..crate::Services::default()
-    }
+    crate::Services { run: Some(Arc::new(run)), env: Some(Arc::new(process_env)), home_dir: Some(Arc::new(home_dir)), ..crate::Services::default() }
 }
 
 /// A regular file with an execute bit (Unix), or a file (elsewhere).
@@ -152,11 +139,6 @@ pub fn process_env() -> Vec<(String, String)> {
 /// `HOME` (or `USERPROFILE`), when set and not empty.
 pub fn home_dir() -> Option<PathBuf> {
     ["HOME", "USERPROFILE"].iter().find_map(|name| std::env::var_os(name).filter(|v| !v.is_empty())).map(PathBuf::from)
-}
-
-/// The entries of a directory, full paths; empty when it cannot be read.
-pub fn list_dir(path: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(path).map(|entries| entries.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default()
 }
 
 #[cfg(all(test, unix))]

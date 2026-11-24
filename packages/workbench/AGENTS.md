@@ -521,7 +521,7 @@ src/
                             DaemonsScreen.tsx (modal, mounted once in WorkspaceShell; open state and
                             banner from `useDaemonsStore`; `local.refresh()` once per opening),
                             daemons-screen-view.ts (pure: rows and their actions, the local row's
-                            state/actions/notice, `bannerView`, CLI-path field rules, and
+                            state/actions/notice, `truncateOutput`, `bannerView`, and
                             `secretStoreNote` — `FILE_SECRET_STORE_NOTE` when `snapshot.secretStore`
                             is `"file"`, `null` for `"keychain"` or an absent field; drawn as one
                             muted line under the settings) (+ test),
@@ -540,7 +540,8 @@ src/
                             link no longer valid" on `wrong_key`, clear it on connect or a saved new
                             link; `local.refresh()` once per dropped local connection, except while a
                             restart is expected (`restartExpected`); the page connects when the local
-                            entry reaches `running` from `starting` or `updating`; a restart
+                            entry reaches `running` from `starting`, `updating`, `downloading` or
+                            `installing`; a restart
                             changes nothing; `watchDaemonLifecycle` applies it and opens the screen on
                             `onManageRequest`) (+ test), use-daemon-lifecycle.ts (mounted once in
                             WorkspaceShell). Stop on the current local entry while connected asks
@@ -567,12 +568,25 @@ src/
                             DUPLICATES the Rust `MIN_CLI_VERSION` (`desktop/crates/shell/src/cli_answers.rs`):
                             change both together. `runRemoteAction` calls `remote.start/refresh/update`.
                             Update (daemon self-update, desktop only): the local row offers Update
-                            beside Retry for `cli_outdated` (the npm command stays) and beside Start for
-                            `stopped`; an SSH row the same (`REMOTE_UPDATE`); `updating` is a busy row
-                            with a spinner and no actions; `failed`/`update_failed` reads "The update
-                            failed", offers Update and Retry, and shows the command to run by hand plus
-                            the update's last lines (`LocalNotice.output`, a `<pre>`, from the state's
-                            `output`). `runLocalAction(daemons, "update")` calls `local.update()`.
+                            beside Retry for `outdated` and beside Start for `stopped`; an SSH row the
+                            same (`REMOTE_UPDATE`, for `cli_outdated` and `stopped`); `updating` is a
+                            busy row with a spinner and no actions; SSH `failed`/`update_failed` reads
+                            "The update failed", offers Update and Retry, and shows the command to run
+                            by hand plus the update's last lines (`LocalNotice.output`, a `<pre>`, from
+                            the state's `output`, cut by `truncateOutput` to the last 8 lines and 600
+                            characters). `runLocalAction(daemons, "update")` calls `local.update()`.
+                            The local row's install states (single-binary daemon, S10): `downloading`
+                            "Downloading the daemon · 42 %" (no percentage while `total` is 0),
+                            `installing` "Installing the daemon", both busy with no actions;
+                            `outdated` "The pi-studio daemon X is too old" with Update and Retry
+                            (probe); every `failed` reason has Retry only (`local.start()`, which
+                            installs the pinned binary first when it is missing): `download_failed`
+                            "The download failed", `checksum_mismatch` "The file did not match its
+                            checksum and was deleted", `install_failed` "Installing the daemon failed"
+                            with the install's last lines under it; `spawn_failed`/`bad_output` read
+                            "The daemon could not be run" / "The daemon printed something unexpected".
+                            There is no CLI-missing view and no `cliPath` setting; the switcher shows
+                            the same labels (an error with Retry for `failed`/`outdated`).
                             `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
                             entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
                             (`remoteNeedsScreen`, also on mount); the workbench still never starts a

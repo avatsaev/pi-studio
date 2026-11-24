@@ -37,6 +37,10 @@ function kinds(state: LocalDaemonState): string[] {
   return localStateView(state).actions.map((a) => a.kind);
 }
 
+function downloadingLabel(received: number, total: number): string {
+  return localStateView({ state: "downloading", received, total }).label;
+}
+
 function actions(state: RemoteDaemonState): string[] {
   return remoteStateView(state).actions.map((a) => `${a.kind}:${a.call}`);
 }
@@ -134,12 +138,12 @@ describe("localStateView", () => {
     expect(localStateView({ state: "starting" }).label).toBe("Starting…");
     expect(localStateView({ state: "outdated", version: "0.0.100" }).label).toContain("0.0.100");
     expect(localStateView({ state: "downloading", received: 1024, total: 2048 }).label).toBe(
-      "Downloading the daemon… 50%",
+      "Downloading the daemon · 50 %",
     );
     expect(localStateView({ state: "downloading", received: 0, total: 0 }).label).toBe(
-      "Downloading the daemon…",
+      "Downloading the daemon",
     );
-    expect(localStateView({ state: "installing" }).label).toBe("Installing the daemon…");
+    expect(localStateView({ state: "installing" }).label).toBe("Installing the daemon");
   });
 
   it("offers Start when stopped, Stop and Restart when running, Retry when something failed", () => {
@@ -162,43 +166,65 @@ describe("localStateView", () => {
     expect(kinds({ state: "downloading", received: 1, total: 2 })).toEqual([]);
   });
 
-  it("points Retry at a probe for an outdated daemon and a failed install, and at a start for a failed start", () => {
+  it("points Retry at a probe for an outdated daemon and at a start for every failure", () => {
     expect(localStateView({ state: "outdated", version: "0.0.1" }).actions[1]?.call).toBe(
       "refresh",
     );
-    expect(localStateView({ state: "failed", reason: "install_failed" }).actions[1]?.call).toBe(
-      "refresh",
-    );
-    expect(localStateView({ state: "failed", reason: "bad_output" }).actions[0]?.call).toBe(
-      "start",
-    );
+    for (const reason of [
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "spawn_failed",
+      "download_failed",
+      "checksum_mismatch",
+      "install_failed",
+    ] as const) {
+      expect(localStateView({ state: "failed", reason }).actions, reason).toEqual([
+        { kind: "retry", label: "Retry", call: "start" },
+      ]);
+    }
   });
 
-  it("offers Update for an outdated daemon and a stopped one, and after a failed download or install", () => {
+  it("offers Update for an outdated daemon and a stopped one, and only Retry after a failed download or install", () => {
     expect(kinds({ state: "outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
     expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
     for (const reason of ["download_failed", "checksum_mismatch", "install_failed"] as const) {
-      expect(kinds({ state: "failed", reason, output: "x" }), reason).toEqual(["update", "retry"]);
+      expect(kinds({ state: "failed", reason, output: "x" }), reason).toEqual(["retry"]);
     }
     expect(localStateView({ state: "outdated", version: "0.0.1" }).actions[0]?.call).toBe("update");
   });
 
-  it("shows a busy row without actions while updating, and words a failed install", () => {
+  it("shows a busy row without actions while updating", () => {
     expect(localStateView({ state: "updating" })).toEqual({
       label: "Updating…",
       tone: "busy",
       actions: [],
     });
+  });
+
+  it("words a failed download, checksum and install in plain words", () => {
     expect(localStateView({ state: "failed", reason: "download_failed" })).toMatchObject({
-      label: "The daemon could not be downloaded",
+      label: "The download failed",
       tone: "error",
     });
-    expect(localStateView({ state: "failed", reason: "checksum_mismatch" }).label).toContain(
-      "checksum",
+    expect(localStateView({ state: "failed", reason: "checksum_mismatch" }).label).toBe(
+      "The file did not match its checksum and was deleted",
     );
-    expect(localStateView({ state: "failed", reason: "install_failed" }).label).toContain(
-      "installed",
+    expect(
+      localStateView({ state: "failed", reason: "install_failed", output: "unpack: refused" })
+        .label,
+    ).toBe("Installing the daemon failed");
+    expect(localStateView({ state: "failed", reason: "spawn_failed" }).label).toBe(
+      "The daemon could not be run",
     );
+  });
+
+  it("says Downloading the daemon with a whole percentage, capped at 100, and none for an unknown size", () => {
+    expect(downloadingLabel(0, 100)).toBe("Downloading the daemon · 0 %");
+    expect(downloadingLabel(42_999, 100_000)).toBe("Downloading the daemon · 42 %");
+    expect(downloadingLabel(100, 100)).toBe("Downloading the daemon · 100 %");
+    expect(downloadingLabel(150, 100)).toBe("Downloading the daemon · 100 %");
+    expect(downloadingLabel(5, 0)).toBe("Downloading the daemon");
   });
 
   it("flags failures as errors and a stopped daemon as neutral", () => {

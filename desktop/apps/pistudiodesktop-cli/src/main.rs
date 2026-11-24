@@ -101,9 +101,10 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
                 None => Session::new(),
             };
-            // Local daemon commands are carried out here, with the real CLI, as the app does: the
-            // state is probed before the first of them, and every request is run to completion
-            // before the next step.
+            // Local daemon commands are carried out here, with the binary under PI_STUDIO_HOME, as
+            // the app does, but without an installer (this tool never downloads: no binary in
+            // place is `failed(spawn_failed)`): the state is probed before the first of them, and
+            // every request is run to completion before the next step.
             let supervisor = Supervisor::new(native_services(), Limits::default());
             session.set_local_supported(cfg!(unix));
             let session = Mutex::new(session);

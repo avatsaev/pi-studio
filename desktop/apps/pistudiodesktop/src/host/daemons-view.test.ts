@@ -119,6 +119,23 @@ describe("parseDaemonsView local states", () => {
     expect(parseDaemonsView({ ...VIEW, local })).toBeNull();
   });
 
+  it.each([
+    { state: "unsupported" },
+    { state: "checking" },
+    { state: "stopped" },
+    { state: "starting" },
+    { state: "stopping" },
+    { state: "running", host: "127.0.0.1", port: 7777 },
+    { state: "downloading", received: 1024, total: 67_980_464 },
+    { state: "installing" },
+    { state: "outdated", version: "0.0.118" },
+    ...["not_healthy", "timeout", "bad_output", "spawn_failed", "download_failed", "checksum_mismatch", "install_failed"].map(
+      (reason) => ({ state: "failed", reason }),
+    ),
+  ])("keeps the local state %j exactly as the app serializes it", (local) => {
+    expect(parseDaemonsView({ ...VIEW, local })?.local).toEqual(local);
+  });
+
   it("keeps a failed install with its output, or without", () => {
     const output = "unpack: refused";
     const failed = { state: "failed", reason: "install_failed" };

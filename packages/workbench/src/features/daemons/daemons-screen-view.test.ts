@@ -14,7 +14,10 @@ import {
   buildDaemonsScreenView,
   FILE_SECRET_STORE_NOTE,
   LINK_INVALID_LABEL,
+  OUTPUT_MAX_CHARS,
+  OUTPUT_MAX_LINES,
   settingsFailureText,
+  truncateOutput,
 } from "./daemons-screen-view.js";
 import { type DaemonsSnapshot } from "./use-daemons.js";
 
@@ -207,13 +210,13 @@ describe("the local row", () => {
 
   it("shows a busy row without actions while the daemon is downloaded and installed", () => {
     expect(localRow({ state: "downloading", received: 1, total: 4 })).toMatchObject({
-      label: "Downloading the daemon… 25%",
+      label: "Downloading the daemon · 25 %",
       tone: "busy",
       actions: [],
       notice: null,
     });
     expect(localRow({ state: "installing" })).toMatchObject({
-      label: "Installing the daemon…",
+      label: "Installing the daemon",
       tone: "busy",
       actions: [],
       notice: null,
@@ -237,29 +240,67 @@ describe("the local row", () => {
     expect(row).toMatchObject({ label: "Updating…", tone: "busy", actions: [], notice: null });
   });
 
-  it("shows the last lines of a failed install, and Update", () => {
+  it("shows what a failed install printed, and offers Retry only", () => {
     const row = localRow({
       state: "failed",
       reason: "install_failed",
       output: "\nunpack: refused\n",
     });
-    expect(row.label).toBe("The daemon could not be installed");
+    expect(row.label).toBe("Installing the daemon failed");
+    expect(row.tone).toBe("error");
     expect(row.notice).toEqual({
-      text: "Update tries the install again.",
+      text: "Retry installs the daemon again.",
       output: "unpack: refused",
     });
-    expect(row.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+    expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
   });
 
-  it("shows a failed download or checksum as a plain notice, and Update", () => {
-    for (const reason of ["download_failed", "checksum_mismatch"] as const) {
-      const row = localRow({ state: "failed", reason });
-      expect(row.notice, reason).toEqual({ text: "Update tries the install again." });
-      expect(
-        row.actions.map((a) => a.call),
-        reason,
-      ).toEqual(["update", "refresh"]);
+  it("shows a failed install without output as a plain notice", () => {
+    const row = localRow({ state: "failed", reason: "install_failed" });
+    expect(row.notice).toEqual({ text: "Retry installs the daemon again." });
+  });
+
+  it("shows a failed download and a checksum mismatch in plain words, and offers Retry", () => {
+    const download = localRow({ state: "failed", reason: "download_failed" });
+    expect(download.label).toBe("The download failed");
+    expect(download.notice).toEqual({ text: "Check the internet connection, then retry." });
+    const checksum = localRow({ state: "failed", reason: "checksum_mismatch" });
+    expect(checksum.label).toBe("The file did not match its checksum and was deleted");
+    expect(checksum.notice).toEqual({
+      text: "The file was not unpacked. Retry downloads it again.",
+    });
+    for (const row of [download, checksum]) {
+      expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
     }
+  });
+
+  it("shows no notice for a failed start", () => {
+    expect(localRow({ state: "failed", reason: "spawn_failed" }).notice).toBeNull();
+  });
+});
+
+describe("truncateOutput", () => {
+  it("keeps short output as it is, without blank lines or trailing spaces", () => {
+    expect(truncateOutput("a  \n\n b\n")).toBe("a\n b");
+  });
+
+  it("is undefined for nothing or only blank lines", () => {
+    expect(truncateOutput(undefined)).toBeUndefined();
+    expect(truncateOutput(" \n\n")).toBeUndefined();
+  });
+
+  it("keeps the last lines", () => {
+    const lines = Array.from({ length: OUTPUT_MAX_LINES + 3 }, (_, i) => `line ${i}`);
+    const kept = truncateOutput(lines.join("\n"))?.split("\n");
+    expect(kept).toEqual(lines.slice(-OUTPUT_MAX_LINES));
+  });
+
+  it("keeps the end of a very long text, marked with an ellipsis", () => {
+    const text = `${"x".repeat(OUTPUT_MAX_CHARS)}END`;
+    const kept = truncateOutput(text);
+    expect(kept?.startsWith("…")).toBe(true);
+    expect(kept?.endsWith("END")).toBe(true);
+    expect(kept?.length).toBe(OUTPUT_MAX_CHARS + 1);
   });
 });
 
@@ -302,7 +343,7 @@ describe("the banner", () => {
 
   it("is built into the view from the store's error", () => {
     const view = buildDaemonsScreenView(snapshot({ state: "stopped" }, "local"), "spawn_failed");
-    expect(view.banner?.message).toBe("The pi-studio CLI could not be run.");
+    expect(view.banner?.message).toBe("The daemon could not be run.");
   });
 });
 

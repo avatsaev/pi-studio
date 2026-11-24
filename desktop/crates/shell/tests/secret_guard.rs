@@ -249,14 +249,21 @@ fn no_answer_and_no_log_line_contains_a_secret() {
     assert!(leaks(&format!("{:?}", app.session.registry())).is_none(), "Debug of the registry");
     assert!(seen.len() >= 30, "the sequence ran: {}", seen.len());
 
-    // The supervisor runs a CLI whose answers carry a pairing URL: it reaches no state and no log line.
+    // The supervisor runs a binary whose answers carry a pairing URL: it reaches no state and no log line.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let cli = dir.path().join("pi-studio");
+        let version = dir.path().join("home").join("bin").join("versions").join("fake");
+        std::fs::create_dir_all(&version).expect("version folder");
+        let cli = version.join("pi-studio");
         std::fs::write(&cli, include_str!("fixtures/fake-pi-studio.sh")).expect("write cli");
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        let env = vec![("PATH".to_owned(), format!("{}:/usr/bin:/bin", dir.path().display())), ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string())];
+        std::os::unix::fs::symlink("versions/fake", dir.path().join("home").join("bin").join("current")).expect("current link");
+        let env = vec![
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("PI_STUDIO_HOME".to_owned(), dir.path().join("home").display().to_string()),
+            ("FAKE_PI_DIR".to_owned(), dir.path().display().to_string()),
+        ];
         let supervisor = Supervisor::with_env(process::native_services(), Limits::default(), env);
         for request in [LocalRequest::Probe, LocalRequest::Start, LocalRequest::Restart, LocalRequest::Stop, LocalRequest::Update] {
             let state = supervisor.carry_out(request, false);

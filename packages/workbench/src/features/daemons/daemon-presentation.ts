@@ -18,7 +18,7 @@ export type LocalActionKind = "start" | "stop" | "restart" | "retry" | "update";
 export interface LocalAction {
   kind: LocalActionKind;
   label: string;
-  /** The `HostDaemons.local` member to call: Retry re-probes a missing or outdated CLI and starts a failed daemon again. */
+  /** The `HostDaemons.local` member to call: Retry re-probes an outdated daemon and starts a failed one (installing it first when needed) again. */
   call: "start" | "stop" | "restart" | "refresh" | "update";
 }
 
@@ -35,9 +35,9 @@ export interface LocalStateView {
 const START: LocalAction = { kind: "start", label: "Start", call: "start" };
 const STOP: LocalAction = { kind: "stop", label: "Stop", call: "stop" };
 const RESTART: LocalAction = { kind: "restart", label: "Restart", call: "restart" };
-/** For an outdated daemon or a failed install: look again after the user acted. */
+/** For an outdated daemon: look again after the user updated it by hand. */
 const RETRY_PROBE: LocalAction = { kind: "retry", label: "Retry", call: "refresh" };
-/** For a daemon that failed to start: start it again. */
+/** For a failed start or install: install the pin if it is missing, then start the daemon again. */
 const RETRY_START: LocalAction = { kind: "retry", label: "Retry", call: "start" };
 /** Installs the version the app was built with, then starts the daemon. */
 const UPDATE: LocalAction = { kind: "update", label: "Update", call: "update" };
@@ -47,24 +47,26 @@ type LocalFailReason = Extract<LocalDaemonState, { state: "failed" }>["reason"];
 const FAILED_LABELS: Record<LocalFailReason, string> = {
   not_healthy: "Started, but not answering",
   timeout: "Did not start in time",
-  bad_output: "The pi-studio CLI printed something unexpected",
-  spawn_failed: "The pi-studio CLI could not be run",
-  download_failed: "The daemon could not be downloaded",
-  checksum_mismatch: "The downloaded daemon did not match its checksum",
-  install_failed: "The daemon could not be installed",
+  bad_output: "The daemon printed something unexpected",
+  spawn_failed: "The daemon could not be run",
+  download_failed: "The download failed",
+  checksum_mismatch: "The file did not match its checksum and was deleted",
+  install_failed: "Installing the daemon failed",
 };
 
-/** The failures of installing the daemon, which Update tries again. */
-export function isInstallFailure(reason: LocalFailReason): boolean {
+/** The failures of getting the daemon onto the machine; Retry runs the install again. */
+export function isInstallFailure(
+  reason: LocalFailReason,
+): reason is "download_failed" | "checksum_mismatch" | "install_failed" {
   return (
     reason === "download_failed" || reason === "checksum_mismatch" || reason === "install_failed"
   );
 }
 
-/** "Downloading the daemon…", with the share received when the size is known. */
+/** "Downloading the daemon · 42 %"; no share while the size is unknown. */
 function downloadingLabel(received: number, total: number): string {
-  if (total <= 0) return "Downloading the daemon…";
-  return `Downloading the daemon… ${Math.min(100, Math.floor((received / total) * 100))}%`;
+  if (total <= 0) return "Downloading the daemon";
+  return `Downloading the daemon · ${Math.min(100, Math.floor((received / total) * 100))} %`;
 }
 
 /** `host:port`, bracketing an IPv6 literal. */
@@ -87,7 +89,7 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
     case "downloading":
       return { label: downloadingLabel(state.received, state.total), tone: "busy", actions: [] };
     case "installing":
-      return { label: "Installing the daemon…", tone: "busy", actions: [] };
+      return { label: "Installing the daemon", tone: "busy", actions: [] };
     case "stopped":
       return { label: "Stopped", tone: "neutral", actions: [START, UPDATE] };
     case "starting":
@@ -106,7 +108,7 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
       return {
         label: FAILED_LABELS[state.reason],
         tone: "error",
-        actions: isInstallFailure(state.reason) ? [UPDATE, RETRY_PROBE] : [RETRY_START],
+        actions: [RETRY_START],
       };
   }
 }
@@ -246,11 +248,11 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
   },
   not_healthy: { message: "The daemon started but is not answering." },
   timeout: { message: "The daemon did not start in time." },
-  bad_output: { message: "The pi-studio CLI printed something unexpected." },
-  spawn_failed: { message: "The pi-studio CLI could not be run." },
-  download_failed: { message: "The daemon could not be downloaded." },
-  checksum_mismatch: { message: "The downloaded daemon did not match its checksum." },
-  install_failed: { message: "The daemon could not be installed." },
+  bad_output: { message: "pi-studio printed something unexpected." },
+  spawn_failed: { message: "The daemon could not be run." },
+  download_failed: { message: "The download failed." },
+  checksum_mismatch: { message: "The file did not match its checksum and was deleted." },
+  install_failed: { message: "Installing the daemon failed." },
   secret_missing: {
     message: "The saved password or pairing link for this daemon was not found.",
     detail: "Edit the daemon and enter it again.",

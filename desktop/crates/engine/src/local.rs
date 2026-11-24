@@ -18,7 +18,7 @@ pub enum LocalRequest {
     Stop,
     Restart,
     Probe,
-    /// `pi-studio update`, then the version again, then a start.
+    /// Install the pinned binary (never over a newer one), stopping an outdated daemon first, then start it.
     Update,
 }
 
@@ -194,6 +194,13 @@ impl Session {
     pub fn apply_local_outcome(&mut self, state: LocalState) {
         self.local_queue.busy = false;
         self.local_queue.refreshing = false;
+        self.set_local_state(state);
+        self.mark_changed();
+    }
+
+    /// Store a state the host passes through while it carries a request out (`downloading`, `installing`): the
+    /// registry view is marked as changed and the session stays busy until [`Self::apply_local_outcome`].
+    pub fn apply_local_progress(&mut self, state: LocalState) {
         self.set_local_state(state);
         self.mark_changed();
     }
@@ -475,6 +482,23 @@ mod tests {
         s.set_local_state(LocalState::Outdated { version: "0.0.1".into() });
         s.execute("daemon.local.update", json!({})).unwrap();
         assert_eq!((s.local_state().clone(), s.take_local_requests()), (LocalState::Updating, vec![LocalRequest::Update]));
+        assert_eq!(code(&mut s, "daemon.local.refresh"), "busy");
+        s.apply_local_outcome(LocalState::Stopped);
+        assert!(s.execute("daemon.local.start", json!({})).is_ok());
+    }
+
+    #[test]
+    fn progress_changes_the_state_and_keeps_the_session_busy_until_the_outcome() {
+        let mut s = Session::new();
+        s.set_local_state(LocalState::Stopped);
+        s.execute("daemon.local.start", json!({})).unwrap();
+        s.take_local_requests();
+        let _ = s.take_registry_changed();
+        s.apply_local_progress(LocalState::Downloading { received: 10, total: 100 });
+        assert_eq!(s.local_state(), &LocalState::Downloading { received: 10, total: 100 });
+        assert!(s.take_registry_changed());
+        assert_eq!(code(&mut s, "daemon.local.stop"), "busy");
+        s.apply_local_progress(LocalState::Installing);
         assert_eq!(code(&mut s, "daemon.local.refresh"), "busy");
         s.apply_local_outcome(LocalState::Stopped);
         assert!(s.execute("daemon.local.start", json!({})).is_ok());

@@ -132,8 +132,9 @@ export function daemonSwitcherView(input: {
   } else if (status === "connecting") {
     action = { label: "Connecting…", variant: "default", disabled: true, intent: "retry" };
   } else if (localView) {
-    // The registry can act on a failed local daemon (start it again); on a missing CLI it can only
-    // answer with the reason, which the Daemons screen then shows.
+    // The registry can act on a failed local daemon (start it again, installing it first when it
+    // is missing); on an outdated one it can only answer with the reason, which the Daemons screen
+    // then shows.
     action = localView.tone === "error" && localView.actions.length > 0 ? RETRY : null;
   } else if (connection.kind === "error") {
     action = RETRY;

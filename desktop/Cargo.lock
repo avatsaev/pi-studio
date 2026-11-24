@@ -3767,6 +3767,7 @@ dependencies = [
  "if-addrs",
  "log",
  "pistudiodesktop-engine",
+ "pistudiodesktop-install",
  "pistudiodesktop-model",
  "pistudiodesktop-net",
  "pistudiodesktop-relay",

@@ -130,25 +130,30 @@ fn daemon_commands_work_from_the_cli_and_the_answers_hold_no_secret() {
 
 #[cfg(unix)]
 #[test]
-fn local_daemon_commands_run_the_cli_found_on_the_path() {
+fn local_daemon_commands_run_the_binary_in_pi_studio_home() {
     use std::os::unix::fs::PermissionsExt as _;
     let dir = tempfile::tempdir().unwrap();
-    let write_exec = |name: &str, body: &str| {
-        let path = dir.path().join(name);
+    let write_exec = |path: std::path::PathBuf, body: &str| {
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
     };
-    // Found on the PATH of the environment the shell prints, as a terminal finds it.
-    write_exec("pi-studio", include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    // The binary is where the app installs it: `$PI_STUDIO_HOME/bin/current/pi-studio`, and the home is read from
+    // the environment the shell prints, as a terminal has it.
+    let home = dir.path().join("home");
+    let version = home.join("bin").join("versions").join("fake");
+    std::fs::create_dir_all(&version).unwrap();
+    write_exec(version.join("pi-studio"), include_str!("../../../crates/shell/tests/fixtures/fake-pi-studio.sh"));
+    std::os::unix::fs::symlink("versions/fake", home.join("bin").join("current")).unwrap();
     // A shell that prints the environment the way the app asks for it, without start-up files.
-    let shell = write_exec("shell", "#!/bin/sh\neval \"$4\"\n");
+    let shell = write_exec(dir.path().join("shell"), "#!/bin/sh\neval \"$4\"\n");
     let state = dir.path().join("state");
     std::fs::create_dir(&state).unwrap();
     let config = dir.path().join("config");
     let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
         .env_clear()
-        .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
+        .env("PATH", "/usr/bin:/bin")
+        .env("PI_STUDIO_HOME", &home)
         .env("SHELL", &shell)
         .env("FAKE_PI_DIR", &state)
         .args(["run", "--config-dir", config.to_str().unwrap(), "--secret-store", "file", "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
@@ -160,6 +165,28 @@ fn local_daemon_commands_run_the_cli_found_on_the_path() {
     assert_eq!(lines[0]["result"], serde_json::json!({"accepted": true}));
     assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "running", "host": "127.0.0.1", "port": 6767}), "{stdout}");
     assert!(!stdout.contains("S3CRET") && !stderr.contains("S3CRET"));
+}
+
+/// The headless CLI never downloads: with no binary in `PI_STUDIO_HOME` the local daemon cannot be run.
+#[cfg(unix)]
+#[test]
+fn local_daemon_commands_without_a_binary_in_place_fail_and_download_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config = dir.path().join("config");
+    let out = Command::new(env!("CARGO_BIN_EXE_pistudiodesktop-cli"))
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("PI_STUDIO_HOME", &home)
+        .env("SHELL", "/bin/sh")
+        .args(["run", "--config-dir", config.to_str().unwrap(), "--secret-store", "file", "--cmd", "daemon.local.start", "--cmd", "daemon.list"])
+        .output()
+        .unwrap();
+    let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
+    assert!(out.status.success(), "{stderr}");
+    let lines: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[1]["result"]["local"], serde_json::json!({"state": "failed", "reason": "spawn_failed"}), "{stdout}");
+    assert!(!home.join("bin").exists(), "nothing was installed");
 }
 
 #[test]

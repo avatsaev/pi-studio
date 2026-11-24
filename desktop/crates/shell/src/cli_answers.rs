@@ -1,4 +1,4 @@
-//! Reading what the `pi-studio` CLI prints: pure functions, no process in sight.
+//! Reading what the `pi-studio` binary prints: pure functions, no process in sight.
 //!
 //! The app drives the local daemon only through `pi-studio --json daemon ...`. The exit code is
 //! never used to decide anything (`status` exits 1 while the daemon is down, `start` exits non-zero
@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-/// Time limit of `--version`.
-pub const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Time limit of `--version` (a cold start of the binary on a slow disk).
+pub const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 /// Time limit of `daemon status`.
 pub const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 /// Time limit of `daemon start`.
@@ -40,8 +40,8 @@ pub fn output_tail(output: &str) -> String {
     tail.chars().skip(skip).collect()
 }
 
-/// The oldest CLI the app drives: the release that carries the daemon's upload changes (a temporary
-/// file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
+/// The oldest daemon (and, over SSH, CLI) the app works with: the release that carries the daemon's upload changes (a
+/// temporary file renamed at `End`, and pacing). It is also the `minDaemonVersion` the page is told.
 pub const MIN_CLI_VERSION: Version = Version { major: 0, minor: 0, patch: 127 };
 
 /// Which `daemon` command printed the answer.
@@ -153,15 +153,21 @@ pub fn check_version(stdout: &str) -> VersionCheck {
     }
 }
 
-/// The WebSocket address to dial for a daemon bound to `host:port`: an unspecified bind address
-/// is dialled as the loopback of the same family, and an IPv6 host is bracketed.
-pub fn dial_address(host: &str, port: u16) -> String {
+/// The host a client connects to for a daemon bound to `host`: an unspecified bind address is the
+/// loopback of the same family, and the brackets of an IPv6 host are dropped.
+pub fn connect_host(host: &str) -> &str {
     let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
-    let host = match bare {
+    match bare {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
         other => other,
-    };
+    }
+}
+
+/// The WebSocket address to dial for a daemon bound to `host:port` ([`connect_host`]); an IPv6
+/// host is bracketed.
+pub fn dial_address(host: &str, port: u16) -> String {
+    let host = connect_host(host);
     if host.contains(':') { format!("ws://[{host}]:{port}") } else { format!("ws://{host}:{port}") }
 }
 

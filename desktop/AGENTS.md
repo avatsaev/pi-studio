@@ -15,8 +15,8 @@ Confirm and alert dialogs, external links and save-to-disk are native, through R
 the HTML preview is served from an origin of its own. The engine holds the daemon registry
 (`daemons.json`, version 3, mode 0600, no secret in it; local, direct, relay and SSH entries; the secrets
 are in a store the engine is given: the keychain when it answers, else `secrets.json`; `--secret-store`
-forces one) and the settings; a supervisor runs
-the installed `pi-studio` CLI to start, stop and restart this machine's daemon. The window opens on
+forces one) and the settings; a supervisor installs the pinned `pi-studio` binary (first use downloads it) and runs
+it to start, stop and restart this machine's daemon. The window opens on
 the entry used last; a native Daemons menu and the workbench's switcher and Daemons screen switch,
 add, edit and remove entries, each with its own stored layout. All of it sits behind a command
 registry that the page, the CLI and the control socket dispatch into. The socket to every entry's daemon is Rust's
@@ -48,7 +48,7 @@ first upload into a fresh daemon (64 MiB allowed). The page's path held a 5 GiB 
 Known gaps: a layout change in the last ~250 ms before the window closes is lost; a file dragged from the OS
 file manager was not tried (the page's drop was dispatched as an event); a `kill -9`ed daemon leaves its
 `.pistudio-upload-<hex>.part` until it starts again, and the explorer lists it meanwhile. The app's `minDaemonVersion`
-(`cli_answers::MIN_CLI_VERSION`, also the oldest CLI the supervisor accepts) is 0.0.127: the release
+(`cli_answers::MIN_CLI_VERSION`, also the oldest daemon the supervisor accepts, and the oldest CLI over SSH) is 0.0.127: the release
 that carries the daemon's temporary-file and pacing changes. `main` published 0.0.126 from older code
 while the branch was open, so the number is the one the branch's merge publishes.
 Milestone 4 (the relay in Rust and SSH entries) is built: a relay entry's socket is Rust's (`relay`, protocol 2; the
@@ -72,24 +72,36 @@ users install 0.3.0 by hand once: earlier builds cannot update themselves.
 The daemon's self-update (roadmap 5b, `swe/features/self-update.md`) is built on the app's side too: the Daemons
 screen offers Update beside Retry for a local or SSH daemon that is `outdated` (local) or `cli_outdated` (SSH), and beside Start when it is
 `stopped` (`daemon.local.update`, `daemon.remote.update`; the local one is refused with `unsupported`,
-`update_not_offered` or `busy`, the SSH one with `not_installed`, `wrong_kind`, `no_current` or `update_not_offered`). The supervisor runs `pi-studio update` on the machine (over SSH:
-`pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`, so the CLI restarts that host's daemon and not one on its own
+`update_not_offered` or `busy`, the SSH one with `not_installed`, `wrong_kind`, `no_current` or `update_not_offered`). Locally the supervisor stops a running
+outdated daemon (the binary's `daemon stop`), installs the pinned binary when the one in place is older, and starts the daemon; it is
+refused in effect (the state is what `daemon status` says) when the binary is the pin's or newer and the daemon is not outdated (P11: never a downgrade);
+the state is `updating`, then `running`, `outdated` or a failure with the install's reason. Over SSH the supervisor runs `pi-studio update` on the host
+(`pi-studio -H 127.0.0.1:<daemonPort> update 2>&1`, so the CLI restarts that host's daemon and not one on its own
 default port), 5 minutes at most, then `--version` and the same Start; the state is `updating`, then `running`,
-`outdated` or `failed(install_failed)` locally (`cli_outdated` or `failed(update_failed)` over SSH) with the last 20 lines of output (an Update on a failed row runs again).
+`cli_outdated` or `failed(update_failed)` with the last 20 lines of output (an Update on a failed row runs again).
 The page reconnects after an Update like after a Start; an announced `restarting` (the workbench pill's update) is
 not probed as a crash. Checked live on Linux in the real webview, scripted (`docs/platform-checks.md` § Daemon
 self-update rows, D-U1 to D-U7: five defects found and fixed); not seen: macOS and Windows (owner's decision), a real
 old CLI, the pill on an SSH entry's daemon, a rollback seen from the app.
 
-Milestone 6 (the daemon as one binary the app installs, `swe/features/single-binary-daemon.md`) has its model in place and no
-behaviour yet. `desktop/daemon-pin.json` (the version, and each of the four systems' archive address, SHA-256 and size,
+Milestone 6 (the daemon as one binary the app installs, `swe/features/single-binary-daemon.md`): the local side is built, the page's new
+states (task 004) and the command-line tool (task 005) are not. `desktop/daemon-pin.json` (the version, and each of the four systems' archive address, SHA-256 and size,
 written by `scripts/release/daemon-pin.mjs` from the published `daemon-updates/latest.json`) is compiled into the app and checked
 (`model::pin::DaemonPin`; a test reads the committed file); the launch option `--daemon-pin <file>` replaces it for a check.
 `LocalState` has the states `outdated {version}`, `downloading {received, total}` and `installing`, and `FailReason` the reasons
 `download_failed`, `checksum_mismatch` and `install_failed`; `cli_missing`, `cli_outdated` and `update_failed` are gone from the
-local daemon, and so is the `cliPath` setting (an old settings file's key is ignored). Nothing produces `downloading`,
-`installing` or the two download reasons yet: the supervisor still finds a CLI on the login shell's `PATH` and the usual install
-directories and runs it, and a CLI it cannot find or run is `failed(spawn_failed)`.
+local daemon, and so is the `cliPath` setting (an old settings file's key is ignored). **Every local action first makes sure the
+pinned binary is installed** (`shell::supervisor`, `ensure_binary`): `$PI_STUDIO_HOME/bin/current/pi-studio` (the home from the login
+shell's environment, default `~/.pi-studio`) at or above the pin is used as it is (a newer binary is never replaced); otherwise
+`Services::installer` (the shell's trait `Installer`; the app fills it in `src-tauri/src/daemon_install.rs` over the `install` crate and the
+launch's pin, archives in `daemon-archives/` of the app's data folder, or of `--config-dir`) switches to `versions/<pin>` when it is there, else
+downloads (`downloading`, stored at most every 250 ms), checks the SHA-256 (`checksum_mismatch`: deleted, nothing run), unpacks
+(`installing`) and switches `current`; failures are `download_failed`, `checksum_mismatch` and `install_failed` (with the output). After a
+start that reached `running` the old versions are pruned to `current` and the previous one, and the archive cache keeps the pin only.
+A running daemon older than 0.0.127 (`GET /api/health`, `src-tauri/src/daemon_health.rs`, since `daemon status` has no version) is
+`outdated`; a running npm daemon is found through the binary's `daemon status`. Windows stays `unsupported`; the headless CLI has
+no installer and runs the binary in place (`failed(spawn_failed)` when there is none). Tested with fake services (`shell/src/supervisor/tests.rs`)
+and a loopback download (`daemon_install.rs`); not yet run live (sprint-145/task-001).
 
 This directory is the Cargo workspace root, inside the pi-studio monorepo: every path and command
 in this file is relative to `desktop/`. The frontend (`apps/pistudiodesktop`) is an npm workspace
@@ -117,6 +129,8 @@ everyday changes, `av-rust-desktop-architecture` for the rules in depth.
     apps/pistudiodesktop/src-tauri/src/update.rs  the app's self-update (U4, U9-U13): `PluginUpdater<R>`, the shell's `UpdaterHook` over `tauri-plugin-updater` (`check` through `updater_builder().timeout(30 s)` at the manifest, default or `--update-manifest <url>`, with `.target(..)` always set from the kind: `{os}-{arch}` plus `-appimage`/`-deb`/`-rpm`/`-nsis`/`-msi`, none on macOS, the system's first kind for `unknown`, U12; the plug-in's errors become `offline` / `manifest_invalid` / `no_target`; the release link is the manifest's `notes` only when it is an `https` address; the plug-in's `Update` of a found build is kept for the install, until the next check); `Env` (`kind_of(bundle_type, exe)`: macOS counts `App` only inside `*.app/Contents/MacOS`) and `cannot_install_with(kind, place, writable, has_pkexec)` (AppImage file or directory not writable, macOS under `/Volumes` or `AppTranslocation`, `.deb`/`.rpm` without `pkexec` on `PATH`; probes injected); `Runner`, which the owner thread's `Notify::update` (`daemons::Events::updating`) hands each accepted `update.*` action (it begins it at once and runs the rest on the blocking pool), answers "Check for Updates…" with U11's dialog (`menu_check`: runs `update.check` like any caller; `Prompts` for the dialogs, shared with `services::Native`'s one-at-a-time lock) and carries out the schedule of P16 (`scheduled(Trigger)`: at launch and then hourly on `update::start`'s thread, and after a wake from `resume.rs`; the setting is read through `settings.get`); the restart (`Runner::restart`, P10): with transfers running (`transfers::Transfers`) it asks the close question (`close_decision`, `Prompts::confirm`) and Cancel keeps everything, then `Updater::restart`; `notify_page` emits `update_changed` and redraws the menu when `update.check` turns on or off. `update::remove_leftover` (called by `main`) removes a package file a crash left in the cache directory. Tests in `update/tests.rs`, among them the real plug-in reading manifests and downloading files (signature, 404, closed port) a test server serves over local HTTP.
     apps/pistudiodesktop/src-tauri/src/update/install.rs  the install steps behind `PluginUpdater` (U7-U9), over three seams the tests fake: `Offered` (the plug-in's `Update`, `PluginOffer`: `download` with the 15 min limit set on the clone, because the check's 30 s travels with the `Update`; progress by chunk; the plug-in's errors become `signature` / `offline` (connect or time limit) / `download` / `install`), `Commands` (`SystemCommands`: `pkexec` with no input, output dropped, each argument its own, never a shell) and `Shutdown` (`AppShutdown`: `bridge::flush_stored_keys`, `AppHandle::request_restart`). `Installer` keeps the verified bytes in memory only (a quit drops them: P13) and installs by kind: AppImage and macOS app through the plug-in's `install(bytes)`; `.deb`/`.rpm` through the app's own `pkexec dpkg -i` / `pkexec rpm -U <file>` (the plug-in's own install is never used for a package: it falls back to a password box and `sudo`), the file `pi-studio-update.{deb,rpm}` in the app's cache directory (directory 0700, file 0600, removed by a `Drop` guard in every path), exit 0 installed, 126/127 `refused`, any other code, a signal or a `pkexec` that did not start `install`; Windows keeps the bytes at the first click and at `restart` saves the stored keys, then the plug-in's `install` starts the installer and ends the app (it returns only on failure: `failed(install)`, the bytes are gone, a retry downloads again). Linux and macOS `restart` asks the app to restart (the exit saves; Tauri starts the build again with the same arguments, an AppImage through `APPIMAGE`). Tests in `update/install/tests.rs`.
     apps/pistudiodesktop/src-tauri/src/daemon_pin.rs  the launch's daemon pin: `load(file)` answers the compiled-in pin or, for `--daemon-pin <file>`, the pin that file holds (at most 64 KiB; an unreadable or invalid file fails the launch with a message that names the option and holds no address or path); `main` logs the pin's version and `built in` or `override`, never an address, and keeps the pin in Tauri's state
+    apps/pistudiodesktop/src-tauri/src/daemon_install.rs  the local entry's `Installer` (`LocalInstaller`: the pin, this machine's target, the archive cache): `adopt_installed` (`versions/<pin>` answers the pin: `switch_current`, no download), `install` (the archive from the cache or a download with a 60 s stall limit on a thread of its own with its own runtime, progress back over a channel; `DownloadError::is_integrity_failure` is `Checksum`, any other `Download`; `install_version` errors are `Install` with the error's words and the program's output), `tidy` (prune to `current` and the greatest other version, archive cache to the pin's)
+    apps/pistudiodesktop/src-tauri/src/daemon_health.rs  `version(host, port)`: `GET /api/health` over one HTTP/1.0 request on `std::net` (2 s limits, 16 KiB at most), the `version` of a 200 answer's JSON object; the `Services::daemon_version` hook that tells an `outdated` running daemon
     apps/pistudiodesktop/scripts/release  the release workflow's Node and shell scripts, tested by `node --test scripts/release/*-test.mjs` (the workflow's `version` job runs them): `next-version.mjs` (the version rule over `git tag -l`: only `desktop-v<M.m.p>` tags count, so the tag of the release `desktop-updates` never moves it), `set-version.sh`, `update-manifest.mjs` (`latest.json` / `self-check.json`), `self-check-signatures.mjs` (`<file>.selfcheck.sig`, signed on a copy under the self-check version), `serve-directory.mjs` (the pull-request run's local update server); `.github/workflows/desktop-release.yml` and `.github/actions/desktop-build-tools` run them (`docs/development.md` § Releasing, § The updater key)
     apps/pistudiodesktop-cli              headless CLI
     apps/ipc-bench                        the IPC benchmark: baseline, two candidate bridges and a loopback WebSocket proxy, B1-B8 incl. echo under load and a hidden window with a 2 s Rust tick (exempt from the layers; uses `net` for its message limit and holds the channel candidates' codec, window and order buffer; own page in page/, no npm package; never bundled or released; `docs/development.md` § The IPC benchmark)

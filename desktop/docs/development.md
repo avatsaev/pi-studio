@@ -238,17 +238,21 @@ directory is `default`), so the CLI sees the app's keychain secrets only when `-
 the app's directory the same way, and not at all for the app's default directory: use
 `--secret-store file` on both or neither.
 
-### Pointing the app at a scratch CLI and home
+### Pointing the app at a scratch binary and home
 
-The local daemon is run through the `pi-studio` CLI, which the supervisor finds on the login shell's `PATH` and in
-the usual install directories (there is no `cliPath` setting). To choose which CLI runs, put an executable named
-`pi-studio` first on that `PATH`, for example a script that execs the repository's
-build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`); the app's tests do it with a
-`SHELL` that prints a chosen environment (`apps/pistudiodesktop-cli/tests/cli.rs`). The CLI inherits
+The local daemon is the `pi-studio` binary the app installs: `$PI_STUDIO_HOME/bin/current/pi-studio`, where
+`PI_STUDIO_HOME` is read from the login shell's environment (default `~/.pi-studio`; there is no `cliPath` setting and
+no search for an installed CLI). The first local action downloads the version the build pins (`daemon-pin.json`;
+`--daemon-pin <file>` replaces it for a launch) into `bin/versions/<version>/`; a binary there at or above the pin is
+used as it is. To run a binary of your own, put it at `$PI_STUDIO_HOME/bin/versions/<v>/pi-studio` with a link
+`bin/current -> versions/<v>`, for example a script that execs the repository's
+build: `exec node <repo>/packages/cli/dist/cli.js "$@"` (after `npm run build:cli`), whose `--version` is at or above the pin; the
+app's tests do it with a `SHELL` that prints a chosen environment (`apps/pistudiodesktop-cli/tests/cli.rs`; the headless CLI
+never downloads: with no binary in place the local daemon is `failed(spawn_failed)`). The binary inherits
 the app's environment, so start the app with `PI_STUDIO_HOME=<scratch dir>` to keep the daemon's state
-out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
+and the installed binaries out of `~/.pi-studio`, and set `autoStartLocalDaemon` to `false` before the first launch, or the app
 starts a daemon on launch. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply),
-so nothing else may hold that port. A fake CLI for failure cases is
+so nothing else may hold that port. A fake binary for failure cases is
 `crates/shell/tests/fixtures/fake-pi-studio.sh` (modes in its header). Quitting the app leaves the
 daemon it started running: stop it with `pi-studio daemon stop` under the same `PI_STUDIO_HOME`.
 
@@ -278,8 +282,9 @@ docker run --rm -v "$PWD:/work:ro" -v /tmp/pi-smoke.sh:/tmp/pi-smoke.sh:ro pi-de
 ```
 
 Expected: `{"id":"auth","ok":true,"result":{"authenticated":true}}`, then
-`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{"state":"failed","reason":"spawn_failed"},"settings":{"autoStartLocalDaemon":true,"checkForUpdates":true}},"menus":[…],"settings":{…},"ui":{…}}}`
-(the image has no `pi-studio` CLI, hence `spawn_failed`).
+`{"id":1,"ok":true,"result":{"daemons":{"currentId":"local","entries":[{"hasPassword":false,"id":"local","kind":"local","name":"This machine"}],"local":{…},"settings":{"autoStartLocalDaemon":true,"checkForUpdates":true}},"menus":[…],"settings":{…},"ui":{…}}}`
+(`local` depends on the image: it has no binary under `PI_STUDIO_HOME`, so the first probe downloads the pinned one (`downloading`), or is
+`failed` with `download_failed` when the image has no network. The answer's shape is what this checks; the sprint-143 task-003 change was tested with fake services, not in this image.)
 This checks that the app starts and answers; for the window's pixels use `npm run snapshot`, and
 for the webview itself WebKitWebDriver, as below.
 

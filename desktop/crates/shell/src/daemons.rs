@@ -46,7 +46,7 @@ pub fn page_may_run(id: &str) -> bool {
     PAGE_COMMANDS.contains(&id)
 }
 
-/// The oldest `pi-studio` CLI (and so daemon) the app works with, as the page is told it.
+/// The oldest daemon the app works with, as the page is told it.
 pub fn min_daemon_version() -> String {
     cli_answers::MIN_CLI_VERSION.to_string()
 }
@@ -94,7 +94,8 @@ pub fn page_command(app: &mut AppShell, id: &str, params: Value) -> Result<Value
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     pub requests: Vec<LocalRequest>,
-    /// The CLI was missing or outdated: the user may have installed it since, so the shell
+    /// The binary could not be run, its install failed, or the daemon is outdated: the user may have fixed
+    /// the cause since (a start-up file that sets `PI_STUDIO_HOME`), so the shell
     /// environment is read again (the Retry of the Daemons screen).
     pub refresh_env: bool,
 }
@@ -104,6 +105,8 @@ pub struct Batch {
 pub enum LocalOp {
     /// Take the queued requests and the settings they need.
     Take,
+    /// Store a state a request passes through (`downloading`, `installing`); the session stays busy.
+    Progress(LocalState),
     /// Store the state a request reached.
     Apply(LocalState),
     /// What to dial for the current entry: a [`DialPlan`], which names the secret to read and
@@ -137,6 +140,10 @@ pub enum SshOp {
 pub fn local_op(app: &mut AppShell, op: &LocalOp) -> Value {
     crate::control::reply(match op {
         LocalOp::Take => Ok(batch_to_json(&take_batch(&mut app.session))),
+        LocalOp::Progress(state) => {
+            app.session.apply_local_progress(state.clone());
+            Ok(Value::Null)
+        }
         LocalOp::Apply(state) => {
             app.session.apply_local_outcome(state.clone());
             Ok(Value::Null)
@@ -160,9 +167,11 @@ fn ssh_op(app: &mut AppShell, op: &SshOp) -> Result<Value, String> {
 /// Take the queued local requests and what they need from the session.
 pub fn take_batch(s: &mut Session) -> Batch {
     let requests = s.take_local_requests();
-    // The daemon could not be run or is outdated: the user may have installed a newer CLI since, so
-    // the shell environment is read again (the Retry of the Daemons screen).
-    let refresh_env = matches!(s.local_state(), LocalState::Outdated { .. } | LocalState::Failed { reason: FailReason::SpawnFailed, .. });
+    // The binary could not be run, its install failed, or the daemon is outdated: the cause may be fixed since
+    // (a start-up file that sets `PI_STUDIO_HOME`), so the shell environment is read again (the Retry of the
+    // Daemons screen).
+    let refresh_env =
+        matches!(s.local_state(), LocalState::Outdated { .. } | LocalState::Failed { reason: FailReason::SpawnFailed | FailReason::InstallFailed, .. });
     Batch { requests, refresh_env }
 }
 
