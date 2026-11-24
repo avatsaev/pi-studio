@@ -193,6 +193,23 @@ pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {
     }
 }
 
+/// A port nothing listens on, and that no test's server will listen on. A port that was bound and released is not
+/// one: `bind(0)` hands it to another test's server within the same millisecond, and the test that thinks it is closed
+/// then reaches that server. So it is taken from below the ephemeral ports (which start at 32768 on Linux and at 49152
+/// elsewhere), the first that refuses a connection, from a place that depends on the process.
+pub(super) fn closed_port() -> u16 {
+    const LOW: u16 = 10_000;
+    const SPAN: u16 = 20_000;
+    let start = u16::try_from(std::process::id() % u32::from(SPAN)).unwrap_or(0);
+    (0..SPAN)
+        .map(|step| LOW + (start + step) % SPAN)
+        .find(|port| {
+            let address = std::net::SocketAddr::from(([127, 0, 0, 1], *port));
+            matches!(std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)), Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused)
+        })
+        .expect("a port below the ephemeral ones that refuses connections")
+}
+
 // ---- the page stand-in
 
 pub(super) type Page = WebSocketStream<TcpStream>;

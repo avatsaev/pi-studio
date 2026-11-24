@@ -314,13 +314,7 @@ impl SshSessions {
     /// The session of the current entry, leased, with its plan; `None` (and a log line with the code) when there is
     /// none and none could be opened.
     async fn leased(&self, access: &OwnerAccess) -> Option<(Lease, SshPlan)> {
-        let plan = blocking({
-            let access = access.clone();
-            move || access.ssh_plan()
-        })
-        .await
-        .ok()
-        .and_then(Result::ok)?;
+        let plan = current_plan(access).await?;
         match self.lease(access, &plan).await {
             Ok(lease) => Some((lease, plan)),
             Err(failure) => {
@@ -386,11 +380,13 @@ impl SshSessions {
         })
     }
 
-    /// The version the daemon of the current entry reports on its health endpoint, asked over the shared session.
-    /// Blocks like [`Self::run_blocking`].
+    /// The version the daemon of the current entry reports on its health endpoint, asked over the session that is open.
+    /// It never dials: the read follows a daemon that answered through that session, and a session closed since (the
+    /// entry was edited or removed, the window left it) is no reason to open one. Blocks like [`Self::run_blocking`].
     pub fn daemon_version_blocking(&self, access: &OwnerAccess) -> Option<String> {
         tauri::async_runtime::block_on(async {
-            let (lease, plan) = self.leased(access).await?;
+            let plan = current_plan(access).await?;
+            let lease = self.inner.existing_lease(&plan.entry)?;
             let guard = lease.live.session.read().await;
             let session = guard.as_ref()?;
             let answer = tokio::select! {
@@ -518,6 +514,12 @@ impl SshSessions {
 }
 
 impl Inner {
+    /// A lease on the session of `entry` when one is open: never dials, and a session that is being opened or has ended is none.
+    fn existing_lease(self: &Arc<Self>, entry: &EntryId) -> Option<Lease> {
+        let slot = locked(&self.slot);
+        slot.as_ref().filter(|current| current.entry == *entry).and_then(Slot::live).and_then(|live| live.acquire(self))
+    }
+
     /// The attempt for `entry`: the one in the slot while it is usable, otherwise a new one (the
     /// session it replaces ends).
     fn attempt_for(&self, entry: &EntryId) -> Arc<Attempt> {
@@ -916,6 +918,12 @@ fn daemon_failure(error: &DaemonError, names: &[String], port: u16) -> Failure {
         DaemonError::Channel(error) => failure(error, names),
         DaemonError::Dial(error) => Failure::new(error.code.as_str(), error.message.clone()),
     }
+}
+
+/// The plan of the current entry, when it is an SSH entry.
+async fn current_plan(access: &OwnerAccess) -> Option<SshPlan> {
+    let access = access.clone();
+    blocking(move || access.ssh_plan()).await.ok().and_then(Result::ok)
 }
 
 #[cfg(test)]

@@ -1,7 +1,6 @@
 //! The page's transfer commands through Tauri's own IPC path with the app's real permissions,
 //! against the engine's stand-in daemon (a WebSocket server in this process) and real files.
 
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -17,7 +16,7 @@ use serde_json::{Value, json};
 use tauri::test::MockRuntime;
 use tauri::{App, Listener as _, Manager as _, WebviewWindow, WebviewWindowBuilder};
 
-use super::transport_tests::{capture_logs, logged, wait_until};
+use super::transport_tests::{capture_logs, closed_port, logged, wait_until};
 use super::{built_app_stored, invoke};
 use crate::bridge::{Bridge, Launch, idle_update};
 
@@ -77,7 +76,7 @@ impl Fixture {
         let app = built_app_stored(config.path(), services, launch, store);
         let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default()).build().unwrap();
         let daemon = tauri::async_runtime::block_on(StandInDaemon::start_with(Config { password: Some(PASSWORD.to_owned()), ..daemon })).unwrap();
-        let address = if dead_address { format!("127.0.0.1:{}", free_port()) } else { format!("127.0.0.1:{}", daemon.port()) };
+        let address = if dead_address { format!("127.0.0.1:{}", closed_port()) } else { format!("127.0.0.1:{}", daemon.port()) };
         let added =
             invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "D", "address": address, "password": PASSWORD}}))
                 .unwrap();
@@ -196,10 +195,6 @@ impl Fixture {
         assert!(self.daemon.client_closes().contains(&Some(1001)), "{:?}", self.daemon.client_closes());
         assert_eq!(self.daemon.streams_in_use(), 0);
     }
-}
-
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 // ---- acceptance

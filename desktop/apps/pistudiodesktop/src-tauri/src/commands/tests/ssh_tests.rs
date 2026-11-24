@@ -26,7 +26,7 @@ use tauri::test::MockRuntime;
 use tauri::{App, Manager as _, WebviewWindow, WebviewWindowBuilder};
 use tokio_tungstenite::tungstenite::Message;
 
-use super::transport_tests::{Daemon, Page, capture_logs, connect_page, logged, wait_until};
+use super::transport_tests::{Daemon, Page, capture_logs, closed_port, connect_page, logged, wait_until};
 use super::{built_app_ssh, invoke};
 use crate::bridge::{Bridge, Launch, idle_update};
 use crate::daemons::{Events, RemoteOwner, start_runner};
@@ -107,12 +107,6 @@ impl ArchiveSource for ServedArchive {
     fn fetch(&self, _target: &str, _progress: &mut dyn FnMut(u64, u64)) -> Result<Archive, FetchFailure> {
         Ok(Archive { path: self.path.clone(), size: self.size, sha256: "ab".repeat(32) })
     }
-}
-
-/// A port nothing listens on.
-fn closed_port() -> u16 {
-    let listener = tauri::async_runtime::block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
-    listener.local_addr().unwrap().port()
 }
 
 struct Fixture {
@@ -406,8 +400,10 @@ fn the_page_and_the_engine_use_the_same_connection() {
     let f = Fixture::new(&Options::default());
     let local = f.open().unwrap();
     let _page = f.connect(&local);
+    // The daemon's first answer makes the app read its version over the session (the second channel); the engine's is the third.
+    wait_remote(&f, "running");
     let upload = f.upload("both-1");
-    wait_until("the engine's channel", || f.server.seen().forwards.len() == 2);
+    wait_until("the engine's channel", || f.server.seen().forwards.len() == 3);
     // The stand-in is no daemon: the upload ends however it ends.
     let _ = invoke(&f.window, "transfer_cancel", json!({"id": "both-1"}));
     let _ = settled(upload);
@@ -461,6 +457,8 @@ fn a_daemon_switch_closes_the_session_and_coming_back_opens_a_new_one() {
 fn editing_the_entry_closes_its_session_and_the_next_open_uses_the_new_values() {
     let f = Fixture::new(&Options::default());
     assert!(f.open().is_ok());
+    // The open queues the version probe; let it finish, or it may dial again right after the edit closed the session.
+    wait_remote(&f, "running");
     assert!(f.ssh.is_open());
     invoke(&f.window, "engine_command", json!({"id": "daemon.update", "params": {"id": f.entry, "name": "Renamed"}})).unwrap();
     wait_until("the edit closed the session", || !f.ssh.is_open());
