@@ -41,8 +41,9 @@ How a binary daemon updates itself is [self-update.md](self-update.md).
   files through `import.meta.resolve`. Five files use `createRequire`.
 - `node-pty` is imported only by `packages/server/src/terminal/pty-backend.ts`, behind the
   `PtyBackend` interface. It does not work under Bun.
-- The baseline pack (`curated-packs.ts`, `core`) installs `npm:@99percentpeople/pi-background-tasks`,
-  which does not load under Bun; Pi then exits and no agent starts.
+- The baseline pack (`curated-packs.ts`, `core`) installed `npm:@99percentpeople/pi-background-tasks`
+  until 2026-11-24, which does not load under Bun; Pi then exits and no agent starts. The pack no
+  longer carries it, but a user can still have it installed.
 - Pi's package manager is the array `npmCommand` of Pi's `settings.json` (default `npm`). Pi accepts
   `bun`. Replacing `SettingsManager.prototype.getNpmCommand` inside a process makes Pi's
   `DefaultPackageManager` use the given command, with nothing written to the Pi folder (shown on Node,
@@ -165,7 +166,7 @@ CliToolState =
 | Surface | Change |
 |---|---|
 | `installKind` | new value `binary` ([self-update.md](self-update.md)) |
-| Baseline pack | on a binary daemon the sources in `BINARY_EXCLUDED_PACKAGES` (`npm:@99percentpeople/pi-background-tasks`) are neither installed nor loaded (D2) |
+| Baseline pack | `pi-background-tasks` is no longer in `core`; on a binary daemon the sources in `BINARY_EXCLUDED_PACKAGES` (the same package) are still neither loaded nor installed, for users who installed it themselves (D2) |
 | Pi's package manager | on a binary daemon, the `bun` script beside the binary, set inside each process (P8) |
 | `pi-studio ui` | serves `web/` beside the binary |
 
@@ -345,8 +346,7 @@ starts on a macOS runner (D16).
       opens; a file goes up and down intact.
 - [ ] Pi installs an extension on that daemon with no npm on the machine; Pi's `settings.json` gains
       only the installed entry (no `npmCommand`, no entry removed).
-- [ ] The baseline sync does not install `pi-background-tasks`; with it already installed, an agent
-      starts.
+- [ ] With `pi-background-tasks` already installed (it is no longer in the baseline), an agent starts.
 - [ ] With no network, and with a corrupted archive, nothing is run and the row offers Retry.
 - [ ] With an npm daemon running that has agents and history, the app connects to it; after Restart
       the binary runs on the same folder and port and the agents and history are there.

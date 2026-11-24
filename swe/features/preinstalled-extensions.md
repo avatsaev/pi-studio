@@ -10,6 +10,10 @@
 > **Changed by milestone 6 (specified 2026-11-24, not built):** a daemon running as the single binary
 > neither installs nor loads the sources in `BINARY_EXCLUDED_PACKAGES`
 > (`npm:@99percentpeople/pi-background-tasks`) — see [single-binary-daemon.md](single-binary-daemon.md).
+>
+> **Changed 2026-11-24:** `pi-background-tasks` and `pi-powerline-footer` were removed from `core`
+> (three entries left). They are plain deletions, not tombstones: the sync never removes anything, so an
+> install a user already has stays untouched, and the entries no longer appear in the list.
 
 ## Purpose
 
@@ -69,14 +73,10 @@ export const CURATED_PACKS = {
     title: "Baseline",
     description: "Recommended for everyone",
     packages: [
-      // Background commands + attachable PTY/TUI sessions — long-running work without blocking a turn.
-      { source: "npm:@99percentpeople/pi-background-tasks", addedIn: "0.0.73" },
       // Todo list for the model, rendered as a live overlay that survives /reload.
       { source: "npm:@juicesharp/rpiv-todo", addedIn: "0.0.73" },
       // Web search, URL fetch, repo cloning, PDF/YouTube extraction.
       { source: "npm:pi-web-access", addedIn: "0.0.73" },
-      // Powerline-style status bar.
-      { source: "npm:pi-powerline-footer", addedIn: "0.0.73" },
       // Structured questionnaire tool: typed multiple-choice/free-text prompts instead of the
       // model guessing when it lacks information it should ask for.
       { source: "npm:@juicesharp/rpiv-ask-user-question", addedIn: "0.0.93" },

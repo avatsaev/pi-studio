@@ -14,14 +14,12 @@ import { parseSource } from "./pi-source.js";
 // editing the real manifest.
 
 describe("CURATED_PACKS (the real manifest)", () => {
-  it("core has exactly the five spec'd sources, all npm, all unpinned", () => {
-    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(5);
+  it("core has exactly the three spec'd sources, all npm, all unpinned", () => {
+    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(3);
     const sources = CURATED_PACKS.core.packages.map((p) => p.source);
     expect(sources).toEqual([
-      "npm:@99percentpeople/pi-background-tasks",
       "npm:@juicesharp/rpiv-todo",
       "npm:pi-web-access",
-      "npm:pi-powerline-footer",
       "npm:@juicesharp/rpiv-ask-user-question",
     ]);
     for (const entry of CURATED_PACKS.core.packages) {
@@ -32,10 +30,8 @@ describe("CURATED_PACKS (the real manifest)", () => {
       CURATED_PACKS.core.packages.map((p) => [p.source, p.addedIn]),
     );
     expect(addedIns).toEqual({
-      "npm:@99percentpeople/pi-background-tasks": "0.0.73",
       "npm:@juicesharp/rpiv-todo": "0.0.73",
       "npm:pi-web-access": "0.0.73",
-      "npm:pi-powerline-footer": "0.0.73",
       "npm:@juicesharp/rpiv-ask-user-question": "0.0.93",
     });
   });
@@ -46,7 +42,7 @@ describe("CURATED_PACKS (the real manifest)", () => {
 });
 
 describe("selectEntries", () => {
-  it("selectEntries(CURATED_PACKS, []) yields exactly the five core entries", () => {
+  it("selectEntries(CURATED_PACKS, []) yields exactly the three core entries", () => {
     const { entries, unknownSlugs } = selectEntries(CURATED_PACKS, []);
     expect(entries.map((e) => e.entry.source)).toEqual(
       CURATED_PACKS.core.packages.map((p) => p.source),

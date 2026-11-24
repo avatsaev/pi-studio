@@ -39,14 +39,10 @@ export const CURATED_PACKS = {
     title: "Baseline",
     description: "Recommended for everyone",
     packages: [
-      // Background commands + attachable PTY/TUI sessions — long-running work without blocking a turn.
-      { source: "npm:@99percentpeople/pi-background-tasks", addedIn: "0.0.73" },
       // Todo list for the model, rendered as a live overlay that survives /reload.
       { source: "npm:@juicesharp/rpiv-todo", addedIn: "0.0.73" },
       // Web search, URL fetch, repo cloning, PDF/YouTube extraction.
       { source: "npm:pi-web-access", addedIn: "0.0.73" },
-      // Powerline-style status bar.
-      { source: "npm:pi-powerline-footer", addedIn: "0.0.73" },
       // Structured questionnaire tool: typed multiple-choice/free-text prompts instead of the
       // model guessing when it lacks information it should ask for.
       { source: "npm:@juicesharp/rpiv-ask-user-question", addedIn: "0.0.93" },
