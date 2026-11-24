@@ -366,6 +366,13 @@ describe("remote daemon and ssh hosts", () => {
     expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.remote.start" }, { id: "daemon.remote.refresh" }]);
   });
 
+  it("update goes through engine_command, for the local entry and the current ssh entry", async () => {
+    const h = harness(() => ({ accepted: true }));
+    await h.daemons.local.update();
+    await h.daemons.remote.update();
+    expect(h.engineCalls().map((c) => c.args)).toEqual([{ id: "daemon.local.update" }, { id: "daemon.remote.update" }]);
+  });
+
   it("a refused remote action rejects with its code", async () => {
     const busy = await rejection(harness(() => Promise.reject("busy")).daemons.remote.start());
     expect(busy).toMatchObject({ code: "busy" });

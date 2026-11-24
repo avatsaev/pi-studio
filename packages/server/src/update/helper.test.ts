@@ -262,6 +262,19 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/** A fake daemon entry: answers `/api/health` with `version` on the carried address, records its pid. */
+function fakeDaemonSource(version: string): string {
+  return [
+    'const http = require("node:http");',
+    'const fs = require("node:fs");',
+    'const port = Number(process.env.PI_STUDIO_LISTEN.split(":").pop());',
+    `http.createServer((q, r) => r.end(JSON.stringify({ status: "ok", version: "${version}" })))`,
+    '  .listen(port, "127.0.0.1");',
+    'fs.writeFileSync(process.env.PI_STUDIO_HOME + "/fake-daemon.pid", String(process.pid));',
+    'process.on("SIGTERM", () => process.exit(0));',
+  ].join("\n");
+}
+
 /**
  * The real script, run as `node -e` in a temp home against a fake `npm` and a fake daemon entry on
  * a free port: proves the real seams (entry lookup in an npm root, the carried environment, the
@@ -342,5 +355,71 @@ describe.skipIf(process.platform === "win32")("helper script, run for real again
     const log = readFileSync(join(home, "logs", "update-restart.log"), "utf8");
     expect(log).toContain("answers with version 9.9.9");
     expect(log).toContain("update updated");
+  }, 30_000);
+
+  it("rolls back with an npm install that prefers the cache, and writes `rolled_back`", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-studio-helper-rollback-"));
+    const home = join(dir, "home");
+    const root = join(dir, "npm-root");
+    const bin = join(dir, "bin");
+    const serverDir = join(root, "@av-pi-studio", "server");
+    const mainPath = join(serverDir, "dist", "daemon", "main.js");
+    mkdirSync(join(serverDir, "dist", "daemon"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    mkdirSync(bin);
+    // The installed (new) version exits at start; the fake `npm install` puts the old one back.
+    writeFileSync(join(serverDir, "package.json"), JSON.stringify({ version: "9.9.9" }));
+    writeFileSync(mainPath, "process.exit(3);\n");
+    writeFileSync(join(dir, "good-main.js"), fakeDaemonSource("9.9.8"));
+    writeFileSync(
+      join(bin, "npm"),
+      [
+        "#!/bin/sh",
+        '[ "$1" = "root" ] && { echo "$FAKE_NPM_ROOT"; exit 0; }',
+        'echo "$@" >> "$FAKE_NPM_LOG"',
+        'if [ "$1" = "install" ]; then',
+        '  cp "$FAKE_GOOD_MAIN" "$FAKE_NPM_ROOT/@av-pi-studio/server/dist/daemon/main.js"',
+        '  echo \'{"version":"9.9.8"}\' > "$FAKE_NPM_ROOT/@av-pi-studio/server/package.json"',
+        "fi",
+        "exit 0",
+      ].join("\n"),
+    );
+    chmodSync(join(bin, "npm"), 0o755);
+    pidFiles.push(join(home, "fake-daemon.pid"));
+
+    const gone = spawn(process.execPath, ["-e", ""]);
+    await new Promise((resolve) => gone.on("exit", resolve));
+
+    const port = await freePort();
+    const params: HelperParams = {
+      oldPid: gone.pid as number,
+      target: "9.9.9",
+      previous: "9.9.8",
+      listen: `0.0.0.0:${port}`,
+      home,
+      packageName: "@av-pi-studio/cli",
+    };
+    const helper = spawn(process.execPath, ["-e", HELPER_SCRIPT, JSON.stringify(params)], {
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        FAKE_NPM_ROOT: root,
+        FAKE_NPM_LOG: join(dir, "npm.log"),
+        FAKE_GOOD_MAIN: join(dir, "good-main.js"),
+        PI_STUDIO_LISTEN: params.listen,
+        PI_STUDIO_HOME: home,
+      },
+    });
+    const code = await new Promise((resolve) => helper.on("exit", resolve));
+    expect(code).toBe(0);
+
+    expect(readFileSync(join(dir, "npm.log"), "utf8").trim()).toBe(
+      "install -g @av-pi-studio/cli@9.9.8 --prefer-offline",
+    );
+    const result = JSON.parse(
+      readFileSync(join(home, "update-result.json"), "utf8"),
+    ) as HelperResult;
+    expect(result).toMatchObject({ from: "9.9.8", to: "9.9.9", outcome: "rolled_back" });
   }, 30_000);
 });

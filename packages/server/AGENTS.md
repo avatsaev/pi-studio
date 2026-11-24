@@ -1898,7 +1898,11 @@ Production bootstrap (`daemon/bootstrap.ts`); the dev daemon uses the same servi
 registry, `start()` runs after `listen()` and never delays readiness: it finds the install kind
 (`detectInstallKind`), reads **and removes** `$PI_STUDIO_HOME/update-result.json` into `lastResult`,
 then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once
-and arms a 6 h `unref`'d timer. `close()` (called first in the daemon's shutdown) clears the timer.
+and arms a 6 h `unref`'d timer. The helper writes the result file only after it has seen this daemon
+answer, so after that start-up read: while `lastResult` is empty, `start()` also polls the file every
+500 ms for 30 s (`RESULT_POLL_MS`/`RESULT_WATCH_MS`, its own `resultTimer` seam); the first read takes
+it, sets `lastResult` and broadcasts. `close()` (called first in the daemon's shutdown) clears both
+timers.
 
 - **Check.** `npm view` result → `checkError` `offline` (no answer) or `bad_answer` (not `x.y.z`),
   state kept; otherwise `idle` (not newer), or the blocker in the spec's order: install kind
@@ -1933,16 +1937,23 @@ and arms a 6 h `unref`'d timer. `close()` (called first in the daemon's shutdown
   three tries: find the entry again (`npm root -g` → `@av-pi-studio/server/dist/daemon/main.js`, then
   nested under `cli/node_modules`; the one whose `package.json` version matches wins), start it
   detached, poll `/api/health` (250 ms) for `version == target` up to 6 s (an exited daemon ends the try
-  early), stop what failed. Three failures → `npm install -g <pkg>@previous` (120 s) and the same three
-  tries for `previous` → `rolled_back`, else `failed` (message and last log line say to run `pi-studio
-  daemon start`). It writes `update-result.json` (tmp + rename) and logs to `logs/update-restart.log`.
+  early), stop what failed. Three failures → `npm install -g <pkg>@previous --prefer-offline` (120 s;
+  the previous version is in npm's cache, so a dead registry does not stall the rollback) and the same
+  three tries for `previous` → `rolled_back`, else `failed` (message and last log line say to run
+  `pi-studio daemon start`). It writes `update-result.json` (tmp + rename) and logs to
+  `logs/update-restart.log`.
   The logic is JS text so the same code ships and is tested: `compileHelperLogic()` evaluates
   `HELPER_LOGIC` with injected seams (`HelperSeams`: clock, sleep, log, exit wait, entry lookup, daemon
   start, health, rollback install, result write). Tests: `helper.test.ts` (logic with a fake clock; script
   text has no import and only `node:` requires; the real script run in a temp home against a fake `npm`
-  and a fake daemon entry on a free port), `update-service.test.ts` (pipeline + handoff order with fakes),
+  and a fake daemon entry on a free port, for the update and for the rollback with its `--prefer-offline`
+  install), `update-service.test.ts` (pipeline + handoff order with fakes; the result watch),
   `daemon/update-e2e.test.ts` (real bootstrap: states in order, real shutdown, then the fake exit).
   `DaemonOptions.updateTestSeams` replaces service probes and pipeline steps for those tests.
+  The live check (a real `npm i -g` in a container against a local registry: update, rollback, the
+  read-only folder cases, auto-check, a rollback with the registry stopped) is
+  `scripts/daemon-update-check/` (README there); its dated results are in
+  `packages/server/docs/daemon-update-live-results.md`.
 - **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
   read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
   value through `loadConfig` so an env override still wins in memory.

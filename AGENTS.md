@@ -108,6 +108,11 @@ auth-engine exception).
 shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
 Vite aliases (the workbench's published `dist` is proven by `packages/workbench/scripts/pack-smoke.sh`).
 
+The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
+containers against a local verdaccio registry, never the real one; recipe in its README, dated
+results in `packages/server/docs/daemon-update-live-results.md`). Run it from a clean worktree after
+changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop.
+
 ---
 
 ## Tech stack

@@ -90,6 +90,10 @@ const FAILURE_MESSAGE_MAX = 2048;
 /** How long the last broadcast gets to reach the sockets before the daemon shuts down. */
 export const HANDOFF_PAUSE_MS = 300;
 
+/** How the daemon looks for the helper's result after its own start (`watchForResult`). */
+export const RESULT_POLL_MS = 500;
+export const RESULT_WATCH_MS = 30_000;
+
 export function failureMessage(err: unknown): string {
   const text = redactSource(err instanceof Error ? err.message : String(err)).trim();
   return text.length > FAILURE_MESSAGE_MAX ? text.slice(-FAILURE_MESSAGE_MAX) : text;
@@ -210,6 +214,10 @@ export interface UpdateServiceDeps {
   now?: () => number;
   timer?: UpdateTimer;
   intervalMs?: number;
+  /** Timer, poll interval and window of the result-file watch (defaults: system timer, 500 ms, 30 s). */
+  resultTimer?: UpdateTimer;
+  resultPollMs?: number;
+  resultWatchMs?: number;
   logger?: Logger;
 }
 
@@ -235,11 +243,15 @@ export class UpdateService {
   private lastBroadcast = "";
   private closed = false;
   private probed: Promise<void> | undefined;
+  private resultWatch: unknown;
 
   private readonly pipeline: UpdatePipeline;
   private readonly now: () => number;
   private readonly timer: UpdateTimer;
   private readonly intervalMs: number;
+  private readonly resultTimer: UpdateTimer;
+  private readonly resultPollMs: number;
+  private readonly resultWatchMs: number;
 
   constructor(private readonly deps: UpdateServiceDeps) {
     this.autoCheck = deps.autoCheck;
@@ -247,6 +259,9 @@ export class UpdateService {
     this.now = deps.now ?? Date.now;
     this.timer = deps.timer ?? systemUpdateTimer;
     this.intervalMs = deps.intervalMs ?? UPDATE_CHECK_INTERVAL_MS;
+    this.resultTimer = deps.resultTimer ?? systemUpdateTimer;
+    this.resultPollMs = deps.resultPollMs ?? RESULT_POLL_MS;
+    this.resultWatchMs = deps.resultWatchMs ?? RESULT_WATCH_MS;
   }
 
   /** The current wire status. */
@@ -275,6 +290,7 @@ export class UpdateService {
     await this.probe();
     if (this.closed) return;
     this.emitIfChanged();
+    if (this.lastResult === undefined) this.watchForResult();
     if (this.autoCheck) {
       this.startTimer();
       await this.check("automatic");
@@ -294,10 +310,49 @@ export class UpdateService {
     return this.probed;
   }
 
-  /** Clears the timer. A check already in flight finishes silently. */
+  /** Clears the timers. A check already in flight finishes silently. */
   close(): void {
     this.closed = true;
     this.stopTimer();
+    this.stopResultWatch();
+  }
+
+  /**
+   * The restart helper writes `update-result.json` only after it has seen this daemon answer with
+   * the expected version, i.e. after the start-up read in `probe()` found nothing. Looks for the
+   * file again for `resultWatchMs`; the first read takes it (read once, removed) and broadcasts.
+   */
+  private watchForResult(): void {
+    if (this.resultWatch !== undefined) return;
+    const startedAt = this.now();
+    let reading = false;
+    this.resultWatch = this.resultTimer.set(() => {
+      if (reading || this.closed) return;
+      reading = true;
+      void this.deps
+        .takeLastResult()
+        .then((result) => {
+          if (result) {
+            this.lastResult = result;
+            this.stopResultWatch();
+            this.emitIfChanged();
+          } else if (this.now() - startedAt >= this.resultWatchMs) {
+            this.stopResultWatch();
+          }
+        })
+        .catch((err: unknown) => {
+          this.deps.logger?.warn({ err: failureMessage(err) }, "update: result watch failed");
+        })
+        .finally(() => {
+          reading = false;
+        });
+    }, this.resultPollMs);
+  }
+
+  private stopResultWatch(): void {
+    if (this.resultWatch === undefined) return;
+    this.resultTimer.clear(this.resultWatch);
+    this.resultWatch = undefined;
   }
 
   /** Resolves when a running apply pipeline has settled (tests, shutdown). */

@@ -1,7 +1,7 @@
 # Task 003 — Workbench and desktop host: Update on the Daemons screen; the outdated toast opens it
 
 - **Sprint:** sprints/sprint-138-daemon-update-desktop
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (features/daemons), desktop/apps/pistudiodesktop/src/host
 - **Priority:** P1

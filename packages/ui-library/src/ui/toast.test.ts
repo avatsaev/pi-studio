@@ -46,6 +46,12 @@ describe("buildToastEntry", () => {
     expect(built.variant).toBe("warning");
     expect(built.icon).toBe("alert");
   });
+
+  it("carries an action through to the entry", () => {
+    const action = { label: "Open", onSelect: () => {} };
+    expect(buildToastEntry("t1", "hello", { action }, 1000).action).toBe(action);
+    expect(buildToastEntry("t1", "hello", {}, 1000).action).toBeUndefined();
+  });
 });
 
 describe("copiedToast / errorToast", () => {

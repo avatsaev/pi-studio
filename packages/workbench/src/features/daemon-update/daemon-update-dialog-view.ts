@@ -109,6 +109,15 @@ export function countRunningAgents(statuses: Iterable<string>): number {
   return count;
 }
 
+/**
+ * Agents the daemon's own list (`list_agents_request`) says are mid-turn. The session store only
+ * learns of an agent another client started after this client connected on its next restore, so
+ * the daemon's list is the count that matches what an update would stop.
+ */
+export function countRunningListedAgents(agents: ReadonlyArray<{ status?: string }>): number {
+  return countRunningAgents(agents.map((agent) => agent.status ?? "idle"));
+}
+
 /** Terminals the daemon's list says are alive (`list_terminals_request` carries closed ones too). */
 export function countLiveTerminals(terminals: ReadonlyArray<{ closed?: boolean }>): number {
   return terminals.filter((terminal) => !terminal.closed).length;

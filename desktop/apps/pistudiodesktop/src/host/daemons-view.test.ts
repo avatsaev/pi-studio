@@ -88,3 +88,25 @@ describe("parseDaemonsView remote", () => {
     },
   );
 });
+
+describe("parseDaemonsView updating and update_failed", () => {
+  it("keeps updating for the local and the remote state", () => {
+    expect(parseDaemonsView({ ...VIEW, local: { state: "updating" } })?.local).toEqual({ state: "updating" });
+    expect(parseDaemonsView({ ...VIEW, remote: { state: "updating" } })?.remote).toEqual({ state: "updating" });
+  });
+
+  it("keeps update_failed with its output, or without", () => {
+    const output = "npm ERR! EACCES";
+    const failed = { state: "failed", reason: "update_failed" };
+    expect(parseDaemonsView({ ...VIEW, local: { ...failed, output } })?.local).toEqual({ ...failed, output });
+    expect(parseDaemonsView({ ...VIEW, local: failed })?.local).toEqual(failed);
+    expect(parseDaemonsView({ ...VIEW, remote: { ...failed, output } })?.remote).toEqual({ ...failed, output });
+    expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toEqual(failed);
+  });
+
+  it("reads a non-string output as a bad state", () => {
+    const failed = { state: "failed", reason: "update_failed", output: 3 };
+    expect(parseDaemonsView({ ...VIEW, local: failed })).toBeNull();
+    expect(parseDaemonsView({ ...VIEW, remote: failed })?.remote).toBeNull();
+  });
+});

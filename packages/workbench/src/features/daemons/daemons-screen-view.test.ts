@@ -87,7 +87,7 @@ describe("the SSH row", () => {
   it("shows the state and Start for the current entry when the daemon is stopped", () => {
     const row = rowOf({ state: "stopped" });
     expect(row?.remote).toMatchObject({ label: "Stopped", tone: "neutral", notice: null });
-    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start"]);
+    expect(row?.remote?.actions.map((a) => a.call)).toEqual(["start", "update"]);
     expect(row?.local).toBeNull();
   });
 
@@ -101,6 +101,28 @@ describe("the SSH row", () => {
     expect(remote?.label).toBe("pi-studio is not installed on this host");
     expect(remote?.notice?.command).toBe("npm install -g @av-pi-studio/cli");
     expect(remote?.actions.map((a) => a.call)).toEqual(["refresh"]);
+  });
+
+  it("offers Update beside the command for an outdated CLI and shows a busy row while updating", () => {
+    const outdated = rowOf({ state: "cli_outdated", version: "0.0.100" })?.remote;
+    expect(outdated?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+    expect(rowOf({ state: "updating" })?.remote).toMatchObject({
+      label: "Updating…",
+      tone: "busy",
+      actions: [],
+      notice: null,
+    });
+  });
+
+  it("shows the last lines of a failed update on the host", () => {
+    const remote = rowOf({ state: "failed", reason: "update_failed", output: "EACCES" })?.remote;
+    expect(remote?.label).toBe("The update failed");
+    expect(remote?.notice).toEqual({
+      text: "Run the update yourself, then retry.",
+      command: REMOTE_INSTALL_COMMAND,
+      output: "EACCES",
+    });
+    expect(remote?.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
   });
 
   it("names both versions for an outdated CLI", () => {
@@ -134,7 +156,7 @@ describe("buildDaemonsScreenView rows", () => {
 
   it("gives the local entry Start and no Remove", () => {
     expect(local?.actions).toEqual(["open", "edit"]);
-    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start"]);
+    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start", "update"]);
   });
 
   it("hides Open on the current entry", () => {
@@ -197,7 +219,7 @@ describe("the local row", () => {
     const row = localRow({ state: "cli_outdated", version: "0.0.100" });
     expect(row.notice?.command).toBe(UPDATE_CLI_COMMAND);
     expect(row.notice?.text).toContain("0.0.100");
-    expect(row.actions.map((a) => a.kind)).toEqual(["retry"]);
+    expect(row.actions.map((a) => a.kind)).toEqual(["update", "retry"]);
   });
 
   it("explains an unsupported system and offers nothing", () => {
@@ -210,6 +232,34 @@ describe("the local row", () => {
   it("offers Retry when the daemon failed to start", () => {
     const row = localRow({ state: "failed", reason: "timeout" });
     expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
+  });
+
+  it("shows a busy row without actions while updating", () => {
+    const row = localRow({ state: "updating" });
+    expect(row).toMatchObject({ label: "Updating…", tone: "busy", actions: [], notice: null });
+  });
+
+  it("shows the last lines of a failed update with the command to run by hand, and Update", () => {
+    const row = localRow({
+      state: "failed",
+      reason: "update_failed",
+      output: "\nnpm ERR! EACCES\n",
+    });
+    expect(row.label).toBe("The update failed");
+    expect(row.notice).toEqual({
+      text: "Run the update yourself, then retry.",
+      command: UPDATE_CLI_COMMAND,
+      output: "npm ERR! EACCES",
+    });
+    expect(row.actions.map((a) => a.call)).toEqual(["update", "refresh"]);
+  });
+
+  it("shows a failed update without output as the command alone", () => {
+    const row = localRow({ state: "failed", reason: "update_failed" });
+    expect(row.notice).toEqual({
+      text: "Run the update yourself, then retry.",
+      command: UPDATE_CLI_COMMAND,
+    });
   });
 });
 

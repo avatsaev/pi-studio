@@ -4,6 +4,7 @@ import {
   MANUAL_UPDATE_COMMAND,
   countLiveTerminals,
   countRunningAgents,
+  countRunningListedAgents,
   daemonUpdateDialogView,
   impactText,
   type DaemonUpdateDialogInput,
@@ -32,6 +33,19 @@ describe("counts", () => {
   it("counts agents mid-turn or starting, and terminals that are not closed", () => {
     expect(countRunningAgents(["idle", "running", "initializing", "error", "closed"])).toBe(2);
     expect(countLiveTerminals([{ closed: false }, {}, { closed: true }])).toBe(2);
+  });
+
+  it("counts the daemon's own agent list, including an agent this client's store never saw", () => {
+    expect(
+      countRunningListedAgents([
+        { status: "running" },
+        { status: "initializing" },
+        { status: "idle" },
+        {},
+        { status: "closed" },
+      ]),
+    ).toBe(2);
+    expect(countRunningListedAgents([])).toBe(0);
   });
 
   it("words 0/0, N/M, singular and not-yet-counted terminals", () => {

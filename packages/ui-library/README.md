@@ -65,7 +65,8 @@ createRoot(document.getElementById("root")!).render(
   - `brandConfig` — e.g. `{ colors: { accent: "#7c3aed" } }` to re-theme the accent.
 - `ToastViewport` and `Announcer` are **not** mounted automatically; mount them once, inside
   `ThemeBoundary`. Fire toasts with `useToastStore.getState().show("text")` (also `copied`,
-  `error`) and screen-reader announcements with `speak()`.
+  `error`; `show(text, { action: { label, onSelect } })` adds a button after the text that runs
+  `onSelect` and dismisses the toast) and screen-reader announcements with `speak()`.
 
 ### Switching the theme
 

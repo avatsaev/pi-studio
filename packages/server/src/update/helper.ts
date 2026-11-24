@@ -240,7 +240,9 @@ function realSeams(p) {
       });
     },
     installPrevious: async function (version) {
-      var r = await run("npm", ["install", "-g", p.packageName + "@" + version], 120000);
+      // --prefer-offline: the previous version was installed here, so npm's cache has it; with the
+      // registry gone a plain install stalls for the whole 120 s and fails (live check, 2026-11-24).
+      var r = await run("npm", ["install", "-g", p.packageName + "@" + version, "--prefer-offline"], 120000);
       return { ok: !r.err, message: r.err ? tail((r.stderr.trim() || r.err.message)) : "" };
     },
     writeResult: function (result) {

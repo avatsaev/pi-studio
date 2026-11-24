@@ -347,7 +347,7 @@ All state lives under `$PI_STUDIO_HOME/`. Every write goes through `AtomicStore`
 ```
 config.json                      Daemon config (password hash, provider overrides, relay, service proxy, …)
 pi-studio.pid                    PID of the running daemon (removed on a clean shutdown when it still names that process)
-update-result.json               Written by the update restart helper; read once and removed at the next start (`lastResult`)
+update-result.json               Written by the update restart helper once the new daemon answers; read once and removed (`lastResult`), at the start or within 30 s after it
 server-id                        Stable server identity (plain UUID via randomUUID())
 daemon-keypair.json              Persistent Curve25519 keypair (pairing / outbound relay E2EE)
 logs/                            Rotating NDJSON log files (pino)

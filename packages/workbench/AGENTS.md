@@ -51,7 +51,7 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   Optional `daemons` (sprint-109, `HostDaemons`: the desktop daemon registry — snapshot without
   secrets, local daemon actions, `resolveCurrent`, `switchTo`; milestone 4: SSH entries
   (`DaemonEntryView.kind: "ssh"`, `ssh`), `snapshot().remote` (`RemoteDaemonState`),
-  `remote.start/refresh`, `sshHosts()`) and `app.minDaemonVersion`; read by
+  `remote.start/refresh/update`, `local.update`, `sshHosts()`) and `app.minDaemonVersion`; read by
   the workbench (switcher, Daemons screen, outdated notice). `DaemonError` is exported as a type only (`shell/public-api.test.ts`
   pins the runtime exports): a host rejects with an `Error` carrying `code`.
   Optional `updates` (`HostUpdates`: `current()`, `subscribe`, `check`/`install`/`restart`; types
@@ -554,14 +554,22 @@ src/
                             `needsReconnect`: saving the current entry offers "Reconnect now" for any
                             change but a rename (a secret-only change too). The row of an SSH entry shows
                             `user@host:port`; for the current one `remoteStateView` (daemon-presentation.ts:
-                            label/tone/actions per `RemoteDaemonState`): `stopped` Start; `failed` Start
-                            and Retry; `unknown`, `not_installed`, `cli_outdated` Retry (`remote.refresh`);
+                            label/tone/actions per `RemoteDaemonState`): `stopped` Start and Update; `failed` Start
+                            and Retry (`update_failed`: Update and Retry); `unknown`, `not_installed`
+                            Retry (`remote.refresh`); `cli_outdated` Update and Retry; `updating` nothing;
                             `not_installed` shows "pi-studio is not installed on this host" with
                             `REMOTE_INSTALL_COMMAND` (`npm install -g @av-pi-studio/cli`) and a Copy
                             button (`copyCommand`, through `getHost().clipboard`); `cli_outdated` shows the
                             installed version and `MIN_REMOTE_CLI_VERSION` ("0.0.127"), a constant that
                             DUPLICATES the Rust `MIN_CLI_VERSION` (`desktop/crates/shell/src/cli_answers.rs`):
-                            change both together. `runRemoteAction` calls `remote.start/refresh`.
+                            change both together. `runRemoteAction` calls `remote.start/refresh/update`.
+                            Update (daemon self-update, desktop only): the local row offers Update
+                            beside Retry for `cli_outdated` (the npm command stays) and beside Start for
+                            `stopped`; an SSH row the same (`REMOTE_UPDATE`); `updating` is a busy row
+                            with a spinner and no actions; `failed`/`update_failed` reads "The update
+                            failed", offers Update and Retry, and shows the command to run by hand plus
+                            the update's last lines (`LocalNotice.output`, a `<pre>`, from the state's
+                            `output`). `runLocalAction(daemons, "update")` calls `local.update()`.
                             `daemon-lifecycle.ts` also opens the screen by itself when the current SSH
                             entry's state becomes `stopped`, `not_installed`, `cli_outdated` or `failed`
                             (`remoteNeedsScreen`, also on mount); the workbench still never starts a
@@ -580,7 +588,9 @@ src/
                             (mounted in WorkspaceShell: one toast per established connection — `open`
                             + `serverInfo` — when `app.minDaemonVersion` is set and the daemon is older
                             or silent; informational only, features stay gated by `server_info.features`;
-                            a reconnect reuses the first handshake's `serverInfo`) (+ tests)
+                            a reconnect reuses the first handshake's `serverInfo`; its "Open Daemons"
+                            toast action (`noticeToastOptions`, only with `host.daemons`) opens the
+                            Daemons screen, where Update is) (+ tests)
                             ConnectionBar (the 42px top row: brand/version, status pill, url+password
                             fields, one primary connect/disconnect action, the two panel toggles —
                             design spec § 08; replaced Toolbar + ConnectionStatus),
@@ -635,7 +645,10 @@ src/
                             returns no error), daemon-update-shown.ts (per-`serverId` marker of the last
                             shown result `at` in `host.storage`, key `pi-studio-daemon-update-shown`;
                             unseen = newer than the marker, no marker = unseen). `use-update-impact.ts`:
-                            agents from the session store (`running`/`initializing`), terminals from
+                            agents from the daemon's `list_agents_request` on open and whenever this
+                            client's own running count changes (`countRunningListedAgents`; the session
+                            store alone misses an agent another client started after this one connected;
+                            the store's count stands in until the answer or when it fails), terminals from
                             `list_terminals_request` on open and `terminals_update` (a broadcast beats a
                             slower list answer). The dialog keeps its own `result`/`wasUpdating` state
                             across the reconnect (the status store is cleared on disconnect); Escape

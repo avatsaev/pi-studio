@@ -9,10 +9,11 @@
 
 import { type ConnectionState } from "@av-pi-studio/client";
 import { type ServerInfoPayload } from "@av-pi-studio/protocol";
-import { useToastStore } from "@av-pi-studio/ui-library";
+import { useToastStore, type ToastAction, type ToastOptions } from "@av-pi-studio/ui-library";
 import { useEffect, useRef } from "react";
 import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
+import { useDaemonsStore } from "../daemons/daemons-store.js";
 import { outdatedDaemonNotice } from "./outdated-daemon.js";
 
 /** Long enough to read and act on; still dismisses itself. */
@@ -56,8 +57,22 @@ export function watchOutdatedDaemon(
   return useConnectionStore.subscribe(check);
 }
 
+/** The action is there only where the host has a daemon registry (the Daemons screen's Update). */
+const OPEN_DAEMONS_ACTION: ToastAction = {
+  label: "Open Daemons",
+  onSelect: () => useDaemonsStore.getState().openScreen(),
+};
+
+/** How the notice is shown: for how long, and with the button that opens the Daemons screen when the host has one. */
+export function noticeToastOptions(hasDaemons: boolean): ToastOptions {
+  return {
+    durationMs: NOTICE_DURATION_MS,
+    ...(hasDaemons ? { action: OPEN_DAEMONS_ACTION } : {}),
+  };
+}
+
 function showNotice(notice: string): void {
-  useToastStore.getState().show(notice, { durationMs: NOTICE_DURATION_MS });
+  useToastStore.getState().show(notice, noticeToastOptions(getHost().daemons !== undefined));
 }
 
 /** Mount once, inside the workbench shell. Does nothing without `app.minDaemonVersion`. */

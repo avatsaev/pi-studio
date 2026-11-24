@@ -16,7 +16,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
-import { Button, Dialog, Switch, TextInput } from "@av-pi-studio/ui-library";
+import { Button, Dialog, Spinner, Switch, TextInput } from "@av-pi-studio/ui-library";
 import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { type DaemonSettings, type HostDaemons } from "../../host/types.js";
@@ -293,11 +293,15 @@ function StateBlock({
   return (
     <div className={styles.localState}>
       <div className={styles.stateLabel} data-tone={state.tone} title={state.label}>
+        {state.tone === "busy" && (
+          <Spinner size="xs" className={styles.stateSpinner} aria-label={state.label} />
+        )}
         {state.label}
       </div>
       {notice && (
         <div className={styles.notice}>
           <span>{notice.text}</span>
+          {notice.output !== undefined && <pre className={styles.output}>{notice.output}</pre>}
           {notice.command !== undefined &&
             (onCopy ? (
               <div className={styles.commandRow}>

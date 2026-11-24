@@ -1,0 +1,24 @@
+# Local npm registry of the live update check. `@av-pi-studio/*` has NO uplink: those packages come
+# only from what the check publishes here, and nothing is ever forwarded to the real registry.
+# Every other package is proxied (read-only) from npmjs so the daemon's own dependencies install.
+storage: /verdaccio/storage
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+    max_users: 100
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+max_body_size: 200mb
+packages:
+  "@av-pi-studio/*":
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+  "**":
+    access: $all
+    proxy: npmjs
+log:
+  type: stdout
+  format: pretty
+  level: http

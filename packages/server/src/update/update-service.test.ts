@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as flush } from "node:timers/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,6 +14,8 @@ import {
   HANDOFF_PAUSE_MS,
   MANUAL_UPDATE_COMMANDS,
   readAndRemoveUpdateResult,
+  RESULT_POLL_MS,
+  RESULT_WATCH_MS,
   UpdateService,
   type UpdateLastResult,
   type UpdatePipeline,
@@ -55,6 +58,7 @@ function fakeTimer(): FakeTimer {
 function setup(overrides: Partial<UpdateServiceDeps> = {}) {
   const broadcasts: DaemonUpdateStatus[] = [];
   const timer = fakeTimer();
+  const resultTimer = fakeTimer();
   const deps: UpdateServiceDeps = {
     currentVersion: "0.0.10",
     detectInstallKind: async () => "npm-global",
@@ -70,9 +74,10 @@ function setup(overrides: Partial<UpdateServiceDeps> = {}) {
     now: () => 1_000,
     pipeline: async () => undefined,
     timer,
+    resultTimer,
     ...overrides,
   };
-  return { service: new UpdateService(deps), broadcasts, timer, deps };
+  return { service: new UpdateService(deps), broadcasts, timer, resultTimer, deps };
 }
 
 describe("UpdateService check", () => {
@@ -321,6 +326,59 @@ describe("UpdateService start and timer", () => {
     });
     await expect(service.start()).resolves.toBeUndefined();
     expect(service.status().installKind).toBe("unknown");
+  });
+
+  it("takes a result the helper writes after start-up (it writes once the new daemon answers): polls, reads once, broadcasts, stops", async () => {
+    const result: UpdateLastResult = { from: "0.0.9", to: "0.0.10", outcome: "updated", at: 7 };
+    let written: UpdateLastResult | undefined;
+    const takeLastResult = vi.fn(async () => {
+      const taken = written;
+      written = undefined;
+      return taken;
+    });
+    const { service, resultTimer, broadcasts } = setup({ takeLastResult, autoCheck: false });
+    await service.start();
+    expect(service.status().lastResult).toBeUndefined();
+    expect(resultTimer.sets).toHaveLength(1);
+    expect(resultTimer.sets[0]?.ms).toBe(RESULT_POLL_MS);
+
+    resultTimer.sets[0]?.fn();
+    await flush();
+    expect(takeLastResult).toHaveBeenCalledTimes(2); // the start-up read, one poll
+    expect(service.status().lastResult).toBeUndefined();
+
+    written = result;
+    resultTimer.sets[0]?.fn();
+    await flush();
+    expect(service.status().lastResult).toEqual(result);
+    expect(broadcasts.at(-1)?.lastResult).toEqual(result);
+    expect(resultTimer.cleared).toEqual([resultTimer.sets[0]]);
+  });
+
+  it("does not watch when the start-up read found the result", async () => {
+    const lastResult: UpdateLastResult = { from: "0.0.9", to: "0.0.10", outcome: "failed", at: 5 };
+    const { service, resultTimer } = setup({ takeLastResult: async () => lastResult });
+    await service.start();
+    expect(resultTimer.sets).toHaveLength(0);
+  });
+
+  it("stops looking for a result after the watch window, and when closed", async () => {
+    let now = 1_000;
+    const { service, resultTimer } = setup({ now: () => now, autoCheck: false });
+    await service.start();
+    now += RESULT_WATCH_MS - 1;
+    resultTimer.sets[0]?.fn();
+    await flush();
+    expect(resultTimer.cleared).toHaveLength(0);
+    now += 1;
+    resultTimer.sets[0]?.fn();
+    await flush();
+    expect(resultTimer.cleared).toEqual([resultTimer.sets[0]]);
+
+    const second = setup({ autoCheck: false });
+    await second.service.start();
+    second.service.close();
+    expect(second.resultTimer.cleared).toEqual([second.resultTimer.sets[0]]);
   });
 });
 

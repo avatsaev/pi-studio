@@ -1,7 +1,7 @@
 # Task 005 — Live check: a real global npm install updates itself, and rolls back
 
 - **Sprint:** sprints/sprint-136-daemon-update-service
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server, packages/cli, scripts
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 004 — Browser check of the update UI against the dev daemon's scripts
 
 - **Sprint:** sprints/sprint-137-daemon-update-ui
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/workbench, packages/web-client
 - **Priority:** P1
