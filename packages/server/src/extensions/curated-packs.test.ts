@@ -51,6 +51,15 @@ describe("selectEntries", () => {
     expect(unknownSlugs).toEqual([]);
   });
 
+  it("selecting molagent adds its git entry after core", () => {
+    const { entries, unknownSlugs } = selectEntries(CURATED_PACKS, ["molagent"]);
+    expect(entries.map((e) => [e.pack, e.entry.source])).toEqual([
+      ...CURATED_PACKS.core.packages.map((p) => ["core", p.source]),
+      ["molagent", "git:github.com/avatsaev/pi-molagent"],
+    ]);
+    expect(unknownSlugs).toEqual([]);
+  });
+
   it("reports an unknown slug without throwing, alongside the core entries", () => {
     const { entries, unknownSlugs } = selectEntries(CURATED_PACKS, ["nope"]);
     expect(entries.map((e) => e.entry.source)).toEqual(

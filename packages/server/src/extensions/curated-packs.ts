@@ -32,8 +32,8 @@ export interface CuratedPack {
 
 export type CuratedPackCatalog = Record<string, CuratedPack>;
 
-// core is implicit and always selected; swe/science/data are future audience packs, added as pure
-// data edits over time.
+// core is implicit and always selected; every other pack is opt-in (`daemon.extensions.packs` /
+// `PI_STUDIO_EXTENSION_PACKS`). swe/science/data are future audience packs, added as pure data edits.
 export const CURATED_PACKS = {
   core: {
     title: "Baseline",
@@ -46,6 +46,14 @@ export const CURATED_PACKS = {
       // Structured questionnaire tool: typed multiple-choice/free-text prompts instead of the
       // model guessing when it lacks information it should ask for.
       { source: "npm:@juicesharp/rpiv-ask-user-question", addedIn: "0.0.93" },
+    ],
+  },
+  molagent: {
+    title: "Molagent",
+    description: "Molecular simulation skills: OPLS-AA, LAMMPS, Gaussian",
+    packages: [
+      // A private GitHub repository: it installs only where the host's git can read it.
+      { source: "git:github.com/avatsaev/pi-molagent", addedIn: "0.0.130" },
     ],
   },
 } satisfies CuratedPackCatalog;
