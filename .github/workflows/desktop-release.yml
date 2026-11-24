@@ -630,11 +630,15 @@ jobs:
           if-no-files-found: ignore
 
   # Offers N to the installed apps. Only a release run gets here, and only when every update-check
-  # job passed (`needs` without an `always`-style `if` skips this job when one failed).
+  # job passed. The `if` must name `update-check` itself: a bare `if` is wrapped in `success()`, which
+  # also looks at every ANCESTOR job, and `bundle` (skipped in a release run) is one, so the job was
+  # skipped in the first two publishing runs and no build was ever offered.
   promote:
     name: Promote
     needs: [version, update-check]
-    if: needs.version.outputs.publish == 'true'
+    if: >-
+      ${{ !cancelled() && needs.version.outputs.publish == 'true' &&
+      needs.update-check.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
