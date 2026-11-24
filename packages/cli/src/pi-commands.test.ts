@@ -21,7 +21,7 @@ import {
 function fakeRuntime(overrides: Partial<PiRuntime> = {}): PiRuntime {
   return {
     spawn: async () => 0,
-    resolveBundled: () => "/bundled/pi-coding-agent/dist/cli.js",
+    piCommand: (args) => [process.execPath, "/bundled/pi-coding-agent/dist/cli.js", ...args],
     onPath: () => false,
     ...overrides,
   };
@@ -67,12 +67,12 @@ describe("piProxyCommand", () => {
   });
 
   it("falls back to a global `pi` on $PATH when the bundled package is absent", () => {
-    const runtime = fakeRuntime({ resolveBundled: () => null, onPath: (bin) => bin === "pi" });
+    const runtime = fakeRuntime({ piCommand: () => null, onPath: (bin) => bin === "pi" });
     expect(piProxyCommand(runtime, ["-p", "hi"])).toEqual(["pi", "-p", "hi"]);
   });
 
   it("returns null when neither the bundled CLI nor a global `pi` is available", () => {
-    const runtime = fakeRuntime({ resolveBundled: () => null, onPath: () => false });
+    const runtime = fakeRuntime({ piCommand: () => null, onPath: () => false });
     expect(piProxyCommand(runtime, [])).toBeNull();
   });
 });
@@ -126,7 +126,7 @@ describe("runPiProxy", () => {
   });
 
   it("reports EXIT_ERROR and writes to stderr when no pi binary can be found", async () => {
-    const { ctx, err } = ctxWith(fakeRuntime({ resolveBundled: () => null, onPath: () => false }));
+    const { ctx, err } = ctxWith(fakeRuntime({ piCommand: () => null, onPath: () => false }));
     const code = await runPiProxy(ctx, {}, []);
     expect(code).toBe(EXIT_ERROR);
     expect(err[0]).toMatch(/embedded Pi CLI not found/);

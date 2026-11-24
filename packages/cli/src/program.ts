@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerAgentCommands } from "./agent-commands.js";
@@ -11,10 +10,7 @@ import { registerRelayCommands } from "./relay-commands.js";
 import { registerUiCommands } from "./ui-commands.js";
 import { registerUpdateCommands } from "./update-commands.js";
 import { type CliContext, type GlobalOptions, defaultContext } from "./cli-core.js";
-
-// Read our own package.json for the version, same relative layout in both `src/` (ts-node/tsx)
-// and `dist/` (compiled — one level below the package root either way).
-const { version }: { version: string } = createRequire(import.meta.url)("../package.json");
+import { PACKAGE_VERSION as version } from "./version.generated.js";
 
 /**
  * Build the root Commander program (features/cli.md § Global options). Global options are attached

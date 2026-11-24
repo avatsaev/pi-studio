@@ -26,6 +26,8 @@ const UNAVAILABLE_REASONS: Record<string, string> = {
   npm_missing: "npm was not found on the daemon's host, so it cannot update itself.",
   not_writable: "npm's global folder is not writable by the daemon, so it cannot update itself.",
   unsupported_platform: "Updating a daemon on this platform is not supported.",
+  unmanaged_binary:
+    "This daemon binary was not installed by Pi Studio, so it cannot update itself. Download the new release.",
 };
 
 const FAILURE_TEXTS: Record<string, string> = {

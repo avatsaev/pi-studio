@@ -28,16 +28,14 @@ import { connectDaemon } from "./connection.js";
 
 /**
  * A realistic curated `ExtensionPackInfo[]` fixture, matching the real wire shape
- * (`packages/protocol/src/messages.ts`) — the five `core` entries, one already failed. The source
+ * (`packages/protocol/src/messages.ts`) — the three `core` entries, one already failed. The source
  * list mirrors `CURATED_PACKS.core` on purpose: the `listExtensionsLocal` test below renders this
  * fixture through the shared renderer and compares it to output computed from the real manifest,
  * so a manifest edit must be reflected here too.
  */
 const CORE_ADDED_IN: Record<string, string> = {
-  "npm:@99percentpeople/pi-background-tasks": "0.0.73",
   "npm:@juicesharp/rpiv-todo": "0.0.73",
   "npm:pi-web-access": "0.0.73",
-  "npm:pi-powerline-footer": "0.0.73",
   "npm:@juicesharp/rpiv-ask-user-question": "0.0.93",
 };
 
@@ -192,7 +190,7 @@ function connectOptsFrom(ctx: CliContext) {
 describe("buildEntryRows", () => {
   it("one row per curated entry; failed row carries reason, truncated message, and attempts when > 1", () => {
     const rows = buildEntryRows(packsFixture({ failWebAccess: true }));
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(3);
     const failedRow = rows.find((r) => r.source === "npm:pi-web-access");
     expect(failedRow?.status).toBe("failed");
     expect(failedRow?.reason).toBe("not_found");
@@ -337,7 +335,7 @@ describe("selectExtensions / syncExtensions", () => {
     const { client, ctx, out } = await connectedClient(transport);
     const code = await syncExtensions(client, ctx, {});
     expect(code).toBe(EXIT_OK);
-    expect(out[0]).toContain("installed 5 of 5 recommended extensions");
+    expect(out[0]).toContain("installed 3 of 3 recommended extensions");
     client.close();
   });
 

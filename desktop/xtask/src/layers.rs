@@ -45,6 +45,7 @@ impl Class {
 /// L7  net                 sockets: the dial and the loopback proxy. Only `transfer` and an app binary may use it, and it uses no UI crate
 /// L8  transfer            the transfer engine: the daemon's file-transfer protocol over its own connection. Only an app binary may use it, and it uses no UI crate
 /// L8  relay, ssh          the relay client (protocol 2) and the SSH client: each opens a daemon socket through `net`. Only an app binary may use them, and they use no UI crate
+/// L8  install             the daemon installer: download, verify, unpack, version layout. Uses no socket of `net` (it has its own HTTP client). Only an app binary may use it, and it uses no UI crate
 /// ```
 pub const TABLE: &[(&str, Class)] = &[
     ("model", Class::Layer(1)),
@@ -59,6 +60,8 @@ pub const TABLE: &[(&str, Class)] = &[
     // Beside `transfer`: above `net`, which they dial through, and above the shell and the engine, so only apps may use them.
     ("relay", Class::Layer(8)),
     ("ssh", Class::Layer(8)),
+    // Beside `transfer`: above the shell and the engine, so only apps may use it. It downloads with `reqwest`, not through `net`.
+    ("install", Class::Layer(8)),
     ("testkit", Class::Testkit),
     // Apps and tooling.
     ("pistudiodesktop", Class::Exempt),
@@ -328,6 +331,25 @@ mod tests {
                     "{name}: missing {lower} in {found:#?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn install_is_usable_by_apps_only() {
+        let full = "pistudiodesktop-install";
+        let crates = [
+            krate("pistudiodesktop-engine", &[(full, DepKind::Normal, true)]),
+            krate("pistudiodesktop-shell", &[(full, DepKind::Normal, true)]),
+            krate("pistudiodesktop-net", &[(full, DepKind::Normal, true)]),
+            krate("pistudiodesktop-transfer", &[(full, DepKind::Normal, true)]),
+            krate("pistudiodesktop-relay", &[(full, DepKind::Normal, true)]),
+            krate("pistudiodesktop", &[(full, DepKind::Normal, true)]),
+            krate(full, &[]),
+        ];
+        let found: Vec<String> = check(&crates).iter().map(ToString::to_string).collect();
+        assert_eq!(found.len(), 5, "{found:#?}");
+        for lower in ["engine (L5)", "shell (L6)", "net (L7)", "transfer (L8)", "relay (L8)"] {
+            assert!(found.iter().any(|f| f.starts_with(&format!("pistudiodesktop-{lower} depends on {full} (L8)"))), "missing {lower} in {found:#?}");
         }
     }
 

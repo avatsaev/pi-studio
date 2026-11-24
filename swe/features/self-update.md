@@ -4,6 +4,10 @@
 > Status: **built and verified on Linux 2026-11-24** (sprints 135–138) from the grill
 > [../grills/daemon-self-update.md](../grills/daemon-self-update.md)
 > (D1–D16 owner, P1–P15 agent). Roadmap step 5b. Replaces the text of 2026-08-26, which was never built.
+> **Amended 2026-11-24 for milestone 6, not built:** the `binary` install kind, the skipped version
+> after a rollback, and the desktop's Update (now the pinned binary), from the grill
+> [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (D7, D13, D14, P15). The
+> amended parts are marked "(milestone 6)".
 > Dependencies: [../architecture/daemon-bootstrap.md](../architecture/daemon-bootstrap.md) (start, PID
 > lock, shutdown), [cli.md](cli.md) (`update`, `daemon stop|restart`),
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md) (RPC families, feature
@@ -53,8 +57,8 @@ restart race is fixed too (D15).
 
 ## Non-goals
 
-- Docker, a repository checkout and the single binary updating themselves (D2). They report why not
-  and show the command. The binary joins in milestone 6.
+- Docker and a repository checkout updating themselves (D2). They report why not and show the
+  command. The single binary updates itself since milestone 6 (install kind `binary`).
 - Choosing a version, downgrading by hand, release channels.
 - A "Restart daemon" button of its own.
 - Updating the web client's files where they are hosted elsewhere, or the desktop app.
@@ -74,6 +78,7 @@ sets it to `docker`.
 | `docker` | the environment variable | no |
 | `source` | the server package is `<root>/packages/server` and `<root>/package.json` has `workspaces` | no |
 | `unknown` | anything else (a project-local install, `npx`, `npm` not found) | no |
+| `binary` (milestone 6) | a build-time constant of the single binary | yes, when the executable is `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio` and `bin` is writable; otherwise `cannot_update(unmanaged_binary)` |
 
 ### Feature flag
 
@@ -99,7 +104,7 @@ A client cannot name a package or a version (P10).
 ```
 DaemonUpdateStatus {
   currentVersion: string
-  installKind: "npm-global" | "docker" | "source" | "unknown"
+  installKind: "npm-global" | "docker" | "source" | "unknown" | "binary"
   autoCheck: boolean
   checkedAt?: number            // epoch ms of the last finished check
   checkError?: string           // "offline" | "bad_answer"; set by the last check only
@@ -113,15 +118,22 @@ DaemonUpdateStatus {
     | { kind: "failed", version, code, message? }   // code: "install" | "timeout" | "permission" | "network"
     | { kind: "cannot_update", reason, version?, command }
   lastResult?: { from, to, outcome: "updated" | "rolled_back" | "failed", at, message? }
+  skippedVersion?: string       // milestone 6: a version that was rolled back (D14)
 }
 ```
 
 `cannot_update.reason`: `docker`, `source`, `unknown_install`, `npm_missing`, `not_writable`,
-`unsupported_platform`. `command` is the line to run by hand for that reason (`npm i -g
+`unsupported_platform`, and since milestone 6 `unmanaged_binary` (a binary outside
+`$PI_STUDIO_HOME/bin/versions/`). `command` is the line to run by hand for that reason (`npm i -g
 @av-pi-studio/cli@latest` then `pi-studio daemon restart`; `docker compose pull && docker compose up
--d`; `git pull && npm run build`). `version` is present when a newer one is known. `message` is the
-last 2048 characters of the failed command's output, with credentials in URLs removed
-(`redactSource`).
+-d`; `git pull && npm run build`; for a binary, the address of the release page). `version` is
+present when a newer one is known. `message` is the last 2048 characters of the failed command's
+output, with credentials in URLs removed (`redactSource`).
+
+`skippedVersion` (milestone 6, D14): written when the daemon reads an `update-result.json` whose
+outcome is `rolled_back` or `failed`; kept in `$PI_STUDIO_HOME/update-skip.json`. An automatic check
+that finds exactly that version leaves the state `idle`; a manual check ("Check now") offers it; a
+newer version clears it. Applies to every install kind.
 
 ### Other surfaces
 
@@ -131,6 +143,8 @@ last 2048 characters of the failed command's output, with credentials in URLs re
 | `config.json` `daemon.update.autoCheck` / env `PI_STUDIO_UPDATE_AUTOCHECK` (wins) | default `true`; `false`: no check at start, no timer (D16) |
 | `PI_STUDIO_INSTALL_KIND` | see Install kind |
 | `$PI_STUDIO_HOME/update-result.json` | written by the helper, read once and removed at the next start (P8) |
+| `$PI_STUDIO_HOME/update-skip.json` (milestone 6) | `{ version }`, the skipped version (D14) |
+| `https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json` (milestone 6) | what a `binary` daemon checks ([single-binary-daemon.md](single-binary-daemon.md) § Release files) |
 | `$PI_STUDIO_HOME/logs/update-restart.log` | the helper's own log |
 | `$PI_STUDIO_HOME/pi-studio.pid` | removed on a clean shutdown |
 | Client SDK (`PiStudioClient`) | `getDaemonUpdateStatus()`, `checkDaemonUpdate()`, `applyDaemonUpdate()`, `setDaemonUpdateAutoCheck(enabled)`, `onDaemonUpdateStatus(cb)`, `hasDaemonUpdateCapability()` |
@@ -165,13 +179,19 @@ at start, after the daemon listens (never delays the start):
 
 check(by):
     if an update is running: return
-    state = checking (broadcast only for a manual check)
-    latest = `npm view @av-pi-studio/cli version`       # 15 s; honours the host's .npmrc
+    latest = kind is binary ? GET daemon-updates/latest.json (15 s; never the GitHub API, P15)
+                            : `npm view @av-pi-studio/cli version` (15 s; honours the host's .npmrc)
     checkedAt = now
     if latest is not x.y.z:  checkError = offline | bad_answer; state = what it was before
     else:
         checkError = none
+        if skippedVersion and latest > skippedVersion: clear skippedVersion        # milestone 6
         if latest <= currentVersion:            state = idle
+        else if by is automatic and latest == skippedVersion: state = idle       # milestone 6, D14
+        else if kind is binary:
+            if outside bin/versions or bin not writable: state = cannot_update(unmanaged_binary | not_writable, latest)
+            else if no asset for this system:       state = cannot_update(unsupported_platform, latest)
+            else:                                   state = available(latest)
         else if kind != npm-global:             state = cannot_update(kind's reason, latest)
         else if npm not found:                  state = cannot_update(npm_missing, latest)
         else if global folder not writable:     state = cannot_update(not_writable, latest)
@@ -211,6 +231,21 @@ daemon's files were replaced, and code it has not loaded yet would come from the
 
 A `failed` state is replaced by the next check (`available` again, so the pill offers a retry).
 
+**Binary (milestone 6, D7, D13).** The same states, with the install step replaced:
+
+```
+    installing(target):
+        GET the asset of this system from latest.json into $PI_STUDIO_HOME/bin/tmp/ (60 s stall limit)
+        SHA-256 must equal latest.json's; unpack into bin/tmp/<random>/ (no entry outside it)
+        the unpacked pi-studio --version must equal target
+        move it to bin/versions/<target>/          # failure at any step: failed(install|network, message); no restart
+    updating_extensions: run the NEW binary's `__pi update --extensions` (180 s)
+    restarting: spawn the helper from the NEW binary (`__update-helper`), then close() and exit
+```
+
+`current` is not switched before the restart: the helper does it after the old daemon exited, so a
+failed install never touches the running version.
+
 ### The helper (P7, P8, D12)
 
 A detached process started before the shutdown. Its script is one self-contained text passed with
@@ -240,6 +275,18 @@ start, the daemon stays down and the log's last line says to run `pi-studio daem
 The started daemon reads `update-result.json` once, removes it, and carries it as `lastResult` until
 the next update. Clients show it once per result (the workbench remembers the `at` it has shown).
 
+**Binary helper (milestone 6).** The same steps with links instead of npm:
+
+```
+binary helper(oldPid, target, previous, env, listen, home):
+    wait for oldPid to exit (30 s)
+    switch bin/current → versions/<target>
+    for try in 1..3: start current/pi-studio's daemon; health with version == target within 6 s → updated; exit
+    switch bin/current → versions/<previous>; start it; health with version == previous
+    write update-result.json {outcome: rolled_back when it answers, else failed}
+    after `updated`: remove version folders other than target and previous
+```
+
 ### Shutdown (D5, P9)
 
 ```
@@ -264,6 +311,9 @@ restart. One provider that hangs cannot stop the shutdown.
   just stopped.
 - `update`: as today, then, when a local daemon is running, restarts it and reports the version that
   answers. `update --check` is unchanged.
+- Milestone 6, a binary: `update` installs the newest version of `daemon-updates/latest.json` into
+  `bin/versions/`, switches `current`, and restarts a running daemon as above; `update --check` reads
+  the same file. A process counts as a daemon when it is `node` or `pi-studio`.
 
 ### Workbench (D6, D7, D10, P11)
 
@@ -283,7 +333,9 @@ restart. One provider that hangs cannot stop the shutdown.
   update, the result shows a Reload button and one line saying the page is older. No automatic
   reload. The desktop app shows neither.
 - **Settings → Daemon.** A new category, present when the daemon has the flag: version, install
-  kind, last check, "Check now", the automatic-check switch, and the same Update action.
+  kind, last check, "Check now", the automatic-check switch, and the same Update action. Since
+  milestone 6 it also shows a `skippedVersion`: "X was rolled back and is not offered; Check now to
+  try it again".
 - **Other clients.** Every client shows the same pill states from the broadcast; when the socket
   drops during `restarting` the usual reconnecting state shows; after the reconnect each client asks
   for the status and shows `lastResult` once.
@@ -292,26 +344,20 @@ restart. One provider that hangs cannot stop the shutdown.
 
 ### Desktop (D9, P12)
 
-For the local entry and an SSH entry whose state is `cli_outdated`, and for one that is stopped, the
-Daemons screen offers **Update**:
-
-```
-daemon.local.update / daemon.remote.update {id}:
-    run `pi-studio update` on the host (5 min)        # output not parsed: an outdated CLI's format is unknown
-    run `pi-studio --version`                         # must now be >= the app's minimum
-    start the daemon as Start does
-    state: updating → running | failed(update_failed, the output's last lines)
-```
-
-A CLI that is missing is not installed by the app (milestone 6). A running daemon that is new enough
-is updated through the workbench's pill, not here.
+**Changed in milestone 6.** The local entry and an SSH entry no longer run an installed CLI: Update on
+the Daemons screen installs the binary pinned in the app and restarts the daemon on it, for a daemon
+that is `outdated` (older than `minDaemonVersion`) or stopped with a binary older than the pin
+([single-binary-daemon.md](single-binary-daemon.md), [desktop-ssh-daemon-install.md](desktop-ssh-daemon-install.md)).
+A running daemon at or above the minimum is updated through the workbench's pill. The `pi-studio
+update` path of milestone 5b, its `update_failed` state and the npm instructions are removed.
 
 ## Data & persistence touchpoints
 
-Nothing is migrated. The update state is memory only. New files: `update-result.json` (short-lived)
-and `logs/update-restart.log`. `config.json` gains `daemon.update.autoCheck`, written by a targeted
-read-merge-write like the other config writers. The workbench keeps the last shown result's `at` per
-daemon in its stored state.
+Nothing is migrated. The update state is memory only. New files: `update-result.json` (short-lived),
+`logs/update-restart.log`, and since milestone 6 `update-skip.json` and the `bin/` folder of a binary
+install. `config.json` gains `daemon.update.autoCheck`, written by a targeted read-merge-write like
+the other config writers. The workbench keeps the last shown result's `at` per daemon in its stored
+state.
 
 ## Error handling & edge cases
 
@@ -335,6 +381,10 @@ daemon in its stored state.
 | A daemon without the flag | no pill, no category; the desktop's Update covers local and SSH entries (P15) |
 | The web page is older than the daemon | the Reload note (browser only) |
 | Relay and SSH clients | the daemon registers at the relay with the same key; pairing links and SSH tunnels keep working; clients reconnect by themselves |
+| A version was rolled back (milestone 6) | not offered by an automatic check until a newer one exists; "Check now" offers it (D14) |
+| GitHub unreachable or `latest.json` malformed, binary (milestone 6) | as npm unreachable: `checkError` on a manual check only |
+| The asset's checksum differs, binary (milestone 6) | `failed(install)`; the file is deleted; the running daemon is untouched |
+| A binary run from outside `bin/versions` (milestone 6) | `cannot_update(unmanaged_binary)` with the release page |
 
 ## Dependencies on other specs
 
@@ -344,7 +394,8 @@ daemon in its stored state.
 - `features/preinstalled-extensions.md`: the bundled `pi` spawn.
 - `features/desktop-daemon-registry.md`, `features/desktop-relay-ssh.md`: the two supervisors gain Update.
 - `features/desktop-self-update.md`: the pill component both updates share.
-- `architecture/single-binary-daemon.md`: a `binary` install kind is added there (milestone 6).
+- `architecture/single-binary-daemon.md`, `features/single-binary-daemon.md`: the `binary` install
+  kind, its release files and its layout (milestone 6).
 
 ## Acceptance criteria
 
@@ -381,6 +432,18 @@ sprint 137/t004 (headless Chromium, dark and light, two clients), and the unit t
 - [x] The browser client without the flag (an older daemon) shows no pill and no Daemon category.
       *(A scratch script stripped the flag; not a build of an older commit.)*
 
+Milestone 6 (not built; proof on Linux live, D16):
+
+- [ ] A binary daemon in the layout reports `binary`; with a newer `daemon-updates/latest.json` every
+      client shows the pill; Update downloads, checks, restarts on the new version on the same
+      address, and clients reconnect.
+- [ ] A new binary that does not start is rolled back to the previous folder; clients show "failed,
+      back on Y"; the next automatic check does not offer it, "Check now" does, and a newer release
+      is offered again (npm daemons too).
+- [ ] A binary outside `bin/versions` reports `cannot_update(unmanaged_binary)` when a newer version
+      exists.
+- [ ] A corrupted asset ends in `failed` and the running daemon keeps running.
+
 ## Resolved by the build (2026-11-23/24, sprints 135–138)
 
 - `pi --mode rpc` exits by itself within 1 s when the daemon is killed with SIGKILL (idle or stuck
@@ -404,8 +467,8 @@ sprint 137/t004 (headless Chromium, dark and light, two clients), and the unit t
 - Is `npm` on the PATH of a daemon started by the desktop app on macOS (GUI apps get a short PATH;
   the app finds the CLI through the login shell's environment)? — a Mac is not available:
   [INFERENCE] until seen.
-- After a rollback the next check offers the broken version again (at the next start and every 6 h).
-  Skipping a version that was just rolled back until a newer one appears is not specified. — owner.
+- Resolved by the grill of 2026-11-24 (D14): a version that was rolled back is skipped by automatic
+  checks until a newer one appears (milestone 6, not built).
 - macOS and Windows: no live run (owner's decision); Windows hosts report
   `cannot_update(unsupported_platform)`.
 - Not seen live: a hoisted npm layout; the 6 h timer; dialog counts with agents running in the real

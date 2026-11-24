@@ -1,6 +1,7 @@
-import { identityOf, selectEntries } from "./curated-packs.js";
+import { selectEntries } from "./curated-packs.js";
 import type { CuratedPackCatalog } from "./curated-packs.js";
 import type { PiHomeState } from "./extensions-state.js";
+import { identityOf } from "./pi-source.js";
 
 /**
  * The pure sync planner: a single three-way merge over the manifest, the state file, and pi's live

@@ -23,7 +23,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && chmod +x dist/relay-main.js",
+    "build": "node scripts/gen-version.mjs && tsc -b && chmod +x dist/relay-main.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

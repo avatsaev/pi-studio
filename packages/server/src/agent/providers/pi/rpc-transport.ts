@@ -122,15 +122,13 @@ export function resolveBundledPiCli(): string | null {
   }
 }
 
-/**
- * Default Pi launch command. Prefers the bundled CLI (`node <pkg>/<pi's declared bin> --mode rpc`)
- * so no global install is required; falls back to a global `pi --mode rpc` on `$PATH` if the
- * dependency is absent.
- */
-export function defaultPiCommand(): string[] {
-  const cli = resolveBundledPiCli();
-  if (cli) return [process.execPath, cli, "--mode", "rpc"];
-  return ["pi", "--mode", "rpc"];
+/** What a rejected request and the `error` stream event say when the Pi process is gone: the exit
+ *  status, then whatever Pi wrote to stderr (a failing extension is named there). */
+function exitMessage(code: number | null, signal: string | null, stderr: string): string {
+  return (
+    `pi process exited (code ${code ?? "null"}${signal ? `, ${signal}` : ""})` +
+    (stderr ? `: ${stderr}` : "")
+  );
 }
 
 /**
@@ -152,6 +150,8 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
   let nextId = 0;
   /** Set once the process fails to spawn or exits abnormally; all further calls reject with it. */
   let failure: Error | null = null;
+  /** Set by `close()`: the exit that follows is requested, not a failure. */
+  let closing = false;
 
   const log = spawnArgs.logger;
   log?.info({ pid: child.pid, command, cwd: spawnArgs.cwd }, "pi process spawned");
@@ -198,12 +198,7 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
         },
         "pi process exited with commands in flight",
       );
-      failAll(
-        new Error(
-          `pi process exited (code ${code ?? "null"}${signal ? `, ${signal}` : ""})` +
-            (trimmedStderr ? `: ${trimmedStderr}` : ""),
-        ),
-      );
+      failAll(new Error(exitMessage(code, signal, trimmedStderr)));
     } else if (code !== 0 && code !== null) {
       log?.error(
         {
@@ -214,6 +209,11 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
         },
         "pi process exited non-zero",
       );
+      // Nothing was waiting for an answer, but a turn may be: its `prompt` is a `notify`, and Pi
+      // dies at start-up when an extension fails to load. Failing the transport hands the exit
+      // status and stderr to the session, so the turn ends with them instead of waiting for a
+      // terminal event that never comes.
+      if (!closing) failAll(new Error(exitMessage(code, signal, trimmedStderr)));
     } else {
       log?.info(
         { pid: child.pid, code: code ?? undefined, signal: signal ?? undefined },
@@ -293,6 +293,7 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
       return () => eventCbs.delete(cb);
     },
     close() {
+      closing = true;
       // Kill the whole `pi` process tree so any helpers it spawned don't linger.
       if (child.pid !== undefined) {
         treeKill(child.pid, "SIGTERM", () => {

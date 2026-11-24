@@ -3,8 +3,8 @@ import { spawn } from "node:child_process";
 import treeKill from "tree-kill";
 
 import type { PersistedConfig } from "../config/daemon-config.js";
-import { resolveBundledPiCli } from "../agent/providers/pi/rpc-transport.js";
 import type { Logger } from "../logging/logger.js";
+import { piCommand } from "../runtime/self.js";
 import { SERVER_VERSION } from "../version.js";
 import {
   effectivePiHomeKey,
@@ -193,8 +193,9 @@ export async function executePlan(
     return { at: now().toISOString(), outcome: "noop", installed: [], failures: [] };
   }
 
-  const cli = resolveBundledPiCli();
-  if (!cli) {
+  // The launcher without its arguments: each action appends its own.
+  const base = piCommand([]);
+  if (!base) {
     deps.logger.warn("no bundled pi CLI resolvable — extensions sync skipped");
     return { at: now().toISOString(), outcome: "skipped", installed: [], failures: [] };
   }
@@ -218,7 +219,7 @@ export async function executePlan(
     const at = now().toISOString();
     try {
       const result = await spawnFn({
-        command: [process.execPath, cli, "install", action.source],
+        command: [...base, "install", action.source],
         env,
         timeoutMs: INSTALL_TIMEOUT_MS,
       });
@@ -274,10 +275,10 @@ export async function updateInstalledExtensions(deps: {
   config: PersistedConfig;
   spawn?: InstallSpawn;
 }): Promise<void> {
-  const cli = resolveBundledPiCli();
-  if (!cli) throw new Error("no bundled pi CLI resolvable");
+  const command = piCommand(["update", "--extensions"]);
+  if (!command) throw new Error("no bundled pi CLI resolvable");
   const result = await (deps.spawn ?? defaultInstallSpawn)({
-    command: [process.execPath, cli, "update", "--extensions"],
+    command,
     env: piSpawnEnv(deps.config),
     timeoutMs: INSTALL_TIMEOUT_MS,
   });

@@ -1,64 +1,143 @@
-# Single-Binary Daemon — Exploration Record
+# Single-Binary Daemon — Architecture
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [daemon-bootstrap.md](daemon-bootstrap.md),
-> [ssh-gateway-connections.md](ssh-gateway-connections.md),
+> [../features/single-binary-daemon.md](../features/single-binary-daemon.md),
+> [../features/desktop-ssh-daemon-install.md](../features/desktop-ssh-daemon-install.md),
 > [../features/self-update.md](../features/self-update.md),
-> [../features/desktop-app.md](../features/desktop-app.md)
+> [../features/desktop-self-update.md](../features/desktop-self-update.md)
 
-> **Status (2026-11-22): explored, not built, not scheduled.** This is the record of a one-day
-> exploration the owner asked for. It holds what was measured, what was only designed, and what the
-> owner decided. No feature specification or sprint plan exists. Nothing in the repository changed:
-> the spike lived in a scratch directory and patched files at build time.
+> **Status (2026-11-24): designed, not built.** Desktop roadmap milestone 6. The design follows the
+> grill [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (readout confirmed by
+> the owner on 2026-11-24). Until then this file was the record of a one-day exploration
+> (2026-11-22); its measurements are kept below. A1–A10 are proposed here.
 
 ## Goal
 
-Three things the owner wants, all about distribution:
+Three things the owner wants, all about distribution (2026-11-22):
 
 1. Run a local daemon from the desktop app without a separately installed `pi-studio` CLI.
-2. Install a daemon on a remote host from the app, over a direct or SSH connection.
+2. Install a daemon on a remote host from the app over SSH.
 3. Update a daemon easily.
+
+The features are [../features/single-binary-daemon.md](../features/single-binary-daemon.md) (the binary,
+its release, the app's local daemon), [../features/desktop-ssh-daemon-install.md](../features/desktop-ssh-daemon-install.md)
+(SSH hosts) and the `binary` install kind of [../features/self-update.md](../features/self-update.md).
+This file is how the binary is made and what changes in the code.
 
 ## A Rust rewrite was rejected
 
 A daemon in Rust is possible but does not remove the JavaScript runtime, because Pi is a JavaScript
-program and the daemon uses it two ways:
+program and the daemon uses it two ways: as a subprocess (`pi --mode rpc`), and as an in-process
+library (`ModelRuntime`, `SessionManager`, `SettingsManager`, `DefaultPackageManager`,
+`loadSkillsFromDir`), which Rust cannot import. The server is about 23,000 lines with 27,000 lines of
+tests; the estimate was 4–6 months to parity. The owner chose the single binary instead (2026-11-22).
 
-- As a subprocess (`pi --mode rpc`). This works from any language.
-- As an in-process library, which Rust cannot import: `ModelRuntime` (provider login, structured
-  generation), `SessionManager` (history and todos of an agent with no process), and
-  `SettingsManager` / `DefaultPackageManager` / `loadSkillsFromDir` (skills).
+## Decisions proposed here
 
-Each in-process use would have to be reimplemented in Rust and re-checked on every Pi release, or
-kept in a JavaScript helper. The server is about 23,000 lines with 27,000 lines of tests, 134 RPC
-message types and 65 protocol schemas. The estimate was 4–6 months to parity. The goals above do not
-need it.
+| # | Decision | Why |
+|---|---|---|
+| A1 | Bun is an exact-pinned root `devDependency` (`bun`, 1.4.5 or the version the first task proves); `npm run build:binary -- --target <target>` builds one target with it | No separate install for developers or CI; one version everywhere |
+| A2 | The binary's entry is `packages/cli/src/binary-main.ts`. It dispatches on its first argument: a hidden sub-command (below) or the normal CLI | One file is every program (P4) |
+| A3 | One module, `packages/server/src/runtime/self.ts`, answers "how do I start Pi, the `skills` CLI, the daemon, the relay, the update helper" for both runtimes; every spawn site and the CLI's starters use it | Nine spawn sites and three starters agree; the Node path stays the default |
+| A4 | Under Bun the terminal backend is `Bun.spawn(…, { terminal })`; under Node it stays `node-pty`, imported lazily | `node-pty` does not load under Bun; importing it at module load stops the daemon |
+| A5 | The five `createRequire` calls become static imports or build-time constants (`SERVER_VERSION` from a generated module) | Bun's bundler does not follow `createRequire` |
+| A6 | `packages/server/src/runtime/pi-overrides.ts` replaces `SettingsManager.prototype.getNpmCommand` and filters the package list (`BINARY_EXCLUDED_PACKAGES`) when running as the binary; the daemon applies it at start, the `__pi` entry before Pi's own entry | P8: the user's Pi settings are never written; D2 |
+| A7 | Pi's runtime assets, the `bun` script and the web UI's `dist/web` ship beside the executable; `self.ts` finds them from `process.execPath` | Pi reads its assets from the executable's folder; `pi-studio ui` needs the files |
+| A8 | `installKind` is `binary` when a build-time constant says so; whether it can update depends on the executable being under `$PI_STUDIO_HOME/bin/versions/` | [../features/self-update.md](../features/self-update.md) |
+| A9 | Server and CLI tests keep running on Node. The binary is checked by the smoke test of each release job and by `npm run test:binary` (the same smoke test, local) | The suite was never run under Bun; making it run there is not a goal |
+| A10 | macOS binaries are built and ad-hoc signed on macOS runners | An Apple Silicon Mac kills an unsigned binary |
 
-## What was tried instead
+## The build
 
-The existing daemon was compiled into one executable with `bun build --compile` (Bun 1.4.5), the
-same way Pi builds its own standalone binaries. One file acts as three programs:
-
-```ts
-const sub = process.argv[2];
-if (sub === "__pi") {
-  process.argv.splice(2, 1);
-  await import("@earendil-works/pi-coding-agent/dist/bun/cli.js"); // by file path
-} else if (sub === "__skills") {
-  process.argv.splice(2, 1);
-  await import("skills/bin/cli.mjs"); // by file path
-} else {
-  await import("@earendil-works/pi-coding-agent/dist/bun/runtime-setup.js"); // by file path
-  await import("packages/server/dist/daemon/main.js");
-}
+```
+npm run build                                   # as today: tsc -b, the web UI
+npm run build:binary -- --target linux-x64      # scripts/build-binary.mjs
+    bun build --compile packages/cli/dist/binary-main.js
+        --target=bun-<os>-<arch>
+        --define PI_STUDIO_BINARY=true
+        extra entry points: Pi's two worker files
+        autoloadBunfig: false, autoloadDotenv: false        # as Pi's own build does
+    assemble dist-binary/pi-studio-<version>-<target>/:
+        pi-studio
+        bun                       # #!/bin/sh  BUN_BE_BUN=1 exec "$(dirname "$0")/pi-studio" "$@"
+        Pi's package.json, theme/, export-html/, photon_rs_bg.wasm
+        web/                      # packages/web-client/dist/web
+    macOS: codesign -s - pi-studio  (on a macOS runner, A10)
+    tar.gz
 ```
 
-Pi's two worker files (`dist/utils/image-resize-worker.js`, `dist/extensions/codemode/worker.js`)
-are extra entry points, and the build uses `autoloadBunfig: false` and `autoloadDotenv: false`, as
-Pi's own build does. Pi reads its assets (its `package.json`, `theme/`, `export-html/`,
-`photon_rs_bg.wasm`) from the directory of the executable, so they ship next to it.
+Size from the spike: 119 MiB unpacked, 54 MiB as a tar.gz without the web UI.
 
-## Measured on Linux x64
+## The sub-commands (A2)
+
+| First argument | Program | Started by |
+|---|---|---|
+| (none of the below) | the CLI (`program.ts`) | the user, the desktop app |
+| `__daemon <json>` | `runDaemon` of the server, with host, port and home | `pi-studio daemon start` (replaces `node -e` with a module URL) |
+| `__relay <json>` | the relay server | `pi-studio relay start` |
+| `__pi …` | Pi's `dist/bun/cli.js`, after `pi-overrides` (A6) | the agent provider, extension sync, resources, `pi-studio pi` |
+| `__skills …` | the `skills` CLI | resources |
+| `__update-helper <json>` | the self-update helper | the daemon's apply ([../features/self-update.md](../features/self-update.md)) |
+
+`bun` is not a sub-command: the `bun` script sets `BUN_BE_BUN=1`, which makes a Bun-compiled executable
+behave as Bun itself (shown in the spike). These names are internal and may change between versions;
+nothing outside the binary calls them, because a running daemon and its helper always come from the
+same version folder.
+
+## The runtime seam (A3)
+
+```
+self.ts
+    isBinary: boolean                         # PI_STUDIO_BINARY
+    piCommand(args)        → Node: [execPath, <Pi's bin>, …args]     Binary: [execPath, "__pi", …args]
+    skillsCommand(args)    → Node: [execPath, <skills bin>, …args]  Binary: [execPath, "__skills", …args]
+    daemonCommand(opts)    → Node: [execPath, "--input-type=module", "-e", <script>]   Binary: [execPath, "__daemon", json]
+    relayCommand(opts)     → likewise
+    helperCommand(params)  → Node: [execPath, "-e", HELPER_SCRIPT, json]               Binary: [execPath, "__update-helper", json]
+    assetsDir()            → Binary: dirname(execPath); Node: unused
+    webDist()              → Binary: assetsDir()/web; Node: resolve @av-pi-studio/web-client
+```
+
+`agents.providers.pi.command` still overrides the Pi command on both runtimes, so a host with Node can
+run Pi under Node for an extension that needs it (P16).
+
+The daemon also imports Pi's `dist/bun/runtime-setup.js` before it uses the Pi SDK when it is the
+binary; without it an OAuth login fails with `Cannot find module './anthropic.js'` (spike).
+
+## Pi's settings (A6, P8, D2)
+
+```
+applyPiOverrides(SettingsManager, DefaultPackageManager):          # only when isBinary
+    SettingsManager.prototype.getNpmCommand = () => [assetsDir()/bun]
+    DefaultPackageManager.prototype.resolve runs inside an AsyncLocalStorage scope; the settings
+    reads made inside it (getGlobalSettings, getProjectSettings) leave out every `packages` entry
+    whose identity is in BINARY_EXCLUDED_PACKAGES
+```
+
+Only `resolve()` is filtered: it is the one place Pi turns its configured packages into what it
+loads and installs what is missing. `addSourceToSettings` and the other writers read the whole list,
+so a write never drops an excluded entry from the user's settings. Applied in the daemon at start
+(it uses `SettingsManager` and `DefaultPackageManager` in-process for skills and resources) and in
+`__pi` before Pi's entry runs. The code is `packages/server/src/runtime/pi-overrides.ts`; the pure
+source parsing it needs is `extensions/pi-source.ts` (split out of `curated-packs.ts` so the module
+loads inside the binary without the server version).
+
+**Proved 2026-11-24 (sprint-139/task-001), linux-x64, Bun 1.4.5, a bare container with no Node or
+npm:** `pi install` works through the `bun` script; with the excluded package installed on disk and
+in settings, `pi --mode rpc` starts, answers and does not load it, and the other extension loads;
+without the exclusion the same setup fails with `Cannot find module 'node-pty'` (the known limit).
+`settings.json` gains only the entry that was installed, no `npmCommand`, and keeps the excluded
+entry. Proof script: `packages/server/scripts/pi-overrides-proof/run.sh`. This is a fifth place that
+mirrors Pi internals (root `AGENTS.md` § Pi dependency posture); re-check it on every Pi bump.
+
+## Install kind and paths (A8)
+
+The binary reports `installKind: binary`. It can update itself when `realpath(execPath)` is
+`$PI_STUDIO_HOME/bin/versions/<version>/pi-studio` and that `bin` folder is writable; otherwise
+`cannot_update(unmanaged_binary)`. The layout and the update are in the two feature specs.
+
+## Measured in the spike (2026-11-22, Linux x64, Bun 1.4.5)
 
 Each row was run against the compiled daemon; where a comparison is named, the Node daemon gave the
 same result.
@@ -66,7 +145,7 @@ same result.
 | Check | Result |
 |---|---|
 | Boot, CLI and SDK connect | Works |
-| Terminal: real TTY, resize, capture, reflowable restore | Works with Bun's PTY (see Required changes) |
+| Terminal: real TTY, resize, capture, reflowable restore | Works with Bun's PTY |
 | File upload and download, 64 MiB, and a ranged read | Works, hashes match |
 | `provider_auth_list`, `skills_list` (Pi SDK in-process) | Works, same output as Node |
 | A real agent turn through the embedded Pi: model call, shell tool, `todo` tool | Works |
@@ -74,106 +153,33 @@ same result.
 | API-key login and logout, in a throwaway Pi home | Works |
 | OAuth login | Starts and reaches its first prompt; a full login was not done |
 | Relay protocol 2: terminal and a 16 MiB file through a local relay | Works |
-| `pi install npm:…` and loading the package, with no Node or npm on `PATH` | Works (see below) |
+| `pi install npm:…` and loading the package, with no Node or npm on `PATH` | Works with the `bun` script and `npmCommand` (set in Pi's settings file then) |
 | Cross-compile: Linux arm64, Linux x64 musl, macOS arm64 and x64, Windows x64 | All build; none were run |
 
-- Size: 119 MiB; 54 MiB as a tar.gz with Pi's runtime assets.
-- Time to listening: about 200 ms, against about 320 ms for Node.
-- Idle memory: about the same as Node (56 MiB against 60 MiB, loosely measured).
-
-**No npm on the host.** Pi accepts `bun` as its package manager (`npmCommand` in Pi's
-`settings.json`), and a Bun executable started with `BUN_BE_BUN=1` behaves as the `bun` program. A
-two-line shell script named `bun` next to the binary was enough:
-
-```sh
-#!/bin/sh
-BUN_BE_BUN=1 exec "$(dirname "$0")/pi-studiod" "$@"
-```
-
-Without it, `pi install npm:…` fails with `Executable not found in $PATH: "npm"`.
-
-## Required changes
-
-The spike made these at build time; a real build target needs them in the source.
-
-1. **Terminal backend.** `node-pty` does not work under Bun: the shell exits within 2 ms with
-   SIGHUP. `Bun.spawn(…, { terminal })` gives a real TTY with resize. `PtyBackend`
-   (`packages/server/src/terminal/pty-backend.ts`) is already an interface, so this is one more
-   backend. `node-pty` must not be imported at module load in the binary, or the daemon does not
-   start.
-2. **Spawn sites.** Nine places run `process.execPath <script>` for Pi and the `skills` CLI
-   (`rpc-transport.ts`, `sync-executor.ts`, `resource-service.ts`). In the binary `process.execPath`
-   is the binary, so they must call its sub-commands. The spike exercised only the agent path,
-   through `agents.providers.pi.command`.
-3. **Two `createRequire` calls.** `version.ts` (reads `../package.json`) and `screen-buffer.ts`
-   (loads the xterm packages) are not followed by Bun's bundler. They need static imports or a
-   build-time constant.
-4. **Pi's standalone setup.** The daemon must import Pi's `dist/bun/runtime-setup.js` before using
-   the SDK. Without it OAuth login fails with `Cannot find module './anthropic.js'`.
-5. **Package manager.** Pi's `npmCommand` must point at the `bun` script above.
+Time to listening about 200 ms (Node about 320 ms); idle memory about the same as Node.
 
 ## Known limit: some Pi extensions do not load
 
-`@99percentpeople/pi-background-tasks` fails to load under the binary
-(`Cannot find package 'node-pty'`), and Pi exits, so no agent starts. Pi's official standalone
-binary (1.4.0) fails the same way, so this is a limit of Pi on Bun. Of 15 other packages probed one
-at a time, 14 loaded identically on Node and on the binary and one failed on both.
+`@99percentpeople/pi-background-tasks` fails to load under the binary (`Cannot find package
+'node-pty'`), and Pi exits, so no agent starts. Pi's official standalone binary (1.4.0) fails the same
+way. Of 15 other packages probed one at a time, 14 loaded identically on Node and on the binary and
+one failed on both. Answer (D2): the binary leaves it out; the npm daemon keeps it.
 
-The planned answer is to keep both modes: the binary by default, and Pi run through Node
-(`agents.providers.pi.command`) on a host that has Node and needs such an extension.
+## Owner's decisions
 
-## Releases and updates (designed, not tried)
-
-- **One executable.** A single `pi-studio` binary holds the CLI, the daemon, Pi and the `skills`
-  CLI, so `pi-studio --json daemon start|stop|restart` and the desktop app's use of it do not
-  change. Bundling the CLI was not tried.
-- **Release.** `release.yml` gains a job that cross-compiles the four POSIX targets on the Linux
-  runner and uploads one tar.gz per target, `SHA256SUMS` and a manifest to a GitHub Release with the
-  npm version. npm and Docker stay. The Bun version is pinned exactly. A smoke test runs against
-  the built binary, because the test suite runs on Node.
-- **Layout on a host.** `~/.pi-studio/bin/versions/<version>/` with a `current` symlink. An update
-  never overwrites a running file, and the previous version stays for rollback.
-- **Local daemon of the desktop app.** The app downloads the daemon binary on first use (the
-  owner's decision, below) into that layout and runs it from there, never from inside the app
-  bundle: the daemon outlives the app, and an AppImage's files disappear when the app exits.
-- **Remote host over SSH.** The app reads the host's OS and CPU, downloads the matching tar.gz,
-  verifies it, uploads it over the SSH connection and runs `pi-studio --json daemon start`.
-- **Direct or relay connection.** The daemon updates itself through the `daemon_update_*` RPCs of
-  [../features/self-update.md](../features/self-update.md) (scoped 2026-11-23 for npm installs), with a new `binary` install kind:
-  download and verify into `versions/<new>/`, start a waiter from the new binary, shut down; the
-  waiter flips `current`, starts the new daemon, checks health, and flips back on failure.
-- **A restart** kills open terminals and interrupts a running turn; history, todos and resume were
-  seen to survive one in the spike.
-
-## Desktop app self-update (designed, not tried; specified 2026-11-23)
-
-Specified in [../features/desktop-self-update.md](../features/desktop-self-update.md), which
-supersedes this sketch. Two points of the sketch were wrong or changed: the plug-in 2.14.1 installs
-`.deb` and `.rpm` packages too (through `pkexec`; the app runs that step itself, D7), and the private
-key lives in a GitHub environment restricted to `main` rather than as a plain repository secret
-(U1). The app never restarts on its own, and updating it does not stop the daemon.
-
-## Owner's decisions (2026-11-22)
-
-- A Rust rewrite of the daemon is not pursued; the single-binary route is the one to explore.
-- The desktop app can update itself.
-- The desktop app downloads the daemon binary on first use; the installer does not carry it. The
-  app carries a pinned list (daemon version, URL and checksum per target). The first local daemon
-  start needs internet access.
+- 2026-11-22: no Rust rewrite; the app can update itself; the app downloads the daemon binary on first
+  use and carries a pinned list (version, address and checksum per target).
+- 2026-11-24 (grill): all four parts in milestone 6; no Windows; npm and Docker stay; the app uses only
+  its binary; four targets; the daemon updates itself trusting GitHub over HTTPS plus a checksum; a
+  rolled-back version is skipped; the binary takes over an npm daemon's folder and port; proof is
+  Linux live and "the binary starts" on macOS. The full list is the grill brief.
 
 ## Open points
 
-- macOS and Windows binaries were never run. Unknown: macOS signing and Gatekeeper for a downloaded
-  daemon, and whether Bun's PTY exists on Windows.
-- The server test suite was not run under Bun. `skills` CLI operations, extension auto-sync on boot
-  and a complete OAuth login were not exercised.
-- Whether the app updates a remote daemon to its own pinned version or to the latest release.
-- Every qualifying merge publishes a desktop release, so update prompts need a slower channel or a
-  rate limit.
-- The app is ad-hoc signed on macOS; the keychain may ask again after each update. Not checked.
-- A daemon GitHub Release must not become the repository's "latest" release, or the app's update
-  manifest URL breaks.
-- The daemon version the app pins must be published before the desktop build runs; the two
-  workflows are independent today.
-- Three gaps listed by the self-update specification, not re-checked: shutdown does not stop agent
-  processes, the PID file is not removed, `daemon restart` does not wait for the old process.
+- Both `SettingsManager` replacements inside the compiled binary (first task; the work stops if they
+  fail).
+- The server test suite was never run under Bun; `skills` operations, extension sync at boot and a
+  full OAuth login were not exercised in the binary.
+- What Pi in the binary does when another extension fails to load.
+- The oldest glibc the Linux binaries run on; the Intel macOS runner label.
+- A macOS binary is never started on a real Mac in this milestone (owner's choice of proof).

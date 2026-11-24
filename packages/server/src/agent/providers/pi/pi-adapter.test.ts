@@ -1048,6 +1048,81 @@ describe("sprint-041 regression: agent turn settlement (agent_settled / willRetr
   });
 });
 
+/**
+ * `prompt` starts a run and then goes quiet, and `die` is what the real transport emits when the
+ * process exits (`rpc-transport.ts` `failAll`: an `error` frame carrying the exit status and
+ * stderr). Found by the binary's live check (2026-11-24, P16): Pi exits at start-up when an
+ * extension fails to load, the frame went out while nobody listened and the `prompt` was written
+ * to nothing, so the agent stayed `running` forever and the stderr that names the extension reached
+ * only the daemon log.
+ */
+class DyingFakeTransport extends FakeTransport {
+  override notify(command: string): void {
+    this.notifies.push(command);
+    if (command === "prompt") this.fire({ type: "agent_start" });
+  }
+
+  fireRaw(event: unknown): void {
+    this.fire(event);
+  }
+
+  die(message: string): void {
+    this.fire({ type: "error", error: message });
+  }
+}
+
+describe("a dead Pi process ends the turn with its error (live check, P16)", () => {
+  const message = 'pi process exited (code 1): Error: Failed to load extension "/x/index.ts": boom';
+
+  function clientWithDying(): { client: PiAgentClient; spawns: DyingFakeTransport[] } {
+    const spawns: DyingFakeTransport[] = [];
+    const client = new PiAgentClient({
+      command: ["pi", "--mode", "rpc"],
+      transportFactory: (args) => {
+        const t = new DyingFakeTransport(args);
+        spawns.push(t);
+        return t;
+      },
+      binaryResolver: () => true,
+    });
+    return { client, spawns };
+  }
+
+  it("a turn started after the process died ends at once with the error and writes no prompt", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    spawns[0]!.die(message); // start-up: nobody is subscribed yet
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.run("hello");
+
+    expect(events).toEqual([{ kind: "error", message }]);
+    expect(spawns[0]!.notifies).not.toContain("prompt");
+  });
+
+  it("a turn in flight ends when the process dies, but not on an extension's own error", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    let ended = false;
+    void session.run("hello").then(() => {
+      ended = true;
+    });
+    spawns[0]!.fireRaw({ type: "extension_error", error: "an extension misbehaved" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ended).toBe(false);
+
+    spawns[0]!.die(message);
+    await vi.waitFor(() => expect(ended).toBe(true));
+    expect(events.at(-1)).toEqual({ kind: "error", message });
+    expect(events.map((e) => e.kind)).toEqual(["turn_started", "error", "error"]);
+  });
+});
+
 describe("import & resume", () => {
   it("enumerates JSONL session files and resumes using the file as nativeHandle", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-sessions-"));

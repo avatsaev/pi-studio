@@ -81,6 +81,7 @@ describe("reason and failure texts", () => {
       "npm_missing",
       "not_writable",
       "unsupported_platform",
+      "unmanaged_binary",
     ]) {
       expect(unavailableReasonText(reason)).not.toContain(reason);
     }

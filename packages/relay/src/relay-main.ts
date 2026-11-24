@@ -12,19 +12,16 @@
  * `PI_STUDIO_RELAY_LOG_DIR` additionally writes a rotating NDJSON file. Metadata only — the relay
  * never sees message contents, so nothing sensitive can be logged.
  */
-import { createRequire } from "node:module";
 import { startRelayServer } from "./relay-server.js";
 import { createRelayLogger } from "./relay-logger.js";
+import { PACKAGE_VERSION as version } from "./version.generated.js";
 
 const DEFAULT_LISTEN = "0.0.0.0:7000";
 
-// Read our own package.json for the version, same relative layout in both `src/` (ts-node/tsx)
-// and `dist/` (compiled — one level below the package root either way).
-const { version }: { version: string } = createRequire(import.meta.url)("../package.json");
-
 function parseListen(value: string): { host: string; port: number } {
   const idx = value.lastIndexOf(":");
-  if (idx <= 0) throw new Error(`invalid --listen value: ${JSON.stringify(value)} (expected host:port)`);
+  if (idx <= 0)
+    throw new Error(`invalid --listen value: ${JSON.stringify(value)} (expected host:port)`);
   const host = value.slice(0, idx);
   const port = Number(value.slice(idx + 1));
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
@@ -45,7 +42,10 @@ async function main(): Promise<void> {
   log.info({ version }, `pi-studio relay v${version} starting`);
   const handle = await startRelayServer({ host, port, logger: log });
 
-  log.info({ host: handle.host, port: handle.port }, `listening on ws://${handle.host}:${handle.port} (health: /health)`);
+  log.info(
+    { host: handle.host, port: handle.port },
+    `listening on ws://${handle.host}:${handle.port} (health: /health)`,
+  );
 
   const shutdown = (): void => {
     log.info("shutting down");

@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
 
 import type {
@@ -9,6 +9,7 @@ import type {
 
 import type { Logger } from "../logging/logger.js";
 import { redactSource } from "../resources/spawn-runner.js";
+import { RELEASES_PAGE } from "./binary-manifest.js";
 import type { CannotUpdateReason } from "./install-kind.js";
 import { updateBlocker } from "./install-kind.js";
 import { compareVersions } from "./npm.js";
@@ -23,7 +24,9 @@ type InstallFailureCode = Extract<DaemonUpdateState, { kind: "failed" }>["code"]
  */
 
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export const UPDATE_RESULT_FILE = "update-result.json";
+export const UPDATE_SKIP_FILE = "update-skip.json";
 
 /** Result the restart helper leaves for the next daemon start (`update-result.json`). */
 const lastResultSchema = z.object({
@@ -47,6 +50,7 @@ export const MANUAL_UPDATE_COMMANDS: Readonly<Record<CannotUpdateReason, string>
   npm_missing: NPM_COMMAND,
   not_writable: NPM_COMMAND,
   unsupported_platform: NPM_COMMAND,
+  unmanaged_binary: RELEASES_PAGE,
 };
 
 /** Why a refused apply was refused (`daemon_update_apply_response.error`). */
@@ -114,6 +118,23 @@ export function classifyInstallFailure(message: string): InstallFailureCode {
     return "network";
   }
   return "install";
+}
+
+/** What the release channel answered: the newest version, or why it could not be read. */
+type LatestLookup = { version: string; hasAsset: boolean } | { failure: "offline" | "bad_answer" };
+
+/** What reading `latest.json` found (the binary's `fetchLatest`). */
+export type BinaryManifestLookup =
+  | { kind: "ok"; version: string; hasAsset: boolean }
+  | { kind: "offline" }
+  | { kind: "bad_answer" };
+
+/** What the service asks of a binary install (`createBinaryUpdate`). */
+export interface BinaryUpdateProbes {
+  /** Reads `latest.json`: its version, and whether it has an archive for this system. */
+  lookup(): Promise<BinaryManifestLookup>;
+  /** The can-update rule: why this binary cannot replace itself, `null` when it can. */
+  blocker(): Promise<"unmanaged_binary" | "not_writable" | null>;
 }
 
 /** Everything the apply pipeline does to the outside world; each is a seam. */
@@ -198,6 +219,8 @@ export interface UpdateServiceDeps {
   detectInstallKind(): Promise<DaemonUpdateInstallKind>;
   /** `npm view`: the latest published version, `null` on any failure. */
   fetchLatest(): Promise<string | null>;
+  /** A binary's release channel (`latest.json`); read instead of `fetchLatest` for that kind. */
+  binary?: BinaryUpdateProbes;
   npmOnPath(): Promise<boolean>;
   /** `npm root -g`, `null` when unavailable. */
   globalFolder(): Promise<string | null>;
@@ -206,6 +229,8 @@ export interface UpdateServiceDeps {
   autoCheck: boolean;
   /** Reads and removes `update-result.json`; `undefined` when there is none or it was unreadable. */
   takeLastResult(): Promise<UpdateLastResult | undefined>;
+  /** `update-skip.json` (D14); without one the skipped version lives in memory only. */
+  skipStore?: UpdateSkipStore;
   /** Writes `daemon.update.autoCheck`; resolves the effective value (env may win). */
   persistAutoCheck(enabled: boolean): Promise<boolean>;
   /** Delivers a changed status to every session. */
@@ -244,6 +269,9 @@ export class UpdateService {
   private closed = false;
   private probed: Promise<void> | undefined;
   private resultWatch: unknown;
+  private skippedVersion: string | undefined;
+  /** The version the last automatic check offered, `undefined` after any other check outcome. */
+  private automaticOffer: string | undefined;
 
   private readonly pipeline: UpdatePipeline;
   private readonly now: () => number;
@@ -274,6 +302,7 @@ export class UpdateService {
       ...(this.checkError !== undefined ? { checkError: this.checkError } : {}),
       state: this.state,
       ...(this.lastResult ? { lastResult: this.lastResult } : {}),
+      ...(this.skippedVersion !== undefined ? { skippedVersion: this.skippedVersion } : {}),
     };
   }
 
@@ -303,6 +332,8 @@ export class UpdateService {
       try {
         this.installKind = await this.deps.detectInstallKind();
         this.lastResult = await this.deps.takeLastResult();
+        this.skippedVersion = await this.deps.skipStore?.read();
+        if (this.lastResult) await this.recordSkip(this.lastResult);
       } catch (err) {
         this.deps.logger?.warn({ err: (err as Error).message }, "update: start-up probe failed");
       }
@@ -331,9 +362,12 @@ export class UpdateService {
       reading = true;
       void this.deps
         .takeLastResult()
-        .then((result) => {
+        .then(async (result) => {
           if (result) {
+            await this.recordSkip(result);
+            // Result and withdrawn offer land in the same step: no status shows one without the other.
             this.lastResult = result;
+            this.withdrawSkippedOffer();
             this.stopResultWatch();
             this.emitIfChanged();
           } else if (this.now() - startedAt >= this.resultWatchMs) {
@@ -347,6 +381,23 @@ export class UpdateService {
           reading = false;
         });
     }, this.resultPollMs);
+  }
+
+  /**
+   * The helper writes its result once the rolled-back daemon answers, i.e. after this daemon's
+   * start check: when that automatic check offered the very version the result says was rolled
+   * back, the offer is taken back (an automatic check never offers a skipped version, D14). A
+   * manual offer stays: the user asked.
+   */
+  private withdrawSkippedOffer(): void {
+    const { state } = this;
+    if (
+      state.kind === "available" &&
+      state.version === this.skippedVersion &&
+      state.version === this.automaticOffer
+    ) {
+      this.state = { kind: "idle" };
+    }
   }
 
   private stopResultWatch(): void {
@@ -388,23 +439,24 @@ export class UpdateService {
       this.emitIfChanged();
     }
     try {
-      const latest = await this.deps.fetchLatest();
+      const found = await this.lookupLatest();
       if (isRunning(this.state)) return this.status();
-      const failure =
-        latest === null ? "offline" : PLAIN_VERSION.test(latest) ? null : "bad_answer";
-      if (latest === null || failure !== null) {
+      if ("failure" in found) {
         this.state = before;
         if (by === "manual") {
           this.checkedAt = this.now();
-          this.checkError = failure ?? "offline";
+          this.checkError = found.failure;
         }
       } else {
-        const next = await this.resolveState(latest);
+        await this.dropOlderSkip(found.version);
+        const next = await this.resolveState(found.version, by, found.hasAsset);
         // An apply may have started while the probes ran: it owns the state now.
         if (isRunning(this.state)) return this.status();
         this.checkedAt = this.now();
         this.checkError = undefined;
         this.state = next;
+        this.automaticOffer =
+          by === "automatic" && next.kind === "available" ? next.version : undefined;
       }
     } catch (err) {
       this.deps.logger?.warn({ err: (err as Error).message }, "update: check failed");
@@ -414,15 +466,48 @@ export class UpdateService {
     return this.status();
   }
 
-  private async resolveState(latest: string): Promise<DaemonUpdateState> {
+  /** The version the release channel offers: npm's `latest`, or `latest.json` for a binary. */
+  private async lookupLatest(): Promise<LatestLookup> {
+    if (this.installKind === "binary") {
+      const probes = this.deps.binary;
+      if (!probes) {
+        this.deps.logger?.warn("update: a binary install without manifest probes");
+        return { failure: "offline" };
+      }
+      const found = await probes.lookup();
+      return found.kind === "ok"
+        ? { version: found.version, hasAsset: found.hasAsset }
+        : { failure: found.kind };
+    }
+    const latest = await this.deps.fetchLatest();
+    if (latest === null) return { failure: "offline" };
+    return PLAIN_VERSION.test(latest)
+      ? { version: latest, hasAsset: true }
+      : { failure: "bad_answer" };
+  }
+
+  private async resolveState(
+    latest: string,
+    by: "manual" | "automatic",
+    hasAsset: boolean,
+  ): Promise<DaemonUpdateState> {
     if (compareVersions(latest, this.deps.currentVersion) <= 0) return { kind: "idle" };
+    if (by === "automatic" && latest === this.skippedVersion) return { kind: "idle" };
+    const binary = this.installKind === "binary";
     const cannot = (reason: CannotUpdateReason): DaemonUpdateState => ({
       kind: "cannot_update",
       reason,
       version: latest,
-      command: MANUAL_UPDATE_COMMANDS[reason],
+      command: binary ? RELEASES_PAGE : MANUAL_UPDATE_COMMANDS[reason],
     });
     const blocker = updateBlocker(this.installKind, this.deps.platform);
+    if (binary) {
+      if (blocker !== null) return cannot(blocker);
+      const probes = this.deps.binary;
+      const unmanaged = probes ? await probes.blocker() : "unmanaged_binary";
+      if (unmanaged !== null) return cannot(unmanaged);
+      return hasAsset ? { kind: "available", version: latest } : cannot("unsupported_platform");
+    }
     if (blocker !== null && blocker !== "unsupported_platform") return cannot(blocker);
     if (!(await this.deps.npmOnPath())) return cannot("npm_missing");
     if (!(await this.deps.canWriteGlobalFolder(await this.deps.globalFolder()))) {
@@ -430,6 +515,30 @@ export class UpdateService {
     }
     if (blocker !== null) return cannot(blocker);
     return { kind: "available", version: latest };
+  }
+
+  /** Remembers a rolled-back or failed version (D14); every install kind. */
+  private async recordSkip(result: UpdateLastResult): Promise<void> {
+    if (result.outcome !== "rolled_back" && result.outcome !== "failed") return;
+    if (!PLAIN_VERSION.test(result.to)) return;
+    this.skippedVersion = result.to;
+    try {
+      await this.deps.skipStore?.write(result.to);
+    } catch (err) {
+      this.deps.logger?.warn({ err: failureMessage(err) }, "update: skip file not written");
+    }
+  }
+
+  /** A version newer than the skipped one clears the skip. */
+  private async dropOlderSkip(latest: string): Promise<void> {
+    if (this.skippedVersion === undefined) return;
+    if (compareVersions(latest, this.skippedVersion) <= 0) return;
+    this.skippedVersion = undefined;
+    try {
+      await this.deps.skipStore?.clear();
+    } catch (err) {
+      this.deps.logger?.warn({ err: failureMessage(err) }, "update: skip file not removed");
+    }
   }
 
   /** Refuses with `in_progress`, `cannot_update` or `not_available`; else runs the pipeline. */
@@ -527,4 +636,39 @@ export async function readAndRemoveUpdateResult(
     logger?.warn({ err: (err as Error).message, path }, "update: result file malformed");
     return undefined;
   }
+}
+
+/** The one remembered version (`update-skip.json`, D14); `undefined` when none. */
+export interface UpdateSkipStore {
+  read(): Promise<string | undefined>;
+  write(version: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+const skipFileSchema = z.object({ version: z.string().regex(PLAIN_VERSION) });
+
+/** `update-skip.json` store: an unreadable or malformed file is removed and logged. */
+export function createFileSkipStore(path: string, logger?: Logger): UpdateSkipStore {
+  return {
+    read: async () => {
+      let text: string;
+      try {
+        text = await readFile(path, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        logger?.warn({ err: (err as Error).message, path }, "update: skip file unreadable");
+        await rm(path, { force: true });
+        return undefined;
+      }
+      try {
+        return skipFileSchema.parse(JSON.parse(text)).version;
+      } catch (err) {
+        logger?.warn({ err: (err as Error).message, path }, "update: skip file malformed");
+        await rm(path, { force: true });
+        return undefined;
+      }
+    },
+    write: (version) => writeFile(path, JSON.stringify({ version }), "utf8"),
+    clear: () => rm(path, { force: true }),
+  };
 }

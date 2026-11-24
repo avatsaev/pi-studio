@@ -208,6 +208,13 @@ function Body({ view }: { view: DaemonUpdateDialogView }) {
             </p>
           )}
           <p className={styles.text}>{view.text}</p>
+          {view.link && (
+            <p className={styles.note}>
+              <a href={view.link} target="_blank" rel="noreferrer">
+                Open the release page
+              </a>
+            </p>
+          )}
           <CommandBox command={view.command} />
         </>
       );

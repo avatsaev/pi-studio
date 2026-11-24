@@ -100,7 +100,13 @@ released. A failed Desktop CI run releases nothing.
   `git tag -l`, counts only `desktop-v<M.m.p>`, so the tag `desktop-updates` and others are ignored),
   `set-version.sh`, `update-manifest.mjs` (`latest.json`, `self-check.json`), `self-check-signatures.mjs`
   (signs a copy of each update file for the version `<N's next patch>-selfcheck` and keeps the result as
-  `<file>.selfcheck.sig`; the signer needs the key in the environment) and `serve-directory.mjs`.
+  `<file>.selfcheck.sig`; the signer needs the key in the environment), `serve-directory.mjs` and
+  `daemon-pin.mjs` (`--manifest <url> (--min <v> | --min-from cli_answers.rs) --out <file> [--wait-minutes 30]`:
+  reads `daemon-updates/latest.json`, retries every 60 s while its version is below `MIN_CLI_VERSION`,
+  fails with `no daemon binary ≥ <min> is published`, and writes `{version, assets}` for the four
+  targets; a developer runs it without `--wait-minutes` to refresh the committed `desktop/daemon-pin.json`).
+  In a release run the job `version` runs it, only when `desktop/daemon-pin.json` is committed, and
+  `bundle-release` writes the result into its checkout before the build.
 
 The installers are not signed with a real identity. macOS gets an ad-hoc signature, so a downloaded
 app must be allowed in System Settings → Privacy & Security; Windows shows a SmartScreen warning.

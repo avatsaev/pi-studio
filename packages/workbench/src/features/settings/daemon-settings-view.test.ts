@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DaemonUpdateStatus } from "@av-pi-studio/protocol";
 import {
+  autoCheckHelpText,
   daemonSettingsView,
   installKindText,
   lastCheckedText,
@@ -59,6 +60,43 @@ describe("installKindText", () => {
     expect(installKindText("source")).toBe("Repository checkout");
     expect(installKindText("unknown")).toBe("Unknown");
     expect(installKindText("snap")).toBe("snap");
+  });
+});
+
+describe("binary kind and skipped version", () => {
+  it("names the binary install kind", () => {
+    expect(installKindText("binary")).toBe("Single binary");
+  });
+
+  it("does not send a binary to npm for its automatic checks", () => {
+    expect(autoCheckHelpText("binary")).toBe(
+      "Look for a newer release at start and every six hours.",
+    );
+    expect(autoCheckHelpText("npm-global")).toBe(
+      "Ask npm for a newer daemon at start and every six hours.",
+    );
+  });
+
+  it("says a rolled-back version is not offered, and nothing without one", () => {
+    expect(view({ kind: "idle" }, { skippedVersion: "0.0.130" }).skipped).toBe(
+      "0.0.130 was rolled back and is not offered; Check now to try it again.",
+    );
+    expect(view({ kind: "idle" }).skipped).toBeUndefined();
+  });
+
+  it("explains unmanaged_binary in the update row", () => {
+    const v = view(
+      {
+        kind: "cannot_update",
+        reason: "unmanaged_binary",
+        version: "0.0.131",
+        command: "https://x",
+      },
+      { installKind: "binary" },
+    );
+    expect(v.installKind).toBe("Single binary");
+    expect(v.update.text).toContain("0.0.131");
+    expect(v.update.text).toContain("not installed by Pi Studio");
   });
 });
 

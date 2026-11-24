@@ -34,6 +34,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      commit: ${{ steps.bump.outputs.commit }}
     env:
       # Not secret — already documented in this repo's AGENTS.md / docker/README.md.
       DOKPLOY_URL: https://infra.molagent.ai
@@ -73,6 +76,7 @@ jobs:
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 
       - name: Commit + push version bump
+        id: bump
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             VERSION="$(node -e "console.log(require('./packages/protocol/package.json').version)")"
@@ -82,6 +86,10 @@ jobs:
           else
             echo "no version-bump changes to commit (--no-bump path or nothing changed)"
           fi
+          {
+            echo "version=$(node -e "console.log(require('./packages/protocol/package.json').version)")"
+            echo "commit=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
 
       # Retry against the propagation window: Dokploy reports "deployed successfully" once the
       # new container is healthy, but the reverse proxy in front of it can take a few seconds to
@@ -92,3 +100,18 @@ jobs:
           curl -sf https://relay.molagent.ai/health && echo
           curl -sf --retry 5 --retry-all-errors --retry-delay 3 -o /dev/null \
             -w "app.molagent.ai: HTTP %{http_code}\n" https://app.molagent.ai/
+
+  # The single-binary daemon (swe/features/single-binary-daemon.md). A separate job so that npm,
+  # Docker and the deploy never wait for it or fail because of it; it builds the commit the release
+  # job pushed. Explicit condition: it runs when that commit exists, even if a later step of the
+  # release job (the production check) failed.
+  binaries:
+    needs: release
+    if: ${{ !cancelled() && needs.release.outputs.commit != '' }}
+    uses: ./.github/workflows/daemon-binaries.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+      ref: ${{ needs.release.outputs.commit }}
+      publish: true
+    permissions:
+      contents: write

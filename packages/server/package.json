@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b && chmod +x dist/daemon/main.js",
+    "build": "node scripts/gen-version.mjs && tsc -b && chmod +x dist/daemon/main.js",
     "start": "node ./dist/daemon/main.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },

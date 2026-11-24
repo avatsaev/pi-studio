@@ -76,12 +76,14 @@ src/
                         inline (packages/cli's relay-control.ts) can build one from the same
                         resolved module URL.
   relay-logger.test.ts
+  version.generated.ts   PACKAGE_VERSION — generated from package.json by `scripts/gen-version.mjs`
+                        (committed, rewritten by every build, so Bun's bundler follows it as a
+                        plain import); `version.generated.test.ts` guards drift after a version bump.
   relay-main.ts          Process entry (`bin: pi-studio-relay`). Reads `--listen host:port` /
                         `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the stdout
                         logger (`PI_STUDIO_RELAY_LOG_LEVEL`, default `info`), logs its own
-                        package.json version as the FIRST line (read via `createRequire` against
-                        `../package.json` — works from both `src/` and compiled `dist/`, one
-                        level below the package root either way), calls startRelayServer(),
+                        package.json version as the FIRST line (the generated
+                        `version.generated.ts` constant, no `createRequire`), calls startRelayServer(),
                         shuts down cleanly on SIGINT/SIGTERM. This is what `npx @av-pi-studio/relay`
                         runs directly and what `pi-studio relay start` (packages/cli's
                         relay-control.ts) spawns as a detached child process (with a file logger

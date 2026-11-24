@@ -23,15 +23,44 @@ src/
   version.ts                      SERVER_VERSION — single source (packages/server/package.json); used by
                                    every `server_info.version` handshake and the extensions sync.
                                    Also `PACKAGE_NAME` (`@av-pi-studio/cli`, the package updates install).
+  version.generated.ts            PACKAGE_VERSION — written from package.json by `scripts/gen-version.mjs`
+                                   (committed; rewritten by `npm run build[:server]`, which the release
+                                   runs after the version bump; `version.test.ts` fails on drift). A static
+                                   constant instead of `createRequire`, which Bun's bundler does not follow.
+  runtime/                        What differs when the daemon is the single compiled binary
+                                   (architecture/single-binary-daemon.md; milestone 6, in progress).
+    pi-overrides.ts               applyPiOverrides({SettingsManager, DefaultPackageManager}, {bunScript,
+                                   excluded}): Pi's package manager becomes the `bun` script
+                                   (`getNpmCommand`) and `DefaultPackageManager.resolve()` — inside an
+                                   AsyncLocalStorage scope — leaves out excluded packages; nothing is
+                                   written to Pi's settings. Idempotent. A fifth Pi-internals mirror.
+    excluded-packages.ts          BINARY_EXCLUDED_PACKAGES (`npm:@99percentpeople/pi-background-tasks`:
+                                   imports node-pty, which does not load under Bun).
+    self.ts                       The runtime seam (A3): `isBinary` (build-time define `PI_STUDIO_BINARY`,
+                                   `false` when undefined), `piCommand(args)` / `skillsCommand(args)`
+                                   (`null` on Node when the package is not installed), `daemonCommand(opts,
+                                   resolveServerUrl)` / `relayCommand(opts, resolveRelayUrl)`,
+                                   `helperCommand(params, script)`, `assetsDir()`, `webDist(resolveNodeDist)`.
+                                   Node: exactly the argv each site built before; binary:
+                                   `[execPath, "__pi" | "__skills" | "__daemon" | "__relay" |
+                                   "__update-helper", …]` (`SUBCOMMAND`). Every function takes a trailing
+                                   `SelfRuntime` (`{isBinary, execPath}`, default `currentRuntime()`) so
+                                   tests pin both branches. Also owns `daemonStartScript` /
+                                   `relayStartScript` (the Node `-e` texts; `runDaemon`, never
+                                   `startDaemon`). The module resolvers are passed in by the CLI, which
+                                   resolves them in its own module graph (npm may nest the server).
   update/                         Self-update engine (features/self-update.md); pure/process-control
                                    surface re-exported from the package index for the CLI.
     npm.ts                        npmLatestVersion (`npm view`, 15 s, null on failure), compareVersions,
                                    npmGlobalInstall (`npm install -g`, ENOTEMPTY stale-staging retry via
                                    installWithStaleStagingRetry/staleStagingDirFrom).
-    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?) → npm-global|docker|source|
-                                   unknown (`PI_STUDIO_INSTALL_KIND` wins); npmRootGlobal() (cached),
-                                   canWriteGlobalFolder(folder), npmOnPath(), updateBlocker(kind, platform)
-                                   → `cannot_update` reason or null.
+    install-kind.ts               detectInstallKind(env, selfUrl, npmRoot, fs?, binary = isBinary) →
+                                   npm-global|docker|source|binary|unknown (`PI_STUDIO_INSTALL_KIND`
+                                   wins, then `binary` for the compiled binary without asking npm);
+                                   npmRootGlobal() (cached), canWriteGlobalFolder(folder), npmOnPath(),
+                                   updateBlocker(kind, platform) → `cannot_update` reason or null (only
+                                   Windows blocks `npm-global` and `binary`), binaryBlocker(execPath, home) →
+                                   `unmanaged_binary|not_writable|null` (the binary's can-update rule).
     process-wait.ts               waitForProcessExit(pid, {timeoutMs, pollMs, alive?, sleep?, now?}) —
                                    polls signal 0 (`EPERM` = alive); true once gone, false at the limit
                                    (`timeoutMs: 0` checks once); processAlive(pid). Used by the CLI's
@@ -48,7 +77,21 @@ src/
                                    from the package index (daemon-only).
     helper.ts                     The restart helper: `HELPER_SCRIPT` (self-contained `node -e` text),
                                    `compileHelperLogic()` (test entry), `spawnUpdateHelper(params, env?,
-                                   spawn?)`, `HelperParams`/`HelperSeams`/`HelperResult`. Daemon-only.
+                                   spawn?, runtime?)` (`runtime` = the NEW binary for a binary update),
+                                   `HelperParams`/`HelperSeams`/`HelperResult`. Daemon-only.
+    binary-layout.ts              `$PI_STUDIO_HOME/bin` layout: paths, managedVersionOf, switchCurrent (symlink
+                                   `current.new` + rename), pruneVersions, installedVersions, resetTmpDir.
+    binary-manifest.ts            `daemon-updates/latest.json`: DAEMON_UPDATE_URL(+`_ENV` override),
+                                   daemonUpdateUrl, binaryTarget(platform, arch), parseBinaryManifest,
+                                   assetFor, fetchBinaryManifest (15 s; offline|bad_answer|ok), RELEASES_PAGE.
+    tar-extract.ts                extractTarGz(archive, dest, limits?) — streaming, refuses unsafe entries
+                                   (UnsafeArchiveError).
+    binary-install.ts             downloadAsset (60 s stall, size, SHA-256), installBinaryVersion (unpack,
+                                   `--version` check, move into `bin/versions/<v>`).
+    binary-update.ts              lookupBinaryRelease, installBinaryRelease (also the CLI's), createBinaryUpdate
+                                   (probes + pipeline steps for the daemon), redirectSpawn.
+    binary-helper.ts              The binary's update helper: runBinaryHelper, realBinaryHelperSeams,
+                                   runBinaryHelperMain, parseHelperParams, healthUrlOf.
     update-rpc.ts                 registerDaemonUpdateHandlers — `daemon_update_{status,check,apply,
                                    set_auto_check}_request`; thin adapter over UpdateService.
     dev-update-script.ts          DEV only: parseDevUpdateScript + DevUpdateScriptRuntime — scripted
@@ -73,6 +116,7 @@ src/
   daemon/
     main.ts                       Production entry: `runDaemon()` (bin `pi-studio-daemon`); listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767).
     run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
+    binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
@@ -297,7 +341,11 @@ src/
     index.ts
 
   extensions/                     Preinstalled-extensions sync (features/preinstalled-extensions.md).
-    curated-packs.ts               CURATED_PACKS manifest + parseSource/identityOf/selectEntries +
+    pi-source.ts                   ParsedSource/parseSource/identityOf/splitGitRef — pure Pi source
+                                    parsing (`npm:`/`git:`), no server-version import so it loads inside
+                                    the compiled binary; shared by curated-packs, sync-planner, resources
+                                    and runtime/pi-overrides.
+    curated-packs.ts               CURATED_PACKS manifest + selectEntries +
                                     the checkCatalogInvariants guard (unpinned, disjoint identities,
                                     stable slugs, addedIn <= SERVER_VERSION, no placeholders).
     extensions-state.ts            extensions-state.json store (offered/failures/lastSync per
@@ -355,8 +403,20 @@ src/
 
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
-    pty-backend.ts                PtyBackend — node-pty abstraction (injectable for tests).
-    screen-buffer.ts              ScreenBuffer — xterm/headless grid, backs `capture()` only.
+    pty-backend.ts                PtyBackend — NodePtyBackend (`node-pty`, loaded by a conditional top-level
+                                  `import()`: never under Bun, `undefined` → ChildProcessPtyBackend
+                                  fallback if the native binding fails), `createDefaultPtyBackend()`
+                                  (Bun → BunPtyBackend, else Node); injectable for tests.
+    bun-pty-backend.ts            BunPtyBackend — `Bun.spawn(…, { terminal })` real PTY under Bun, with a
+                                  local minimal Bun type declaration (no @types/bun) and `isBunRuntime()`;
+                                  `resolveExecutable`/`killTree` are injected (no runtime import of
+                                  pty-backend.ts). Same env as node-pty (TERM=xterm-256color, PWD=cwd).
+                                  Checked under Bun only: `npx bun test
+                                  packages/server/bun-tests/bun-pty-backend.bun_test.ts` (outside `src/`
+                                  and Vitest's globs).
+    screen-buffer.ts              ScreenBuffer — xterm/headless grid, backs `capture()` only. Imports the
+                                  xterm packages' ESM builds by deep path (`*.mjs`, no `createRequire`).
+    xterm-esm.d.ts                Ambient typings for those two deep ESM paths (re-export the packages' own).
     terminal-rpc.ts               RPC handlers: create/list/rename/subscribe/input/kill/capture +
                                   the binary Input/Resize frame handler (resize is binary-only).
     index.ts
@@ -434,7 +494,7 @@ src/
                                     frontmatter/warnings, then a first-wins-by-name reducer over
                                     ENABLED rows only, in `resolve()`'s own precedence order — a
                                     disabled duplicate never wins or shadows. Packages: `kind`/
-                                    `identity`/`pinned` reuse `extensions/curated-packs.ts`'s
+                                    `identity`/`pinned` reuse `extensions/pi-source.ts`'s
                                     `parseSource` for `npm:`/`git:`, anything else is `local`;
                                     `curated` checks membership against `CURATED_PACKS`.
     wire.ts                        `toSkillInfoList`/`toPiPackageInfoList` (sprint-075/task-004) —
@@ -536,7 +596,7 @@ src/
                                     client-sent `kind`). `pi_npm`/`pi_git`:
                                     `installPiPackage` — spawns `pi install <source>` (600 s),
                                     then on success a second locked write matches the installed
-                                    entry by `piPackageIdentity` (`curated-packs.ts`'s
+                                    entry by `piPackageIdentity` (`pi-source.ts`'s
                                     `parseSource(...).identity`) and upgrades it to skills-only
                                     object form, preserving any existing `skills` filter; a filter
                                     write failure is a failed `ItemResult` with no rollback (D25).
@@ -929,7 +989,11 @@ creation" above.
   requires Pi ≥ 1.1.0 (root `AGENTS.md` § Pi dependency posture).
 
 **Pi provider** (`providers/pi/`):
-- Spawns `pi --mode rpc` (or a configured `command`) via `node-pty`/`child_process`.
+- Spawns `piCommand(["--mode", "rpc"])` of `runtime/self.ts` (the bundled CLI under `process.execPath`
+  on Node, `[execPath, "__pi", …]` in the binary), or a configured `command`; with no bundled Pi it
+  falls back to a global `pi --mode rpc` on `$PATH`. `extensions/sync-executor.ts` and
+  `resources/resource-service.ts` build every Pi / `skills` spawn the same way, never from
+  `resolveBundledPiCli()` + `process.execPath` directly.
 - **`resolveBundledPiCli()` (`rpc-transport.ts`) reads the Pi package's own `package.json`
   `bin.pi`** rather than hardcoding an entrypoint, falling back to `dist/bundle/cli.js` (Pi's
   declared `bin` since 0.84.4) then `dist/cli.js` (its `bin` through 0.84.3, still shipped). Pi
@@ -941,6 +1005,18 @@ creation" above.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
+- **A dead Pi process ends the turn with its error.** A non-zero exit with nothing in flight that
+  `close()` did not ask for also fails the transport (a turn's `prompt` is a `notify`, so nothing is
+  waiting for an answer). `PiAgentSession` keeps the transport's `error` frame (`processFailure`;
+  only the transport emits that frame, only once the process is gone): `run()` ends a turn at once
+  with an `error` stream event when the process died before it (the frame went out while nobody
+  listened: Pi exits at start-up when an extension fails to load and its stderr names it), and ends
+  one in flight when the process dies. `runTurn` then settles the agent as `error` with the message
+  on the timeline, and `create_agent` answers instead of timing out; before, the agent stayed
+  `running` forever and the stderr reached only the daemon log (found by the binary's live check,
+  `docs/binary-live-results.md`). The dead session answers every later prompt the same way until
+  `agent reload` respawns it. Tests: `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi
+  process ends the turn").
 - **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
   `switch_session` to load `handle.nativeHandle`'s JSONL history into it.** RPC mode has no CLI
   flag to preload a session at spawn — `--session <path>` is a TUI-only flag (docs/usage.md),
@@ -1798,7 +1874,8 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
   `loadSkillsFromDir`, so a Pi bump has exactly one place to check for these symbols.
 - **The `skills` CLI is a pinned exact dependency, resolved, never hardcoded.** `skills-cli.ts`'s
   `resolveSkillsCli()` reads the installed `skills` package's own `package.json` `bin`, mirroring
-  `resolveBundledPiCli()`; `remove`'s argv never passes `-a` (sprint-076/task-002), since `-a pi`
+  `resolveBundledPiCli()`; spawn sites never build the argv themselves — they call `skillsCommand`
+  (`runtime/self.ts`), which wraps that path on Node and is `__skills` in the binary. `remove`'s argv never passes `-a` (sprint-076/task-002), since `-a pi`
   on a remove keeps the canonical copy if any other detected agent still links it.
 - **Toggle: re-enabling a package skill writes `+…`, exactly as `pi config` does.** Pi's own
   `togglePackageResource` always pushes a replacement `±pattern` entry and never collapses a
@@ -1871,7 +1948,7 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
 - **`install`: dispatches on the daemon's own `detectSkillSource(source)`, one `enqueueMutation`
   call per engine** (sprint-077/tasks 004/005, R3/R8). `pi_npm`/`pi_git`: spawns bundled `pi
   install <source>` (600 s) as a unit, then one locked write upgrading the matched `packages[]`
-  entry (matched by `curated-packs.ts`'s `parseSource(...).identity`, ref/version stripped) to
+  entry (matched by `pi-source.ts`'s `parseSource(...).identity`, ref/version stripped) to
   skills-only object form (`extensions: [], prompts: [], themes: []`) — any pre-existing `skills`
   filter on that entry is preserved untouched (task-001 spike: `addSourceToSettings` only ever
   rewrites `source`); the filter write's own failure never rolls back a successful install (D25,
@@ -1904,6 +1981,18 @@ answer, so after that start-up read: while `lastResult` is empty, `start()` also
 it, sets `lastResult` and broadcasts. `close()` (called first in the daemon's shutdown) clears both
 timers.
 
+- **Skipped version (D14, all install kinds).** Reading an `update-result.json` with outcome
+  `rolled_back` or `failed` (at start-up or in the watch) writes `$PI_STUDIO_HOME/update-skip.json`
+  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; an
+  unreadable/malformed file is removed and logged; absent store = in-memory only, so bootstrap must
+  pass it). `status.skippedVersion` is set while one is held. An automatic check finding exactly
+  that version stays `idle`; a manual check offers it; a newer latest clears it (file removed).
+  `outcome: "updated"` writes nothing. `MANUAL_UPDATE_COMMANDS.unmanaged_binary` is the releases page.
+  A result taken by the watch arrives after this daemon's own start check, which had no skip to honour
+  and offered the rolled-back version: the watch then takes that offer back (`withdrawSkippedOffer`:
+  `idle`, only when the offer came from an *automatic* check — `automaticOffer` — so a manual offer
+  stays), and sets `lastResult` and the state in one step.
+
 - **Check.** `npm view` result → `checkError` `offline` (no answer) or `bad_answer` (not `x.y.z`),
   state kept; otherwise `idle` (not newer), or the blocker in the spec's order: install kind
   (`updateBlocker`), `npm_missing` (`npmOnPath`), `not_writable` (`canWriteGlobalFolder(npm root -g)`),
@@ -1929,9 +2018,44 @@ timers.
   never ends its host. `server_info.features.daemonUpdate` is advertised on both handshakes (one
   `serverFeatures` map in `bootstrap.ts`, passed to the direct WS server and the relay's
   `buildServerInfo`).
+- **Binary install kind (milestone 6, features/self-update.md § Check/Apply/Helper Binary).**
+  `UpdateServiceDeps.binary` (`BinaryUpdateProbes`: `lookup()` → `{kind:"ok", version, hasAsset}` |
+  `offline` | `bad_answer`; `blocker()` → `unmanaged_binary|not_writable|null`) replaces
+  `fetchLatest`/npm probes when the kind is `binary` (`lookupLatest`); the rest of the check (skip
+  rules, `checkError`, single flight) is shared. `resolveState` for a binary: not newer → `idle`; Windows →
+  `unsupported_platform`; `blocker()` → `unmanaged_binary|not_writable`; no asset for this system →
+  `unsupported_platform`; else `available`. Every `cannot_update.command` of a binary is the releases page
+  (`RELEASES_PAGE`, `binary-manifest.ts`). Bootstrap picks the steps by `isBinary`: `createBinaryUpdate`
+  gives `probes`, `install(version)` (re-reads `latest.json`, which must still name `version`, then
+  `installBinaryVersion`: download into `bin/tmp` with a 60 s stall limit and a size cap, SHA-256 against the
+  manifest, `extractTarGz` into `bin/tmp/unpack-*` (refuses entries outside the folder, absolute names,
+  `..`, links leaving the folder — also through earlier links —, devices, writes through links), the unpacked
+  `pi-studio --version` must equal the target, then rename into `bin/versions/<v>`; any failure throws and
+  `bin/current` is never touched; `bin/tmp` is removed either way), `updateExtensions` (the NEW binary's
+  `__pi update --extensions` through `redirectSpawn` over the sync `InstallSpawn` seam) and `spawnHelper`
+  (`spawnUpdateHelper(params, env, spawn, {isBinary: true, execPath: versions/<target>/pi-studio})`, i.e.
+  `<new> __update-helper <json>`). `PI_STUDIO_DAEMON_UPDATE_URL` replaces the manifest address
+  (`DAEMON_UPDATE_URL`, `daemonUpdateUrl(env)`): for tests and self-hosting, never set by a release.
+  The can-update rule is `binaryBlocker(execPath, home)` in `install-kind.ts`: `realpath(execPath)` must be
+  `<realpath(home)>/bin/versions/<x.y.z>/pi-studio` (`managedVersionOf`) and `bin` writable.
+- **Binary helper (`update/binary-helper.ts`).** `runBinaryHelper(params, seams)`: wait ≤ 30 s for the old
+  pid, `switchCurrent(target)`, three tries of start (`bin/current/pi-studio __daemon {host, port, home}`
+  with the carried env) + health for `version == target` (6 s, an exited daemon ends the try), else
+  `switchCurrent(previous)` and the same tries → `rolled_back`, else `failed`; writes the same
+  `update-result.json` as the npm helper (so the skip logic applies) and logs to `logs/update-restart.log`;
+  after `updated` removes every version folder but target and previous (`pruneVersions`; a failure is only
+  logged). `switchCurrent` (`binary-layout.ts`) checks the executable, creates the symlink `current.new` →
+  `versions/<v>` and renames it over `current`. Seams: `BinaryHelperSeams`; real ones `realBinaryHelperSeams`;
+  `runBinaryHelperMain(json)` is `__update-helper`'s body (`cli/binary-main.ts`). Tests:
+  `binary-helper.test.ts` (logic with fakes; the real seams over a temp home with stub `pi-studio` scripts
+  and a stub daemon: update and switch-back), `binary-layout.test.ts`, `tar-extract.test.ts` (fixtures from
+  `test-support/tar-fixture.ts`), `binary-update.test.ts` (local `node:http` server from
+  `test-support/http-fixture.ts`: newer/same/malformed/missing asset/offline; apply failures: checksum,
+  path outside, bad `--version`, stall), `update-service-binary.test.ts`.
 - **Helper (`update/helper.ts`).** One self-contained script (`HELPER_SCRIPT` =
   `HELPER_LOGIC` + `HELPER_MAIN`, passed to `node -e` with the JSON `HelperParams` in `argv[1]`; only
-  `node:` built-ins, never an import of this package: the package is replaced under it), spawned
+  `node:` built-ins, never an import of this package: the package is replaced under it; the argv comes
+  from `helperCommand(params, HELPER_SCRIPT)` of `runtime/self.ts`, which is `[execPath, "__update-helper", json]` in the binary), spawned
   detached/`stdio: "ignore"`/unref'd with the carried environment plus `PI_STUDIO_LISTEN` (the bound
   address, real port) and `PI_STUDIO_HOME`. It waits ≤ 30 s for the old pid to exit (then goes on), then
   three tries: find the entry again (`npm root -g` → `@av-pi-studio/server/dist/daemon/main.js`, then
@@ -1953,7 +2077,12 @@ timers.
   The live check (a real `npm i -g` in a container against a local registry: update, rollback, the
   read-only folder cases, auto-check, a rollback with the registry stopped) is
   `scripts/daemon-update-check/` (README there); its dated results are in
-  `packages/server/docs/daemon-update-live-results.md`.
+  `packages/server/docs/daemon-update-live-results.md`. The same for a single binary in a Node-less
+  container (update, rollback, the skipped version, `unmanaged_binary`, a corrupted asset, the CLI's
+  `update`): `scripts/binary-update-check/`, dated section in that results file.
+  What Pi, the skills CLI, an OAuth login and the oldest glibc do in a Node-less container (real turn,
+  `pi install`, a package that fails to load, `skills` add/remove, the oldest distribution): dated
+  sections of `packages/server/docs/binary-live-results.md`.
 - **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
   read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
   value through `loadConfig` so an env override still wins in memory.

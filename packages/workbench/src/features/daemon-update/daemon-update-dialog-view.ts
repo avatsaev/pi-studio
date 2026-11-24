@@ -80,6 +80,8 @@ export type DaemonUpdateDialogView =
       title: string;
       text: string;
       command: string;
+      /** The command is a web address (a release page): the dialog also links it. */
+      link?: string;
       version?: string;
     }
   | {
@@ -95,6 +97,11 @@ const TITLE = "Update the daemon";
 
 /** The hand-run update, shown beside a failure (the same pair every `cannot_update` command names). */
 export const MANUAL_UPDATE_COMMAND = "npm i -g @av-pi-studio/cli@latest\npi-studio daemon restart";
+
+/** A command that is a single http(s) address (the release page for an unmanaged binary). */
+export function isWebAddress(command: string): boolean {
+  return /^https?:\/\/\S+$/.test(command);
+}
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -235,6 +242,7 @@ export function daemonUpdateDialogView(input: DaemonUpdateDialogInput): DaemonUp
         title: TITLE,
         text: unavailableReasonText(state.reason),
         command: state.command,
+        ...(isWebAddress(state.command) ? { link: state.command } : {}),
         ...(state.version === undefined ? {} : { version: state.version }),
       };
     case "available":

@@ -12,6 +12,8 @@
 //!   `daemon_not_running`, the server's rules `forwarding_refused` ([`DaemonError`]).
 //! * [`Session::run`]: one command in the login shell (`"$SHELL" -lic`) between random marker lines, 64 KiB of output,
 //!   killed at its limit ([`Output`], [`RunError`]: `timeout`, `exec_failed`, `no_shell`).
+//! * [`Session::send`]: a file written on the host by `/bin/sh -c 'cat > <path>'` on an exec channel, with progress, a stall
+//!   limit and the exit status checked ([`SendError`]: `open`, `source`, `stalled`, `rejected`, `closed`).
 //! * [`Error`]: the codes (`auth_failed`, `passphrase_needed`, `key_unreadable`, `host_key_unknown`, ...).
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -28,7 +30,7 @@ mod session;
 pub mod testing;
 
 pub use command::{Output, STDOUT_LIMIT};
-pub use error::{DaemonError, Error, RunError, Tried};
+pub use error::{DaemonError, Error, RunError, SendError, Tried};
 pub use login::{MAX_ATTEMPTS, Secrets};
 pub use session::{Environment, KEEPALIVE_INTERVAL, KEEPALIVE_MAX, Limits, STEP_LIMIT, Session, TOTAL_LIMIT, connect};
 

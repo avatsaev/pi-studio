@@ -98,6 +98,7 @@ jobs:
       sha: ${{ steps.version.outputs.sha }}
       build: ${{ steps.version.outputs.build }}
       publish: ${{ steps.version.outputs.publish }}
+      pin: ${{ steps.pin.outputs.pin }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,6 +137,22 @@ jobs:
             echo "build=$build"
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
+      # The newest daemon binary the app installs (spec `swe/features/single-binary-daemon.md` § The pin):
+      # a release run refreshes the committed `desktop/daemon-pin.json` from `daemon-updates/latest.json`,
+      # waiting up to 30 minutes for a version at or above the app's minimum (`MIN_CLI_VERSION`, read from
+      # the Rust source), and hands it to `bundle-release` as the output `pin`. Without a committed
+      # `desktop/daemon-pin.json` the step does nothing: no binary is published before it exists.
+      - name: Pin the daemon binary
+        id: pin
+        if: steps.version.outputs.publish == 'true' && hashFiles('desktop/daemon-pin.json') != ''
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          node "$APP/scripts/release/daemon-pin.mjs" \
+            --manifest "https://github.com/$REPO/releases/download/daemon-updates/latest.json" \
+            --min-from desktop/crates/shell/src/cli_answers.rs \
+            --out desktop/daemon-pin.json --wait-minutes 30
+          echo "pin=$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("node:fs").readFileSync("desktop/daemon-pin.json", "utf8"))))')" >> "$GITHUB_OUTPUT"
 
   # A manual run builds the installers as they are released, without the updater's files. A pull
   # request's run builds two test builds per system for `update-check`. Neither has the key nor
@@ -305,6 +322,13 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: bash "$APP/scripts/release/set-version.sh" "$VERSION"
+      # The pin the `version` job refreshed (empty until `desktop/daemon-pin.json` is committed); the
+      # build below compiles it in.
+      - name: Write the daemon pin
+        if: needs.version.outputs.pin != ''
+        env:
+          PIN: ${{ needs.version.outputs.pin }}
+        run: printf '%s\n' "$PIN" > desktop/daemon-pin.json
       - uses: ./.github/actions/desktop-build-tools
         with:
           rust-targets: ${{ matrix.rust-targets }}

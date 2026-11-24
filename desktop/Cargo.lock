@@ -3814,6 +3814,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pistudiodesktop-install"
+version = "0.3.0"
+dependencies = [
+ "flate2",
+ "getrandom 0.3.4",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "pistudiodesktop-ipc-bench"
 version = "0.3.0"
 dependencies = [

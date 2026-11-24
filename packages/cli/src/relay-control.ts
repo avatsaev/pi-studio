@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 
+import { relayCommand } from "@av-pi-studio/server";
+
 /**
  * Local relay-server process control (architecture/relay-e2ee.md § Purpose — self-hosted relay;
  * MAIN-SCOPE.md § 6 — "Relay | Remote access | WebSocket + NaCl box | Hosted or self-hosted").
@@ -49,10 +51,13 @@ export interface RelayRuntime {
 /** Default health probe via node:http GET /health (200 ⇒ up). */
 export const httpRelayHealthProbe: RelayHealthProbe = (host, port) =>
   new Promise<boolean>((resolve) => {
-    const req = request({ host, port, path: RELAY_HEALTH_PATH, method: "GET", timeout: 1500 }, (res) => {
-      res.resume();
-      resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300);
-    });
+    const req = request(
+      { host, port, path: RELAY_HEALTH_PATH, method: "GET", timeout: 1500 },
+      (res) => {
+        res.resume();
+        resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300);
+      },
+    );
     req.on("error", () => resolve(false));
     req.on("timeout", () => {
       req.destroy();
@@ -70,34 +75,35 @@ export const relaySignalKiller: RelayProcessKiller = (pid, signal = "SIGTERM") =
   }
 };
 
+/** The relay module's absolute URL, resolved inside the CLI's own module graph (Node only). */
+const resolveRelayUrl = (): string => import.meta.resolve("@av-pi-studio/relay/server");
+
 /**
- * Default relay starter: spawn a detached Node process running `@av-pi-studio/relay`'s
+ * Default relay starter: spawn a detached process running `@av-pi-studio/relay`'s
  * `startRelayServer()` (via the Node-only `@av-pi-studio/relay/server` subpath — the package's
  * main entry is deliberately browser-safe and does not export it), writing its pid to
  * `$PI_STUDIO_HOME/pi-studio-relay.pid`. Mirrors `subprocessStarter` in `daemon-control.ts` exactly
- * — resolve the module's absolute URL *inside* the CLI's own module graph first, then bake that
- * resolved URL (not the bare specifier) into the spawned `-e` script, since a detached child has
- * no module context of its own.
+ * — the command comes from the runtime seam (`relayCommand`); on Node the module's absolute URL is
+ * resolved *inside* the CLI's own module graph first and that resolved URL (not the bare
+ * specifier) is baked into the spawned `-e` script, since a detached child has no module context
+ * of its own; in the compiled binary it is `<binary> __relay <json>`.
  */
 export const subprocessRelayStarter: RelayStarter = ({ home, listen }) =>
   new Promise<number>((resolve, reject) => {
-    let relayUrl: string;
-    try {
-      relayUrl = import.meta.resolve("@av-pi-studio/relay/server");
-    } catch (err) {
-      reject(err instanceof Error ? err : new Error(String(err)));
-      return;
-    }
     const idx = listen.lastIndexOf(":");
     const host = listen.slice(0, idx);
     const port = Number(listen.slice(idx + 1));
     // stdio is "ignore" (detached child), so operational logs go to a rotating file under
     // `$PI_STUDIO_HOME/logs/` — same destination pattern as the daemon's own file logging.
     const logDir = join(home, "logs");
-    const code = `import(${JSON.stringify(
-      relayUrl,
-    )}).then(m=>m.startRelayServer({host:${JSON.stringify(host)},port:${JSON.stringify(port)},logger:m.createRelayLogger({logDir:${JSON.stringify(logDir)}})}))`;
-    const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
+    let command: string[];
+    try {
+      command = relayCommand({ host, port, logDir }, resolveRelayUrl);
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    const child = spawn(command[0] as string, command.slice(1), {
       detached: true,
       stdio: "ignore",
     });

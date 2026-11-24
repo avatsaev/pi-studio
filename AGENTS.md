@@ -111,7 +111,12 @@ Vite aliases (the workbench's published `dist` is proven by `packages/workbench/
 The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
 containers against a local verdaccio registry, never the real one; recipe in its README, dated
 results in `packages/server/docs/daemon-update-live-results.md`). Run it from a clean worktree after
-changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop.
+changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop. The single
+binary's update path has its own: `scripts/binary-update-check/` (a Node-less container, a local HTTP
+release channel; `build:binary` takes `--version`/`--out-dir` for it).
+What Pi, the `skills` CLI, an OAuth login and older glibc do inside the single binary (a Node-less
+container; real agent turn, `pi install`, a failing extension) was checked live; results are in
+`packages/server/docs/binary-live-results.md`.
 
 ---
 
@@ -173,10 +178,13 @@ Two consequences for anyone touching the Pi integration:
   `package.json` `bin.pi`, falling back to the two known entrypoints; a test asserts the resolved
   path equals the declared `bin` so a future relocation fails loudly instead of silently degrading
   to a global `pi` on `$PATH`.
-- **Four places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
+- **Five places deliberately mirror Pi internals** and must be re-checked after a Pi bump, since
   none is importable: `providers/pi/thinking-levels.ts` (mirrors pi-ai's
-  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/curated-packs.ts`'s
-  `splitGitRef` (mirrors Pi's `splitRef`), `resources/toggle-patterns.ts` (mirrors the
+  `getSupportedThinkingLevels` + its 7-level ladder), `extensions/pi-source.ts`'s
+  `splitGitRef` (mirrors Pi's `splitRef`), `runtime/pi-overrides.ts` (sprint-139; the single binary
+  replaces `SettingsManager.getNpmCommand` and filters `DefaultPackageManager.resolve()`'s package
+  list in-process — checked at 1.4.0 inside a compiled binary by
+  `packages/server/scripts/pi-overrides-proof/run.sh`), `resources/toggle-patterns.ts` (mirrors the
   skill enable/disable pattern derivation of `ResourceList` in
   `dist/modes/interactive/components/config-selector.js`, so a Settings → Skills toggle writes
   exactly what `pi config` writes; differential-tested at 1.4.0 against Pi's own component), and
@@ -440,7 +448,7 @@ All communication uses a **single WebSocket connection** per client.
   address and polls `/api/health` (which carries `version`) three times, and otherwise reinstalls the previous
   version (`--prefer-offline`) and starts that; the result lands in `update-result.json` and reaches clients as
   `lastResult`. Docker, a checkout, an unwritable folder, a missing npm and Windows are `cannot_update` with a
-  reason (Windows: `unsupported_platform`) and the command to run by hand. The CLI starts the daemon through
+  reason (Windows: `unsupported_platform`; a binary outside `$PI_STUDIO_HOME/bin/versions/<v>/`: `unmanaged_binary`) and the command to run by hand. `installKind` also takes `binary` (the single compiled binary, milestone 6). The CLI starts the daemon through
   `runDaemon` (SIGINT/SIGTERM close then exit, plus the self-update restart hook), and `daemon stop`/`restart`
   wait up to 10 s for the exit and report `still_running`. **Shipped and live-verified**: the workbench pill,
   dialog and Settings → Daemon switch; the desktop Daemons screen's Update for a stopped or too-old local or
@@ -725,6 +733,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
+update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
 logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
 server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;

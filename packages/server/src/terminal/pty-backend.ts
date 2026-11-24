@@ -1,14 +1,17 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 
-import nodePty from "node-pty";
 import treeKill from "tree-kill";
 import which from "which";
+
+import { BunPtyBackend, isBunRuntime } from "./bun-pty-backend.js";
 
 /**
  * PTY backend abstraction (features/terminals.md § Behavior). The production backend is `node-pty`,
  * which gives a **real TTY** (programs see `isatty`, get SIGWINCH on resize, and run full-screen
- * apps like vim/htop correctly). A piped-`child_process` fallback remains for environments where the
- * native module is unavailable and for deterministic tests (which inject their own fake backend).
+ * apps like vim/htop correctly). Under Bun, `node-pty` does not work (the shell dies with SIGHUP),
+ * so `BunPtyBackend` (`Bun.spawn(…, { terminal })`) is used instead. A piped-`child_process` fallback
+ * remains for environments where the native module is unavailable and for deterministic tests
+ * (which inject their own fake backend).
  */
 
 export interface PtyProcess {
@@ -35,6 +38,18 @@ export interface PtyBackend {
 const encoder = new TextEncoder();
 
 /**
+ * `node-pty`, or `undefined` under Bun / when its native binding cannot be loaded. The import is
+ * dynamic and conditional because it must never load under Bun: there the shell dies at once with
+ * SIGHUP and loading it stops the compiled daemon from starting.
+ */
+const nodePty = isBunRuntime()
+  ? undefined
+  : await import("node-pty").then(
+      (module) => module.default,
+      () => undefined,
+    );
+
+/**
  * Resolve a shell/binary name to an absolute path via `$PATH` (cross-platform, honors Windows
  * PATHEXT). Returns the input unchanged when it already looks like a path or cannot be resolved
  * (the spawn will then surface a clear ENOENT).
@@ -49,16 +64,17 @@ export function resolveExecutable(
 }
 
 /** Best-effort termination of a whole process tree (kills orphaned grandchildren too). */
-function killTree(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
+export function killTree(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
   if (pid === undefined) return;
   treeKill(pid, signal, () => {
     // Best-effort: ignore errors (process may already be gone).
   });
 }
 
-/** Production backend: a real PTY via `node-pty`. */
+/** Production backend under Node: a real PTY via `node-pty`. */
 export class NodePtyBackend implements PtyBackend {
   spawn(opts: PtySpawnOptions): PtyProcess {
+    if (nodePty === undefined) throw new Error("node-pty is not available in this runtime");
     const shell = resolveExecutable(opts.shell, opts.env ?? process.env);
     const proc = nodePty.spawn(shell, opts.args ?? [], {
       name: "xterm-256color",
@@ -143,15 +159,10 @@ export class ChildProcessPtyBackend implements PtyBackend {
 }
 
 /**
- * Default backend factory: prefer the real PTY (`node-pty`); if the native module cannot be loaded
- * on this platform, fall back to the piped child-process backend.
+ * Default backend factory: under Bun the Bun PTY; under Node the real PTY (`node-pty`), and if the
+ * native module cannot be loaded on this platform, the piped child-process backend.
  */
 export function createDefaultPtyBackend(): PtyBackend {
-  try {
-    // Touch the native binding so an unsupported platform fails here, not on first spawn.
-    void nodePty.spawn;
-    return new NodePtyBackend();
-  } catch {
-    return new ChildProcessPtyBackend();
-  }
+  if (isBunRuntime()) return new BunPtyBackend({ resolveExecutable, killTree });
+  return nodePty === undefined ? new ChildProcessPtyBackend() : new NodePtyBackend();
 }

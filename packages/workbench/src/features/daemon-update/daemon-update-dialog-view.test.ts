@@ -226,6 +226,19 @@ describe("daemonUpdateDialogView", () => {
     expect(view.kind === "cannot_update" && view.text).toContain(fragment);
   });
 
+  it("links a release page address for unmanaged_binary, and only a web address", () => {
+    const cannot = (command: string) =>
+      daemonUpdateDialogView(
+        input({
+          status: status({ kind: "cannot_update", reason: "unmanaged_binary", command }),
+        }),
+      );
+    expect(cannot("https://github.com/x/releases")).toMatchObject({
+      link: "https://github.com/x/releases",
+    });
+    expect(cannot("git pull && npm run build")).not.toHaveProperty("link");
+  });
+
   it("shows nothing to do for idle", () => {
     expect(daemonUpdateDialogView(input({ status: status({ kind: "idle" }) }))).toEqual({
       kind: "none",

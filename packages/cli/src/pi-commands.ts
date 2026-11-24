@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-import { resolveBinaryOnPath, resolveBundledPiCli } from "@av-pi-studio/server";
+import { piCommand, resolveBinaryOnPath } from "@av-pi-studio/server";
 import type { Command } from "commander";
 
 import { type CliContext, type GlobalOptions, EXIT_ERROR } from "./cli-core.js";
@@ -26,14 +26,14 @@ export type PiSpawner = (opts: {
 
 export interface PiRuntime {
   spawn: PiSpawner;
-  /** Resolve the bundled CLI path; tests override to simulate presence/absence. */
-  resolveBundled: () => string | null;
+  /** The command that runs the embedded Pi with `args`; `null` when it is absent. Tests override. */
+  piCommand: (args: string[]) => string[] | null;
   /** Probe a bare binary on $PATH; tests override. */
   onPath: (bin: string) => boolean;
 }
 
 /**
- * Default spawner: `spawn(process.execPath, [cli, ...args], { stdio: "inherit" })`, resolving with
+ * Default spawner: `spawn(command[0], command.slice(1), { stdio: "inherit" })`, resolving with
  * the child's exit code. `stdio: "inherit"` is required for Pi's TUI; signals are left to Node's
  * default propagation (the child shares the process group, so Ctrl+C reaches it directly).
  */
@@ -55,7 +55,7 @@ export const subprocessPiSpawner: PiSpawner = ({ command, env }) =>
 export function defaultPiRuntime(): PiRuntime {
   return {
     spawn: subprocessPiSpawner,
-    resolveBundled: resolveBundledPiCli,
+    piCommand,
     onPath: (bin) => resolveBinaryOnPath(bin),
   };
 }
@@ -77,12 +77,13 @@ export function piProxyEnv(opts: GlobalOptions, env = process.env): Record<strin
 }
 
 /**
- * Build the launch command: prefer the bundled CLI (`node <pkg>/dist/cli.js`), fall back to a
- * global `pi` on `$PATH` when the dependency is absent (mirrors `defaultPiCommand()`).
+ * Build the launch command: prefer the embedded Pi (`piCommand` of the runtime seam: the bundled
+ * CLI under Node, the `__pi` sub-command in the binary), fall back to a global `pi` on `$PATH`
+ * when the dependency is absent (mirrors the agent provider's default).
  */
 export function piProxyCommand(runtime: PiRuntime, args: string[]): string[] | null {
-  const cli = runtime.resolveBundled();
-  if (cli) return [process.execPath, cli, ...args];
+  const command = runtime.piCommand(args);
+  if (command) return command;
   if (runtime.onPath("pi")) return ["pi", ...args];
   return null;
 }

@@ -49,6 +49,8 @@ export interface CliContext {
   update?: UpdateRuntime;
   /** Pi auth-engine seam (network/filesystem side-effects); tests inject fakes. */
   auth?: AuthRuntime;
+  /** Runs once before the default auth engine loads Pi; the compiled binary sets Pi's Bun runtime setup. */
+  prepareAuth?: () => Promise<void>;
 }
 
 /** Default production context. */

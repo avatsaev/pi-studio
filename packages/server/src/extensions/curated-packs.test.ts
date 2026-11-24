@@ -4,10 +4,9 @@ import {
   CURATED_PACKS,
   type CuratedPackCatalog,
   checkCatalogInvariants,
-  identityOf,
-  parseSource,
   selectEntries,
 } from "./curated-packs.js";
+import { parseSource } from "./pi-source.js";
 
 // Guard test for the manifest invariants (swe/features/preinstalled-extensions.md § The manifest),
 // same idiom as packages/web-client/src/theme/token-integrity.test.ts: assert the real manifest is
@@ -15,14 +14,12 @@ import {
 // editing the real manifest.
 
 describe("CURATED_PACKS (the real manifest)", () => {
-  it("core has exactly the five spec'd sources, all npm, all unpinned", () => {
-    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(5);
+  it("core has exactly the three spec'd sources, all npm, all unpinned", () => {
+    expect(Object.keys(CURATED_PACKS.core.packages)).toHaveLength(3);
     const sources = CURATED_PACKS.core.packages.map((p) => p.source);
     expect(sources).toEqual([
-      "npm:@99percentpeople/pi-background-tasks",
       "npm:@juicesharp/rpiv-todo",
       "npm:pi-web-access",
-      "npm:pi-powerline-footer",
       "npm:@juicesharp/rpiv-ask-user-question",
     ]);
     for (const entry of CURATED_PACKS.core.packages) {
@@ -33,10 +30,8 @@ describe("CURATED_PACKS (the real manifest)", () => {
       CURATED_PACKS.core.packages.map((p) => [p.source, p.addedIn]),
     );
     expect(addedIns).toEqual({
-      "npm:@99percentpeople/pi-background-tasks": "0.0.73",
       "npm:@juicesharp/rpiv-todo": "0.0.73",
       "npm:pi-web-access": "0.0.73",
-      "npm:pi-powerline-footer": "0.0.73",
       "npm:@juicesharp/rpiv-ask-user-question": "0.0.93",
     });
   });
@@ -46,58 +41,22 @@ describe("CURATED_PACKS (the real manifest)", () => {
   });
 });
 
-describe("parseSource", () => {
-  it("detects pinned npm specs (exact version) vs unpinned", () => {
-    expect(parseSource("npm:foo@1.2.3")).toEqual({ kind: "npm", identity: "foo", pinned: true });
-    expect(parseSource("npm:foo")).toEqual({ kind: "npm", identity: "foo", pinned: false });
-  });
-
-  it("does not split a scoped package's leading @ as a version separator", () => {
-    expect(parseSource("npm:@scope/foo")).toEqual({
-      kind: "npm",
-      identity: "@scope/foo",
-      pinned: false,
-    });
-    expect(parseSource("npm:@scope/foo@1.2.3")).toEqual({
-      kind: "npm",
-      identity: "@scope/foo",
-      pinned: true,
-    });
-  });
-
-  it("detects pinned git specs (a ref) vs unpinned, scp-like form", () => {
-    expect(parseSource("git:git@github.com:o/r@v1")).toEqual({
-      kind: "git",
-      identity: "git@github.com:o/r",
-      pinned: true,
-    });
-    expect(parseSource("git:git@github.com:o/r")).toEqual({
-      kind: "git",
-      identity: "git@github.com:o/r",
-      pinned: false,
-    });
-  });
-
-  it("throws on a source with neither npm: nor git: scheme", () => {
-    expect(() => parseSource("pi-web-access")).toThrow();
-  });
-});
-
-describe("identityOf", () => {
-  it("strips the version/ref, matching parseSource(...).identity", () => {
-    expect(identityOf("npm:@scope/foo")).toBe("@scope/foo");
-    expect(identityOf("npm:pi-web-access@1.0.0")).toBe("pi-web-access");
-    expect(identityOf("git:git@github.com:o/r@main")).toBe("git@github.com:o/r");
-  });
-});
-
 describe("selectEntries", () => {
-  it("selectEntries(CURATED_PACKS, []) yields exactly the five core entries", () => {
+  it("selectEntries(CURATED_PACKS, []) yields exactly the three core entries", () => {
     const { entries, unknownSlugs } = selectEntries(CURATED_PACKS, []);
     expect(entries.map((e) => e.entry.source)).toEqual(
       CURATED_PACKS.core.packages.map((p) => p.source),
     );
     expect(entries.every((e) => e.pack === "core")).toBe(true);
+    expect(unknownSlugs).toEqual([]);
+  });
+
+  it("selecting molagent adds its git entry after core", () => {
+    const { entries, unknownSlugs } = selectEntries(CURATED_PACKS, ["molagent"]);
+    expect(entries.map((e) => [e.pack, e.entry.source])).toEqual([
+      ...CURATED_PACKS.core.packages.map((p) => ["core", p.source]),
+      ["molagent", "git:github.com/avatsaev/pi-molagent"],
+    ]);
     expect(unknownSlugs).toEqual([]);
   });
 

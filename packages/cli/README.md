@@ -250,6 +250,14 @@ After a successful install, a local daemon that answers at `--host` is restarted
 address and `daemon restarted: <version>` is printed. No running daemon means nothing is started;
 a failed restart exits non-zero (the install stays).
 
+The single-binary `pi-studio` updates the same way without npm: it reads
+`https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json`, installs the newer
+version into `$PI_STUDIO_HOME/bin/versions/<version>`, points `bin/current` at it, restarts a running local
+daemon from it and then removes the older version folders (the new and the previous one stay). A binary that
+is not `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio`, or whose `bin` folder is not writable, does not
+update itself and prints the releases page instead. `PI_STUDIO_DAEMON_UPDATE_URL` replaces the manifest
+address; it is for tests and self-hosted mirrors and is never set by a release.
+
 A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
 installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
 screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that
@@ -308,3 +316,13 @@ state machine, output rendering, pairing-URL construction, and the `auth` group 
 prompt/notify rendering, login/status/logout orchestration) — all against an injected `CliContext`
 (stub output sink + mock `DaemonRuntime`, fake `AuthRuntime` and terminal I/O), never a real
 spawned daemon and never a real credential store.
+
+### Single binary
+
+`npm run build && npm run build:binary -- --target linux-x64` (also `linux-arm64`, `darwin-arm64`,
+`darwin-x64`) compiles the whole CLI, the daemon, the relay, Pi and `skills` into one `pi-studio`
+executable with Bun, and writes `dist-binary/pi-studio-<version>-<target>/` plus its `.tar.gz`. The
+folder also holds a `bun` script, Pi's runtime assets and `web/` (what `pi-studio ui` serves), so
+it can be moved anywhere and needs no Node. macOS targets are ad-hoc signed only when built on
+macOS. `scripts/binary-container-check.sh` runs the main commands from an unpacked folder in a
+Node-less Docker container.

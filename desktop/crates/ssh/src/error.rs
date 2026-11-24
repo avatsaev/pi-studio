@@ -170,3 +170,38 @@ impl RunError {
         }
     }
 }
+
+/// Why [`Session::send`](crate::Session::send) did not leave the file on the host. The page reads these as the reason of a
+/// failed install.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SendError {
+    /// No channel could be opened, or the host refused to run the command.
+    #[error("the channel to the host could not be opened")]
+    Open,
+    /// The reader failed or ended before the byte count it was given.
+    #[error("the file could not be read")]
+    Source,
+    /// The host accepted no data for the stall limit, or did not end the command in that time after the last byte.
+    #[error("the host stopped accepting data")]
+    Stalled,
+    /// The command ended with a non-zero status: `cat` failed (no space left, no permission, no such folder).
+    #[error("the host could not write the file (status {status})")]
+    Rejected { status: u32 },
+    /// The connection or the channel ended before the command reported a status.
+    #[error("the connection ended while the file was sent")]
+    Closed,
+}
+
+impl SendError {
+    /// The reason as the page reads it; it never changes once released.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Source => "source",
+            Self::Stalled => "stalled",
+            Self::Rejected { .. } => "rejected",
+            Self::Closed => "closed",
+        }
+    }
+}

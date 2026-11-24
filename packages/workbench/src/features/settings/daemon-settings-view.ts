@@ -30,6 +30,8 @@ export interface DaemonSettingsView {
   lastChecked: string;
   /** The last check's failure in words; absent when it did not fail. */
   checkError?: string;
+  /** The rolled-back version automatic checks no longer offer; absent when none. */
+  skipped?: string;
   /** The switch's value: the optimistic one while a request is out. */
   autoCheck: boolean;
   /** The update is running or being asked about: "Check now" has nothing to add. */
@@ -47,7 +49,13 @@ const INSTALL_KINDS: Record<string, string> = {
   docker: "Docker",
   source: "Repository checkout",
   unknown: "Unknown",
+  binary: "Single binary",
 };
+
+/** The line under "Last checked" for a rolled-back version. */
+export function skippedText(version: string): string {
+  return `${version} was rolled back and is not offered; Check now to try it again.`;
+}
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -70,6 +78,13 @@ export function lastCheckedText(checkedAt: number | undefined, now: number): str
 
 export function installKindText(kind: string): string {
   return INSTALL_KINDS[kind] ?? kind;
+}
+
+/** The line under "Check automatically": where this install kind looks for a newer daemon. */
+export function autoCheckHelpText(kind: string): string {
+  return kind === "binary"
+    ? "Look for a newer release at start and every six hours."
+    : "Ask npm for a newer daemon at start and every six hours.";
 }
 
 function updateRow(status: DaemonUpdateStatus): DaemonSettingsView["update"] {
@@ -122,5 +137,6 @@ export function daemonSettingsView(input: DaemonSettingsInput): DaemonSettingsVi
     update: updateRow(status),
   };
   if (status.checkError !== undefined) view.checkError = checkErrorText(status.checkError);
+  if (status.skippedVersion !== undefined) view.skipped = skippedText(status.skippedVersion);
   return view;
 }
