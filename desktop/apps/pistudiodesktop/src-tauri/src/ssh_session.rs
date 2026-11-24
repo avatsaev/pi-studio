@@ -29,7 +29,7 @@ use std::time::Duration;
 use futures_util::future::BoxFuture;
 use futures_util::{Sink, Stream};
 use pistudiodesktop_engine::SshPlan;
-use pistudiodesktop_model::{EntryId, RemoteState, Secret};
+use pistudiodesktop_model::{EntryId, Secret};
 use pistudiodesktop_net::{DaemonSocket, Wire};
 use pistudiodesktop_shell::owner_access::OwnerAccess;
 use pistudiodesktop_shell::services::{RemoteDaemonVersionHook, RemoteOutput, RemoteRunFailure, RemoteRunHook, RemoteSendFailure, RemoteSendHook};
@@ -274,9 +274,11 @@ impl SshSessions {
         match opened {
             Ok(socket) => {
                 if self.inner.mark_up(&plan.entry) {
-                    let (access, entry) = (access.clone(), plan.entry.clone());
-                    // The state is only a view of the Daemons screen: a failure to store it costs nothing else.
-                    let _ = blocking(move || access.set_remote(&entry, RemoteState::Running)).await;
+                    let access = access.clone();
+                    // A daemon that answered is `running`, or `outdated` when it is older than the app's minimum, which only
+                    // the probe reads (its version, over this session). The state is only a view of the Daemons screen: a
+                    // refusal (`busy`: a start or an install is under way and ends in a state of its own) costs nothing else.
+                    let _ = blocking(move || access.execute(REFRESH, json!({}))).await;
                 }
                 Ok(DaemonSocket::from_wire(Leased { socket, _lease: lease }, max_message_bytes))
             }

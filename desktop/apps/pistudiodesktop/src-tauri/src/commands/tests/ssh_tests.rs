@@ -68,6 +68,8 @@ struct Options {
     answer: Option<bool>,
     /// Whether nothing is installed on the host: its facts report no binary.
     bare: bool,
+    /// The version the daemon reports on `/api/health` (what the app reads over the session), when it can be read.
+    daemon_version: Option<&'static str>,
 }
 
 impl Default for Options {
@@ -83,6 +85,7 @@ impl Default for Options {
             wired: false,
             answer: None,
             bare: false,
+            daemon_version: None,
         }
     }
 }
@@ -140,7 +143,7 @@ impl Fixture {
         let (config, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let home = config.path().join("home");
         std::fs::create_dir_all(home.join(".ssh")).unwrap();
-        let daemon = Daemon::start(None);
+        let daemon = Daemon::start_with_version(None, options.daemon_version);
         let daemon_port = options.daemon_port.unwrap_or(daemon.port);
 
         // The server: logs in the one key, runs `pi-studio`, forwards to the daemon stand-in.
@@ -346,7 +349,7 @@ fn an_ssh_entry_is_opened_through_the_session_and_the_pages_messages_reach_the_d
         page.send(Message::binary(bytes.clone())).await.unwrap();
         assert_eq!(page.next().await.unwrap().unwrap(), Message::binary(bytes));
     });
-    // The daemon was reached: the Daemons screen says so, with no probe.
+    // The daemon was reached: the app's own look at it (a probe) gives the Daemons screen its state.
     wait_remote(&f, "running");
     assert!(f.ssh.seen_up(&EntryId::parse(&f.entry).unwrap()));
     // Neither answer the page sees holds a secret.
@@ -366,6 +369,19 @@ fn an_ssh_entry_is_opened_through_the_session_and_the_pages_messages_reach_the_d
 }
 
 #[test]
+fn a_daemon_older_than_the_minimum_that_the_page_reaches_is_outdated_not_running() {
+    let f = Fixture::new(&Options { daemon_version: Some("0.0.100"), ..Options::default() });
+    let local = f.open().unwrap();
+    let _page = f.connect(&local);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.remote() != json!({ "state": "outdated", "version": "0.0.100" }) {
+        assert!(Instant::now() < deadline, "the remote state is {} and not outdated 0.0.100", f.remote());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_nothing_leaked(&f);
+}
+
+#[test]
 fn two_opens_at_once_share_one_connection_attempt_and_a_third_reuses_the_session() {
     let f = Fixture::new(&Options::default());
     let opens: Vec<_> = (0..2)
@@ -378,8 +394,10 @@ fn two_opens_at_once_share_one_connection_attempt_and_a_third_reuses_the_session
         assert!(open.join().unwrap().is_ok());
     }
     assert!(f.open().is_ok());
-    assert_eq!(f.connections(), 1, "one SSH connection for three channels");
-    assert_eq!(f.server.seen().forwards.len(), 3);
+    // The daemon's first answer makes the app read its version over the session: one more channel, after the three.
+    wait_remote(&f, "running");
+    assert_eq!(f.connections(), 1, "one SSH connection for every channel");
+    assert_eq!(f.server.seen().forwards.len(), 4, "the page's three and the app's one read of the version");
     assert!(f.ssh.is_open());
 }
 
@@ -692,6 +710,8 @@ fn inspect_shows_how_the_connection_goes_and_the_session_as_counts_and_nothing_t
     let local_url = f.open().unwrap();
     let _page = f.connect(&local_url);
     wait_until("the transport is open", || f.inspect()["connection"]["transports"][0]["state"] == "open");
+    // The daemon's first answer makes the app read its version over the session, on a channel of its own for a moment.
+    wait_remote(&f, "running");
     let seen = f.inspect();
     let connection = &seen["connection"];
     assert_eq!(connection["transports"][0]["via"], "ssh", "{connection}");

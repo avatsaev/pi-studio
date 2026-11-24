@@ -23,11 +23,11 @@ describe("cliToolView", () => {
     expect(view?.text).toContain("~/.local/bin/pi-studio");
   });
 
-  it("confirms an installed tool and offers nothing", () => {
+  it("confirms an installed tool and offers Check again, to see a later change of PATH", () => {
     const view = cliToolView({ state: "installed" });
     expect(view?.tone).toBe("ok");
     expect(view?.text).toContain("installed");
-    expect(view?.action).toBeUndefined();
+    expect(view?.action).toEqual({ label: CLI_TOOL_CHECK_LABEL, call: "install" });
     expect(view?.command).toBeUndefined();
   });
 
@@ -59,7 +59,7 @@ describe("cliToolView", () => {
     expect(view?.action).toEqual({ label: CLI_TOOL_CHECK_LABEL, call: "state" });
   });
 
-  it("has an install button for `absent` only", () => {
+  it("has an install button for `absent` only, and Check again for every state that has a link or a file", () => {
     const states: CliToolState[] = [
       { state: "absent" },
       { state: "installed" },
@@ -71,7 +71,7 @@ describe("cliToolView", () => {
     const labels = states.map((state) => cliToolView(state)?.action?.label ?? null);
     expect(labels).toEqual([
       CLI_TOOL_INSTALL_LABEL,
-      null,
+      CLI_TOOL_CHECK_LABEL,
       CLI_TOOL_CHECK_LABEL,
       CLI_TOOL_CHECK_LABEL,
       CLI_TOOL_CHECK_LABEL,

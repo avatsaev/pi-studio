@@ -16,6 +16,10 @@ pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
 pi-studio ui             # serve the browser UI, connected to that daemon
 ```
 
+The desktop app needs none of this: on macOS and Linux it downloads its own `pi-studio` daemon the first time
+it needs one, and it can install that daemon on an SSH host. The npm install above is for getting the CLI on a
+machine of your own, such as a server.
+
 <img src="/images/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" />
 
 ## Where to go next

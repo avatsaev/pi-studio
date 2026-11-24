@@ -7,10 +7,11 @@
 > [../features/self-update.md](../features/self-update.md),
 > [../features/desktop-self-update.md](../features/desktop-self-update.md)
 
-> **Status (2026-11-24): designed, not built.** Desktop roadmap milestone 6. The design follows the
+> **Status (2026-11-24): built (sprints 139–145).** Desktop roadmap milestone 6. The design follows the
 > grill [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (readout confirmed by
 > the owner on 2026-11-24). Until then this file was the record of a one-day exploration
-> (2026-11-22); its measurements are kept below. A1–A10 are proposed here.
+> (2026-11-22); its measurements are kept below. A1–A10 were proposed here and built; the evidence
+> is in the sprint summaries and `packages/server/docs/binary-live-results.md`.
 
 ## Goal
 

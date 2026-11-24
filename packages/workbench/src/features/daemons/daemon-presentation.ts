@@ -39,7 +39,7 @@ const RESTART: LocalAction = { kind: "restart", label: "Restart", call: "restart
 const RETRY_PROBE: LocalAction = { kind: "retry", label: "Retry", call: "refresh" };
 /** For a failed start or install: install the pin if it is missing, then start the daemon again. */
 const RETRY_START: LocalAction = { kind: "retry", label: "Retry", call: "start" };
-/** Installs the version the app was built with, then starts the daemon. */
+/** Installs the version the app was built with, then starts the daemon. Offered for `outdated` only: Start already installs the pin when it is missing. */
 const UPDATE: LocalAction = { kind: "update", label: "Update", call: "update" };
 
 type LocalFailReason = Extract<LocalDaemonState, { state: "failed" }>["reason"];
@@ -91,7 +91,7 @@ export function localStateView(state: LocalDaemonState): LocalStateView {
     case "installing":
       return { label: "Installing the daemon", tone: "busy", actions: [] };
     case "stopped":
-      return { label: "Stopped", tone: "neutral", actions: [START, UPDATE] };
+      return { label: "Stopped", tone: "neutral", actions: [START] };
     case "starting":
       return { label: "Starting…", tone: "busy", actions: [] };
     case "stopping":
@@ -154,7 +154,7 @@ const REMOTE_FAILED_LABELS: Record<RemoteFailReason, string> = {
   exec_failed: "Could not run a command on the host",
   no_shell: "The host's login shell could not be used",
   download_failed: "The download failed",
-  checksum_mismatch: "The file did not match its checksum on the host and was deleted",
+  checksum_mismatch: "The file did not match its checksum and was deleted",
   send_failed: "Sending the daemon to the host failed",
   install_failed: "Installing the daemon on the host failed",
 };

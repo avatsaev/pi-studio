@@ -13,9 +13,11 @@ import {
   type HostClipboard,
   type HostDaemons,
   type HostDialogs,
+  type LocalDaemonState,
 } from "../../host/types.js";
 import {
   daemonFailureOf,
+  isInstallFailure,
   type DaemonFailure,
   type LocalAction,
   type RemoteAction,
@@ -48,6 +50,17 @@ export function runLocalAction(
   call: LocalAction["call"],
 ): Promise<ActionOutcome> {
   return failureOf(() => daemons.local[call]());
+}
+
+/**
+ * Whether opening the Daemons screen re-reads the local daemon's state (`local.refresh()`). Not after a failed
+ * install: the read is an install too (every local action first makes sure the pinned binary is in place), so the
+ * screen that opens *because* the download failed would download the archive again at once, before anyone pressed
+ * Retry (live run, sprint-145/task-001: a corrupted archive was fetched twice, 18 ms apart). The row names what failed
+ * and offers Retry. Every other state is re-read: it may have changed while the screen was closed.
+ */
+export function refreshesOnOpen(local: LocalDaemonState): boolean {
+  return !(local.state === "failed" && isInstallFailure(local.reason));
 }
 
 /** Start the current SSH entry's daemon, or probe its host again. Acceptance only: the outcome is a state change. */

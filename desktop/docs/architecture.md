@@ -301,8 +301,9 @@ file; the Daemons screen shows the line to add. Windows is `unavailable`.
 memory (`unknown`, `checking`, `running`, `stopped`, `not_installed`, `starting`, `outdated {version}`,
 `unsupported {system}`, `installing {stage, done?, total?}` (stage `downloading`, `sending`, `unpacking`, `starting`),
 `failed {reason, output?}`; reset when another entry is opened) and a queue of requests (`daemon.remote.start`,
-`daemon.remote.refresh`, `daemon.remote.install`, `daemon.remote.update`, and the probe a `transport_open` that failed with
-`daemon_not_running` queues); like the local supervisor it runs no process. `shell::remote_supervisor` (native only) works
+`daemon.remote.refresh`, `daemon.remote.install`, `daemon.remote.update`, and the probe that a `transport_open` queues when
+the daemon refuses the port (`daemon_not_running`) and the one it queues when the daemon first answers: a daemon that
+answered is `running`, or `outdated` when its version, read as below, is under the minimum); like the local supervisor it runs no process. `shell::remote_supervisor` (native only) works
 the queue one request at a time through `RemoteAccess` (the app's `RemoteOwner`, over `LocalOp::Ssh`) and the hooks of
 `Services`: `remote_run` (a command run over the shared SSH session: `"$SHELL" -lic '<begin marker>; <command>; <end marker
 with the status>'`, fresh random markers, answering what lies between them), `remote_send` (`Session::send` of a file the

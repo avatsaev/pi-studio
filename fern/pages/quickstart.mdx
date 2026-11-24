@@ -16,6 +16,22 @@ npx @av-pi-studio/cli [options] [command] [args]
 ```
 
 <Note>
+  The desktop app does not need the CLI: on macOS and Linux it downloads its own `pi-studio` daemon the first
+  time it needs one, and it installs the same daemon on an SSH host from its Daemons screen. Its daemon
+  Settings can put a `pi-studio` command on your `PATH` (`~/.local/bin/pi-studio`) if you want one.
+</Note>
+
+No Node or npm on the machine? Every release also publishes `pi-studio` as a single executable per system
+(macOS arm64 and x64, Linux x64 and arm64) on the `daemon-v<version>` releases of the
+[Pi-Studio repository](https://github.com/avatsaev/pi-studio/releases): the CLI, the daemon, Pi and the
+`skills` CLI together. The Linux executables need glibc 2.17 or newer (CentOS 7 works; Alpine does not).
+
+<Note>
+  `git` must be on the machine for `skills add owner/repo` and `pi install git:…`, whichever way
+  Pi-Studio was installed.
+</Note>
+
+<Note>
   `pi-studio` bundles the [Pi](https://pi.dev) coding agent (`@earendil-works/pi-coding-agent`) —
   no separate global `pi` install is required.
 </Note>

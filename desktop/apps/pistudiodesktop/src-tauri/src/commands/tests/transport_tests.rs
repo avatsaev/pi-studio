@@ -85,6 +85,12 @@ pub(super) struct Daemon {
 impl Daemon {
     /// `password`: when set, an upgrade that does not offer `pi-studio.bearer.<password>` is answered 401.
     pub(super) fn start(password: Option<&'static str>) -> Daemon {
+        Daemon::start_with_version(password, None)
+    }
+
+    /// [`Self::start`], and `GET /api/health` is answered with `version` (a 404 when there is none). A health request is
+    /// no connection of the daemon's: it is not counted and appears in no event.
+    pub(super) fn start_with_version(password: Option<&'static str>, version: Option<&'static str>) -> Daemon {
         let events = Arc::new(Mutex::new(Vec::new()));
         let offered = Arc::new(Mutex::new(Vec::new()));
         let upgrades = Arc::new(AtomicUsize::new(0));
@@ -94,6 +100,15 @@ impl Daemon {
         let accepting = daemon.clone();
         tauri::async_runtime::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
+                if is_health_request(&tcp).await {
+                    let (status, body) = version.map_or(("404 Not Found", String::new()), |v| ("200 OK", format!("{{\"status\":\"ok\",\"version\":\"{v}\"}}")));
+                    let answer =
+                        format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    // One small answer on a fresh connection: written whole or not at all.
+                    let _ = tcp.writable().await;
+                    let _ = tcp.try_write(answer.as_bytes());
+                    continue;
+                }
                 let n = accepting.upgrades.fetch_add(1, Ordering::SeqCst);
                 tauri::async_runtime::spawn(accepting.clone().serve(n, tcp, password));
             }
@@ -153,6 +168,21 @@ impl Daemon {
     pub(super) fn wait_for(&self, event: &str) {
         wait_until(event, || self.saw(event));
     }
+}
+
+/// Whether the request that just arrived on `tcp` is the app's health read (`GET /api/health`): looked at, not consumed.
+/// The request comes in one piece over loopback; a few looks cover a slow start.
+async fn is_health_request(tcp: &TcpStream) -> bool {
+    const HEALTH: &[u8] = b"GET /api/health";
+    let mut head = [0_u8; HEALTH.len()];
+    for _ in 0..50 {
+        match tcp.peek(&mut head).await {
+            Ok(n) if n >= HEALTH.len() => return head.starts_with(HEALTH),
+            Ok(0) | Err(_) => return false,
+            Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+        }
+    }
+    false
 }
 
 pub(super) fn wait_until(what: &str, condition: impl Fn() -> bool) {

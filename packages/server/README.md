@@ -139,12 +139,24 @@ the helper reinstalls the previous one (`npm install -g … --prefer-offline`, s
 stall it) and starts that. The outcome is written to `update-result.json` and shown to clients as
 `lastResult` (`updated`, `rolled_back` or `failed`); the helper logs to `$PI_STUDIO_HOME/logs/update-restart.log`.
 
-Only a global npm install of `@av-pi-studio/cli` can update itself (the server sits nested under the CLI
-there). Docker, a source checkout and an unknown install, a read-only npm folder, a missing `npm` and Windows
-(`unsupported_platform`) report `cannot_update` with the command to run by hand. The CLI starts the daemon
+Only a global npm install of `@av-pi-studio/cli` and the single compiled binary can update themselves (the
+server sits nested under the CLI in the npm layout). Docker, a source checkout and an unknown install, a
+read-only npm folder, a missing `npm` and Windows (`unsupported_platform`) report `cannot_update` with the
+command to run by hand. The CLI starts the daemon
 through `runDaemon` (SIGINT/SIGTERM close then exit, plus the restart hook the update needs); an embedder that
 calls `startDaemon` without `onUpdateRestart` has its apply refused before anything is installed.
 Live results: [`docs/daemon-update-live-results.md`](docs/daemon-update-live-results.md).
+
+**The single binary** (`installKind: "binary"`) reads `daemon-updates/latest.json` (a GitHub release of this
+repository; `PI_STUDIO_DAEMON_UPDATE_URL` replaces the address, for tests and private release channels) instead
+of the npm registry. Applying downloads the archive for this system into `$PI_STUDIO_HOME/bin/tmp`, checks its
+SHA-256, unpacks it into `bin/versions/<version>`, runs its `--version`, updates the extensions with the new
+binary and then lets the helper point `bin/current` at it and start it; any failure leaves `current` alone, and a
+new binary that does not start is rolled back. Only the executable at `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio`
+updates itself; a binary run from anywhere else reports `cannot_update` (`unmanaged_binary`) and names the
+releases page. A version that was rolled back or failed is written to `update-skip.json`, shown as
+`skippedVersion` and not offered again until a newer one appears ("Check now" still offers it). The Linux
+binaries need glibc 2.17 or newer; `git` must be on the machine for `skills add owner/repo` and `pi install git:…`.
 
 ### Dev daemon
 
@@ -207,7 +219,8 @@ All optional.
 | `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 | `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Daemon self-update checks (`daemon.update.autoCheck`): `false`/`0` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json` |
-| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source` or `unknown`; decides whether the daemon can update itself. The Docker image sets `docker`. The compiled single binary always reports `binary` (detected from its build, not settable here) |
+| `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection and decides whether the daemon can update itself. The Docker image sets `docker`. The compiled single binary is detected as `binary` without it |
+| `PI_STUDIO_DAEMON_UPDATE_URL` | `https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json` | Where a single-binary daemon reads the newest release; for tests and private release channels |
 | `PI_STUDIO_DEV_UPDATE` | _(unset)_ | Dev daemon only: `available`, `cannot`, `fail` or `rollback` scripts the update flow with no npm |
 
 > Literal IP addresses always pass the Host allowlist, so binding `0.0.0.0` (opt-in) and connecting via the

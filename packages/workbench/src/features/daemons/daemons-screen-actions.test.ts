@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installHost, resetHostForTests } from "../../host/install.js";
-import { type DaemonSettings, type HostDaemons, type RemoteDaemonState } from "../../host/types.js";
+import {
+  type DaemonSettings,
+  type HostDaemons,
+  type LocalDaemonState,
+  type RemoteDaemonState,
+} from "../../host/types.js";
 import { DaemonError, createTestDaemons } from "../../test/test-daemons.js";
 import { createTestHost } from "../../test/test-host.js";
 import { DaemonsScreen } from "./DaemonsScreen.js";
 import {
   copyCommand,
   openEntry,
+  refreshesOnOpen,
   removeConfirmMessage,
   removeEntry,
   runLocalAction,
@@ -103,6 +109,29 @@ describe("runLocalAction", () => {
     };
 
     expect(await runLocalAction(broken, "stop")).toBe("unexpected");
+  });
+});
+
+describe("refreshesOnOpen", () => {
+  it("does not re-read a failed install: the read would install again before Retry", () => {
+    for (const reason of ["download_failed", "checksum_mismatch", "install_failed"] as const) {
+      expect(refreshesOnOpen({ state: "failed", reason })).toBe(false);
+    }
+  });
+
+  it("re-reads every other state, a failed start included", () => {
+    const states: LocalDaemonState[] = [
+      { state: "failed", reason: "not_healthy" },
+      { state: "failed", reason: "timeout" },
+      { state: "failed", reason: "spawn_failed" },
+      { state: "stopped" },
+      { state: "running", host: "127.0.0.1", port: 6767 },
+      { state: "outdated", version: "0.0.100" },
+      { state: "checking" },
+      { state: "downloading", received: 1, total: 2 },
+      { state: "installing" },
+    ];
+    for (const state of states) expect(refreshesOnOpen(state), state.state).toBe(true);
   });
 });
 

@@ -76,8 +76,14 @@
 .statusSep {
   flex: none;
 }
+/* A state sentence too long for the pill (a failed download: "The file did not match its checksum and was deleted") is cut
+   with an ellipsis like the name, not left to spill out of the pill and under the action beside it; the full text is the
+   pill's tooltip. Short labels never shrink: they fit. */
 .statusLabel {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .statusDot,
 .statusSpinner {

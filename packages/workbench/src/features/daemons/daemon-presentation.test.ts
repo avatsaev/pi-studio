@@ -143,6 +143,12 @@ describe("remoteStateView", () => {
     expect(remoteStateView({ state: "stopped" }).tone).toBe("neutral");
     expect(remoteStateView({ state: "starting" }).tone).toBe("busy");
   });
+
+  it("words a checksum failure without saying where it was found: the app's own download fails it too", () => {
+    expect(remoteStateView({ state: "failed", reason: "checksum_mismatch" }).label).toBe(
+      "The file did not match its checksum and was deleted",
+    );
+  });
 });
 
 describe("remoteNeedsScreen", () => {
@@ -195,8 +201,8 @@ describe("localStateView", () => {
     expect(localStateView({ state: "installing" }).label).toBe("Installing the daemon");
   });
 
-  it("offers Start when stopped, Stop and Restart when running, Retry when something failed", () => {
-    expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
+  it("offers Start only when stopped, Stop and Restart when running, Retry when something failed", () => {
+    expect(kinds({ state: "stopped" })).toEqual(["start"]);
     expect(kinds({ state: "running", host: "h", port: 1 })).toEqual(["stop", "restart"]);
     expect(kinds({ state: "failed", reason: "timeout" })).toEqual(["retry"]);
     expect(kinds({ state: "outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
@@ -234,9 +240,9 @@ describe("localStateView", () => {
     }
   });
 
-  it("offers Update for an outdated daemon and a stopped one, and only Retry after a failed download or install", () => {
+  it("offers Update for an outdated daemon only, Start alone for a stopped one, and only Retry after a failed download or install", () => {
     expect(kinds({ state: "outdated", version: "0.0.1" })).toEqual(["update", "retry"]);
-    expect(kinds({ state: "stopped" })).toEqual(["start", "update"]);
+    expect(kinds({ state: "stopped" })).toEqual(["start"]);
     for (const reason of ["download_failed", "checksum_mismatch", "install_failed"] as const) {
       expect(kinds({ state: "failed", reason, output: "x" }), reason).toEqual(["retry"]);
     }

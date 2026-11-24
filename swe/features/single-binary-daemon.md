@@ -1,7 +1,7 @@
 # Feature — Single-binary daemon
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
-> Status: **specified 2026-11-24, not built.** Desktop roadmap milestone 6, from the grill
+> Status: **built 2026-11-24 (sprints 139–145).** Desktop roadmap milestone 6, from the grill
 > [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (D1–D16 owner, P1–P16 agent,
 > readout confirmed by the owner on 2026-11-24). S1–S12 are proposed in this document. **Compatibility
 > is not a concern** (owner, 2026-11-22): no fallback to an installed CLI, no migration of the app's
@@ -333,39 +333,46 @@ back to the owner (grill, open question 3).
 Proof is on Linux, live, in containers with nothing installed; on macOS only that the released binary
 starts on a macOS runner (D16).
 
-- [ ] A release creates `daemon-v<version>` with four archives and `SHA256SUMS`, not marked "latest";
+- [x] A release creates `daemon-v<version>` with four archives and `SHA256SUMS`, not marked "latest";
       `daemon-updates/latest.json` names that version; each binary passed its smoke test on its own
       system, macOS included.
 - [ ] A binary made to fail its smoke test publishes no binary for that version; npm and Docker are
       published; `latest.json` keeps the previous version.
 - [ ] A desktop build pins the version of `latest.json`; with a `minDaemonVersion` above it the build
       waits, then fails.
-- [ ] Linux container with no Node, npm or `pi-studio`: the app's first launch downloads the pin with
+- [x] Linux container with no Node, npm or `pi-studio`: the app's first launch downloads the pin with
       progress on the Daemons screen, the daemon starts, the workbench connects.
 - [ ] On that daemon a real agent turn with Pi runs a shell command and uses the todo tool; a terminal
       opens; a file goes up and down intact.
-- [ ] Pi installs an extension on that daemon with no npm on the machine; Pi's `settings.json` gains
+- [x] Pi installs an extension on that daemon with no npm on the machine; Pi's `settings.json` gains
       only the installed entry (no `npmCommand`, no entry removed).
-- [ ] With `pi-background-tasks` already installed (it is no longer in the baseline), an agent starts.
-- [ ] With no network, and with a corrupted archive, nothing is run and the row offers Retry.
-- [ ] With an npm daemon running that has agents and history, the app connects to it; after Restart
+- [x] With `pi-background-tasks` already installed (it is no longer in the baseline), an agent starts.
+- [x] With no network, and with a corrupted archive, nothing is run and the row offers Retry.
+- [x] With an npm daemon running that has agents and history, the app connects to it; after Restart
       the binary runs on the same folder and port and the agents and history are there.
-- [ ] A binary newer than the pin is not replaced.
-- [ ] "Install the command-line tool": `pi-studio --version` answers in a new terminal; with
+- [x] A binary newer than the pin is not replaced.
+- [x] "Install the command-line tool": `pi-studio --version` answers in a new terminal; with
       `~/.local/bin` off `PATH`, or another `pi-studio` first, or a file in the way, the screen says
       so and nothing is overwritten.
-- [ ] The app has no `cliPath` setting and no search for an installed CLI.
+- [x] The app has no `cliPath` setting and no search for an installed CLI.
+
+Evidence: the release and the first launch/no network/corrupt/npm-daemon/newer-binary/tool/`cliPath`
+rows are `desktop/docs/platform-checks.md` § Milestone 6, local side (L1–L9); the shell and todo
+turn, the extension install and `pi-background-tasks` are `packages/server/docs/binary-live-results.md`;
+the update path is `packages/server/docs/daemon-update-live-results.md`. **Not ticked, with the
+reason:** the "failed smoke test publishes nothing" case was never run against a deliberately broken
+binary (the workflow's `needs` chain is the only evidence); "a desktop build pins the version of
+`latest.json`; a `minDaemonVersion` above it waits, then fails" is covered by the script tests, and
+the first real run is the first release with `daemon-pin.json` (sprint-145/003); the live turn's
+terminal and file up/down on the binary daemon were not exercised.
 
 ## TODO(verify)
 
-- The two `SettingsManager` replacements in the compiled binary (the first task; the work stops if
-  they fail). — agent
-- The server test suite was never run under Bun; `skills` CLI operations, extension auto-sync at boot
-  and a complete OAuth login were not exercised in the binary. — agent
-- What Pi in the binary does when another extension fails to load: does it exit, and does its error
-  name the extension (P16)? — agent
-- The label of an Intel macOS runner (S3). — agent
+- ~~The two `SettingsManager` replacements~~ **Resolved (sprint 139):** they work in the compiled binary (`runtime/pi-overrides.ts`; the gate passed in a Node-less container).
+- The server test suite was never run under Bun. Seen live instead (`packages/server/docs/binary-live-results.md`): the boot-time extension sync, a real agent turn, a `skills` CLI operation and a complete OAuth login (fixed in the binary CLI).
+- ~~What Pi does when another extension fails to load~~ **Resolved (P16, sprint 140):** a Pi that exits at start now fails the agent with its stderr.
+- ~~The label of an Intel macOS runner~~ **Resolved:** `macos-15-intel`.
 - A macOS binary the app downloaded is never started on a real Mac in this milestone (D16). The app's
   download sets no quarantine attribute, so Gatekeeper is not expected to check it. [INFERENCE] until
-  the owner runs it.
-- The oldest glibc the Linux binaries run on. — agent, in the release task
+  the owner runs it (the owner's own update is the first run).
+- ~~The oldest glibc the Linux binaries run on~~ **Resolved:** 2.17 (CentOS 7 runs the turn; 2.12 fails).

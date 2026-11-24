@@ -28,7 +28,7 @@ src/
                                    runs after the version bump; `version.test.ts` fails on drift). A static
                                    constant instead of `createRequire`, which Bun's bundler does not follow.
   runtime/                        What differs when the daemon is the single compiled binary
-                                   (architecture/single-binary-daemon.md; milestone 6, in progress).
+                                   (architecture/single-binary-daemon.md; milestone 6, built).
     pi-overrides.ts               applyPiOverrides({SettingsManager, DefaultPackageManager}, {bunScript,
                                    excluded}): Pi's package manager becomes the `bun` script
                                    (`getNpmCommand`) and `DefaultPackageManager.resolve()` — inside an

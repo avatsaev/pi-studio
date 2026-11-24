@@ -1,7 +1,7 @@
 # Feature — Install the daemon on an SSH host
 
 > Part of: [../MAIN-SCOPE.md](../MAIN-SCOPE.md)
-> Status: **specified 2026-11-24, not built.** Desktop roadmap milestone 6, part (c), from the grill
+> Status: **built 2026-11-24 (sprints 143–145).** Desktop roadmap milestone 6, part (c), from the grill
 > [../grills/single-binary-daemon.md](../grills/single-binary-daemon.md) (D6, D10, D15, P6, P10–P12).
 > R1–R9 are proposed in this document. **Compatibility is not a concern** (owner, 2026-11-22).
 > Dependencies: [single-binary-daemon.md](single-binary-daemon.md) (the binary, the pin, the archive
@@ -191,22 +191,30 @@ forward only by its own update ([self-update.md](self-update.md)).
 
 Proof is on Linux, live, in containers (D16).
 
-- [ ] An SSH host with nothing installed shows Install; after the click the row shows downloading,
+- [x] An SSH host with nothing installed shows Install; after the click the row shows downloading,
       sending with a percentage, unpacking and starting; the daemon runs from
       `~/.pi-studio/bin/current/pi-studio` and the app connects.
-- [ ] A host with no internet access is installed the same way.
-- [ ] An Alpine host and a host without `uname` show "not supported" and no button.
-- [ ] A connection cut during the send ends in `send_failed`; Retry installs and leaves no temporary
+- [x] A host with no internet access is installed the same way.
+- [x] An Alpine host and a host without `uname` show "not supported" and no button.
+- [x] A connection cut during the send ends in `send_failed`; Retry installs and leaves no temporary
       file behind.
-- [ ] A host whose home is mounted `noexec` ends in `install_failed` with the host's error, and
+- [x] A host whose home is mounted `noexec` ends in `install_failed` with the host's error, and
       nothing of the install is left.
-- [ ] A host running an npm daemon is used as it is; after `pi-studio daemon stop` on the host the row
+- [x] A host running an npm daemon is used as it is; after `pi-studio daemon stop` on the host the row
       offers Install, and after it the binary runs with the same agents and history.
-- [ ] The install's commands and the host's output appear in no log.
+- [x] The install's commands and the host's output appear in no log.
+
+Evidence: `desktop/docs/platform-checks.md` § Milestone 6, SSH side (rows 1–11, Linux, real OpenSSH).
+Seen differently from the text: a partial from an earlier run is removed by the remembered name and,
+for other files, by age (`-mmin +60`), not by emptying `bin/tmp` at every install (R9 is the rule);
+nothing was left behind in the runs. Not tried: macOS and Windows hosts, a jump host or password
+login for the install, an app restart between a cut send and Retry.
 
 ## TODO(verify)
 
-- Whether an exec channel running `/bin/sh -c 'cat > …'` gets the data unchanged on the servers the
-  test container uses (OpenSSH) and with a `ForceCommand` set (expected: refused, `send_failed`). — agent
-- `ldd --version` on musl prints to standard error and exits non-zero; the facts script must merge
-  the streams. — agent
+- ~~Whether an exec channel running `/bin/sh -c 'cat > …'` gets the data unchanged~~ **Seen:** it does
+  on OpenSSH, also with a pass-through `ForceCommand`. A `ForceCommand` that does not run the command
+  fails earlier, at the facts step, as `no_shell` (not `send_failed`); `send_failed` appears only for
+  a host that runs everything except the write.
+- ~~`ldd --version` on musl~~ **Seen:** it prints to standard error, exits 1; the facts script merges
+  the streams and also tests `/lib/ld-musl-*`: "Linux x86_64 (musl)".

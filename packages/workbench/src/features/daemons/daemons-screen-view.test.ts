@@ -179,7 +179,7 @@ describe("buildDaemonsScreenView rows", () => {
 
   it("gives the local entry Start and no Remove", () => {
     expect(local?.actions).toEqual(["open", "edit"]);
-    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start", "update"]);
+    expect(local?.local?.actions.map((a) => a.kind)).toEqual(["start"]);
   });
 
   it("hides Open on the current entry", () => {

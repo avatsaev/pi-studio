@@ -26,6 +26,7 @@ import { type LocalAction, type RemoteAction } from "./daemon-presentation.js";
 import {
   copyCommand,
   openEntry,
+  refreshesOnOpen,
   removeEntry,
   runLocalAction,
   runLocalActionAsking,
@@ -67,9 +68,10 @@ function DaemonsDialog({ daemons }: { daemons: HostDaemons }) {
   const [reconnectOffered, setReconnectOffered] = useState(false);
   const [cliTool, setCliTool] = useState<CliToolState | null>(null);
 
-  // The state shown is current when the screen opens; a probe's outcome arrives as a state change.
+  // The state shown is current when the screen opens; a probe's outcome arrives as a state change. Not after a failed
+  // install: the probe would install again before Retry was pressed (`refreshesOnOpen`).
   useEffect(() => {
-    if (open) void runLocalAction(daemons, "refresh");
+    if (open && refreshesOnOpen(daemons.snapshot().local)) void runLocalAction(daemons, "refresh");
   }, [open, daemons]);
 
   // The command-line tool is not in the snapshot: it is looked at once per opening, again when the local daemon

@@ -1,7 +1,7 @@
 # Task 002 — Documents and spec close for milestone 6
 
 - **Sprint:** sprints/sprint-145-single-binary-close
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** docs
 - **Priority:** P1
@@ -27,7 +27,7 @@ code does now; the specs are closed from the evidence.
   evidence, "Resolved by the build", TODO(verify)
 
 ## Acceptance criteria
-- [ ] No document tells a desktop user to install the CLI with npm for the app's sake; no document
+- [x] No document tells a desktop user to install the CLI with npm for the app's sake; no document
       claims something not seen.
 
 ## Test / verification plan

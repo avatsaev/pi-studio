@@ -61,6 +61,7 @@ export function cliToolView(state: CliToolState | null): CliToolView | null {
       return {
         tone: "ok",
         text: `The command-line tool is installed: a new terminal runs pi-studio from ${CLI_TOOL_LINK}.`,
+        action: { label: CLI_TOOL_CHECK_LABEL, call: "install" },
       };
     case "not_on_path":
       return {
