@@ -198,6 +198,12 @@ rejects `agent_compact_request` with `busy: …` while the agent is running or a
 `pi-studio agent compact` on a running agent therefore errors instead of aborting the turn (Pi's
 `compact()` begins with `abort()`).
 
+Since sprint-149 the daemon also refuses `send_agent_prompt`, new session, switch, fork, clone and
+resume with `busy: agent <id> is running` (or `is compacting` / `is changing its session`) while
+the agent has a turn, a compaction or a session operation in flight. `pi-studio agent send` needs no
+code for it: `withDaemon` prints the `RpcError` as `error: busy: … (handler_error)` and exits
+`EXIT_ERROR`; use `agent steer` / `agent follow-up` to reach a running turn.
+
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
 - `pi/claude-3-5-sonnet` → `{ provider: "pi", model: "claude-3-5-sonnet" }`

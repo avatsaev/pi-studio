@@ -208,10 +208,13 @@ describe("agent_compact_request — guards", () => {
     const { manager, ops, agentId, active } = await setup(record());
     const session = new ScriptedSession(() => Promise.resolve(OK));
     manager.attachSession(agentId, session);
-    await manager.setStatus(agentId, "running");
+    const turn = Promise.withResolvers<void>();
+    const running = manager.runExclusive(agentId, "turn", () => turn.promise);
 
     await expect(ops.handleCompact({ agentId }, () => active)).rejects.toThrow(/busy.*is running/);
     expect(session.compactCalls).toBe(0);
+    turn.resolve();
+    await running;
   });
 
   it("rejects a second request while one is in flight, and the first still completes", async () => {
@@ -228,7 +231,7 @@ describe("agent_compact_request — guards", () => {
     const first = ops.handleCompact({ agentId }, () => active);
     await vi.waitFor(() => expect(session.compactCalls).toBe(1));
     await expect(ops.handleCompact({ agentId }, () => active)).rejects.toThrow(
-      /busy.*already compacting/,
+      /busy.*is compacting/,
     );
     expect(session.compactCalls).toBe(1);
 

@@ -269,7 +269,8 @@ src/
                                    `tool_call` throttle for `PiAgentSession.emit()`; exports
                                    PARTIAL_MIN_INTERVAL_MS (200) and PARTIAL_OUTPUT_CAP_BYTES
                                    (65536); injected clock/timers for tests.
-        rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
+        rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout): per-request timeouts,
+                                   `close()` SIGTERM→SIGKILL, UTF-8 decoding across chunks.
         session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
                                    Pi's own on-disk JSONL session file (no live process needed);
                                    `readTodosFromSessionFile` (throws on an unreadable file).
@@ -717,14 +718,31 @@ src/
   (`managed.session = null`, status `error`, `warn` "agent session ended on its own; detached");
   the next prompt resumes it. `archiveAgent`, `deleteAgent` and `closeAll` close silently: no
   `onExit`, no `turn_failed`.
+- **One turn, compaction or session operation at a time per agent** (sprint-149 task 003):
+  `runExclusive(id, kind, fn)` holds an in-memory claim (`turn` | `compaction` | `session`) while
+  `fn` runs and throws `busy: agent <id> is running | is compacting | is changing its session` for
+  any second claim, before it spawns, subscribes or touches the timeline (the router answers
+  `rpc_error` / `handler_error`; the CLI prints `error: busy: …`). Claimed by `handleSendPrompt`
+  (before its spawn/resume, so two concurrent sends cannot both start a turn and double every
+  event) and `handleCreate`'s eager path, `handleCompact`, and the session operations that replace
+  or fork the provider session: `handleNewSession`, `handleSwitchSession`, `handleFork`,
+  `handleClone`, `handleResume`. Not claimed: steer/follow-up (they target the running turn),
+  interrupt, model and thinking-level changes (`handleSetModel`, `handleSetThinking`,
+  `handleCycleModel`; Pi applies them to the next turn), and reads. `runTurn` itself does not claim
+  (tests call it directly). The workbench sends only when idle and steers while running
+  (`Composer.tsx`), so it only sees `busy` in a race; the composer's catch marks the optimistic row
+  failed. `SessionOperationsService.handleUpdate` merges title, labels and config into the record
+  after its awaits (it re-reads the record), so a concurrent model or thinking-level change is not
+  written back over. Tests: `agent/one-turn-at-a-time.test.ts`, `agent-manager.test.ts`.
 - `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
   session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
   that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
   shutdown") and never holds the others back. Each agent's `session` is cleared first, so a second
   call is a no-op. Records are untouched (no status write, no broadcast): an agent resumes its
   provider session at the next prompt, as after any restart. The manager holds no pid: the
-  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM before it
-  resolves); the limit only bounds a provider whose `close()` hangs. Called by
+  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM, then
+  SIGKILLs after its 5 s grace, and resolves once the process has exited); the limit only bounds a
+  provider whose `close()` hangs. Called by
   `startDaemon().close()` and `startDevDaemon().close()`.
 - On startup, `recover()` rehydrates every persisted record with no live session attached, and
   normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
@@ -922,11 +940,12 @@ creation" above.
   (sprint-074; today: `handleCompact`). `AgentService.runTurn` holds the only standing
   `session.subscribe`, and the Pi adapter's `emit` reaches subscribers only, so an event emitted
   while no turn runs is otherwise dropped. `SlashCommandOperationsService.handleCompact`:
-  (1) rejects with `busy: …` when `record.lastStatus === "running"` or the agent is in the
-  module-local `compactionsInFlight` set — Pi's `compact()` starts with `abort()`, so compacting
-  mid-turn would kill the run and a second compact would cancel the first (a deliberate CLI-visible
-  change: `pi-studio agent compact` on a running agent now errors); (2) adds the id to the set,
-  released in a `finally` covering every later step; (3) resumes a process-less record through
+  (1) rejects with `busy: …` through `AgentManager.runExclusive(id, "compaction", …)` when a turn,
+  a compaction or a session operation holds the agent — Pi's `compact()` starts with `abort()`, so
+  compacting mid-turn would kill the run and a second compact would cancel the first (a deliberate
+  CLI-visible change: `pi-studio agent compact` on a running agent errors); (2) the claim is held
+  until every later step has finished, and also refuses a send meanwhile; (3) resumes a
+  process-less record through
   `spawnOrResumeSession` (every record after a daemon restart) instead of failing with
   `has no live session`; (4) `ensureTimelineSeeded` BEFORE the first append, because the first
   append would otherwise create an empty store that `seedTimeline` never overwrites; (5) holds a
@@ -986,6 +1005,20 @@ creation" above.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
+- **Requests to Pi time out; a closed Pi is really stopped** (sprint-149/task-002).
+  `createProcessTransport(spawnArgs, {requestTimeoutMs, longRequestTimeoutMs, killGraceMs})`
+  (defaults `PI_REQUEST_TIMEOUT_MS` 60 s, `PI_LONG_REQUEST_TIMEOUT_MS` 10 min, `PI_KILL_GRACE_MS`
+  5 s). A request unanswered after its timeout rejects with `pi request '<command>' timed out
+  after <n> ms` and logs `warn` "pi request timed out"; the process is left running and a late
+  answer is dropped. `compact` (the SDK's `COMPACT_TIMEOUT_MS` is the same 10 min) and the
+  correlated slash `prompt` (Pi acks it only after an extension command ran inline) use the long
+  bound. `close()` rejects what is pending (later requests reject too), tree-kills with SIGTERM,
+  SIGKILLs the tree if the process has not exited when the grace ends (`warn` "pi process ignored
+  SIGTERM; sending SIGKILL") and resolves when the process has exited; memoized. `PiAgentClient`'s
+  `topLevel` (model listing, default-model resolution) closes its transient process in `finally`,
+  so a timeout reaps it. stdout/stderr are decoded with `setEncoding("utf8")`, so a multibyte
+  character split across chunks arrives intact. Tests: `rpc-transport.test.ts` (fake timers for
+  the timeout; real child scripts for SIGKILL and the split character).
 - **A Pi process that ends on its own ends its turn and is replaced at the next message**
   (sprint-149/task-001). The transport's `exit` handler fails it on *any* exit that `close()` did
   not ask for — non-zero, a signal (`code` null, e.g. the OOM killer's SIGKILL) or an unrequested
@@ -2177,7 +2210,7 @@ The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
 | `ws/router.ts` (`HandlerRegistry(logger)`) | every RPC at `debug` (type, requestId, clientId, durationMs), handler failures at `warn`, unknown types at `debug` — one instrumentation point covering the whole RPC surface |
 | `agent/agent-service.ts` | agent created (provider, model, cwd), turn started (prompt SIZE, never contents), turn finished (outcome + durationMs), provider session failures |
 | `terminal/terminal-manager.ts` | terminal opened (slot, shell, cwd, size), kill requested, exited, spawn failures |
-| `agent/providers/pi/rpc-transport.ts` | `pi` process spawned (pid, cwd), spawn failures, exits (code/signal; `error` when commands were in flight) |
+| `agent/providers/pi/rpc-transport.ts` | `pi` process spawned (pid, cwd), spawn failures, exits (code/signal; `error` when commands were in flight), request timeouts and SIGKILL escalation (`warn`) |
 
 **Logs are metadata-only by convention**: prompt text, message contents, and terminal output are
 user data — never log them (sizes/counts only). Connection metadata, ids, durations, and error

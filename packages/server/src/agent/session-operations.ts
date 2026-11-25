@@ -143,15 +143,6 @@ export class SessionOperationsService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
 
-    // Update fields that do NOT require a session recreate.
-    const title =
-      typeof msg.title === "string" ? msg.title : (managed.record.title as string | undefined);
-    const labels = (msg.labels as Record<string, string> | undefined) ?? managed.record.labels;
-    const config = {
-      ...managed.record.config,
-      ...(msg.config as Record<string, unknown> | undefined),
-    };
-
     // Apply model/thinking to the live session (if attached).
     let effectiveThinking: string | undefined;
     if (managed.session) {
@@ -168,6 +159,18 @@ export class SessionOperationsService {
         }
       }
     }
+
+    // Merge into the record only now, after every await above: a model or thinking-level change
+    // that landed meanwhile (`agent_set_model_request`, `agent_set_thinking_request`) is already in
+    // the record, and a config computed before the awaits would write it back over.
+    const record = this.deps.manager.get(agentId)?.record;
+    if (!record) throw new Error(`unknown agent: ${agentId}`);
+    const title = typeof msg.title === "string" ? msg.title : record.title;
+    const labels = (msg.labels as Record<string, string> | undefined) ?? record.labels;
+    const config = {
+      ...record.config,
+      ...(msg.config as Record<string, unknown> | undefined),
+    };
     if (effectiveThinking !== undefined) config.thinkingOptionId = effectiveThinking;
 
     // Persist updated record without recreating the session — actually write it to disk
@@ -197,8 +200,11 @@ export class SessionOperationsService {
     // deliberate "restart the process" action) — and, for a deferred draft that was never spawned
     // (`record.persistence` absent), first-spawns it and replays its pinned model instead of the
     // old "no persistence handle → rpc_error" behavior (see `spawnOrResumeSession`'s doc comment).
-    await spawnOrResumeSession(this.deps, agentId);
-    await this.deps.manager.setStatus(agentId, "idle");
+    // Replacing the process under a running turn or compaction would orphan it: refused with `busy`.
+    await this.deps.manager.runExclusive(agentId, "session", async () => {
+      await spawnOrResumeSession(this.deps, agentId);
+      await this.deps.manager.setStatus(agentId, "idle");
+    });
     this.broadcastAll(getSessions(), {
       type: "agent_update",
       agentId,

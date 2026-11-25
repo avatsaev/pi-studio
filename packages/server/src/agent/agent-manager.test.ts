@@ -345,3 +345,58 @@ describe("closeAll (daemon shutdown)", () => {
     });
   });
 });
+
+describe("runExclusive (one turn, compaction or session operation at a time)", () => {
+  it("refuses a second claim with the reason of the first, and starts nothing for it", async () => {
+    const { mgr } = makeManager();
+    const agent = await mgr.add(record());
+    const id = agent.record.id;
+    const gate = Promise.withResolvers<void>();
+    const second = vi.fn(() => Promise.resolve());
+
+    const first = mgr.runExclusive(id, "turn", () => gate.promise);
+    await expect(mgr.runExclusive(id, "turn", second)).rejects.toThrow(
+      `busy: agent ${id} is running`,
+    );
+    await expect(mgr.runExclusive(id, "compaction", second)).rejects.toThrow(/busy.*is running/);
+    expect(second).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await first;
+    await mgr.runExclusive(id, "compaction", () => Promise.resolve());
+  });
+
+  it.each([
+    ["compaction", /busy.*is compacting/],
+    ["session", /busy.*is changing its session/],
+  ] as const)("names a held %s", async (kind, message) => {
+    const { mgr } = makeManager();
+    const id = (await mgr.add(record())).record.id;
+    const gate = Promise.withResolvers<void>();
+    const first = mgr.runExclusive(id, kind, () => gate.promise);
+    await expect(mgr.runExclusive(id, "turn", () => Promise.resolve())).rejects.toThrow(message);
+    gate.resolve();
+    await first;
+  });
+
+  it("releases the claim when the work fails, and claims per agent", async () => {
+    const { mgr } = makeManager();
+    const a = (await mgr.add(record())).record.id;
+    const b = (await mgr.add(record())).record.id;
+
+    await expect(
+      mgr.runExclusive(a, "turn", () => Promise.reject(new Error("boom"))),
+    ).rejects.toThrow("boom");
+    await expect(mgr.runExclusive(a, "turn", () => Promise.resolve("again"))).resolves.toBe(
+      "again",
+    );
+
+    const gate = Promise.withResolvers<void>();
+    const held = mgr.runExclusive(a, "turn", () => gate.promise);
+    await expect(mgr.runExclusive(b, "turn", () => Promise.resolve("other"))).resolves.toBe(
+      "other",
+    );
+    gate.resolve();
+    await held;
+  });
+});

@@ -103,8 +103,21 @@ export interface AgentManagerDeps {
   now?: () => string;
 }
 
+/**
+ * What keeps an agent from starting anything else (`AgentManager.runExclusive`): a running turn, a
+ * compaction, or a session operation (new session, switch, fork, clone).
+ */
+export type BusyKind = "turn" | "compaction" | "session";
+
+const BUSY_REASON: Record<BusyKind, string> = {
+  turn: "is running",
+  compaction: "is compacting",
+  session: "is changing its session",
+};
+
 export class AgentManager {
   private readonly agents = new Map<string, ManagedAgent>();
+  private readonly busy = new Map<string, BusyKind>();
   private readonly subscribers = new Set<AgentManagerSubscriber>();
   private readonly save: (record: AgentRecord) => Promise<void>;
   private readonly loadAll: () => Promise<AgentRecord[]>;
@@ -149,6 +162,24 @@ export class AgentManager {
     await this.save(record);
     this.broadcast(record);
     return managed;
+  }
+
+  /**
+   * Run `fn` as the agent's only turn, compaction or session operation. A second one started while
+   * it runs is refused at once with `busy: agent <id> <reason>` (the router answers `rpc_error`),
+   * before it can spawn, subscribe or touch the timeline. The claim is taken synchronously when
+   * this is called and released when `fn` settles, whatever the outcome. Model and thinking-level
+   * changes do not claim: Pi applies them to the next turn.
+   */
+  async runExclusive<T>(id: string, kind: BusyKind, fn: () => Promise<T>): Promise<T> {
+    const held = this.busy.get(id);
+    if (held) throw new Error(`busy: agent ${id} ${BUSY_REASON[held]}`);
+    this.busy.set(id, kind);
+    try {
+      return await fn();
+    } finally {
+      this.busy.delete(id);
+    }
   }
 
   attachSession(id: string, session: AgentSession): void {

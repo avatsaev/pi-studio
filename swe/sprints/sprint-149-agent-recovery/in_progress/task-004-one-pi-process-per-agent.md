@@ -1,7 +1,7 @@
 # Task 004 — One Pi process per agent, and no RPC left hanging by a close
 
 - **Sprint:** sprints/sprint-149-agent-recovery
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** bugfix
 - **Area:** packages/server (agent service, manager, Pi provider)
 - **Priority:** P1

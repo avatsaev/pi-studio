@@ -300,40 +300,50 @@ export class AgentService {
       return { type: "create_agent_response", requestId, payload: { agentId } };
     }
 
-    // 3. Eager path: spawn now and run the initial prompt.
-    const client = this.deps.resolveClient(provider);
-    let session: AgentSession;
-    try {
-      session = await client.createSession(
-        { provider, cwd, ...effectiveConfig } as Parameters<AgentClient["createSession"]>[0],
-        { cwd },
-      );
-    } catch (error) {
-      this.deps.logger?.error(
+    // 3. Eager path: spawn now and run the initial prompt. The agent is the turn's until it ends:
+    // a send that arrives once `agent_update` has announced the id is refused with `busy`.
+    await this.deps.manager.runExclusive(agentId, "turn", async () => {
+      const client = this.deps.resolveClient(provider);
+      let session: AgentSession;
+      try {
+        session = await client.createSession(
+          { provider, cwd, ...effectiveConfig } as Parameters<AgentClient["createSession"]>[0],
+          { cwd },
+        );
+      } catch (error) {
+        this.deps.logger?.error(
+          {
+            agentId,
+            provider,
+            model: config.model,
+            cwd,
+            err: (error as Error)?.message ?? String(error),
+          },
+          "agent provider session failed",
+        );
+        throw error;
+      }
+      this.deps.manager.attachSession(agentId, session);
+      await this.deps.manager.persistSessionHandle(agentId);
+      await this.deps.manager.setStatus(agentId, "idle");
+      this.deps.logger?.info(
         {
           agentId,
           provider,
           model: config.model,
           cwd,
-          err: (error as Error)?.message ?? String(error),
+          title,
+          autoArchive: autoArchive || undefined,
         },
-        "agent provider session failed",
+        "agent created",
       );
-      throw error;
-    }
-    this.deps.manager.attachSession(agentId, session);
-    await this.deps.manager.persistSessionHandle(agentId);
-    await this.deps.manager.setStatus(agentId, "idle");
-    this.deps.logger?.info(
-      { agentId, provider, model: config.model, cwd, title, autoArchive: autoArchive || undefined },
-      "agent created",
-    );
-    this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
+      this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
 
-    await this.runTurn(agentId, session, initialPrompt, getSessions, {
-      clientMessageId,
-      autoArchive,
-      images: msg.images as ImageAttachment[] | undefined,
+      await this.runTurn(agentId, session, initialPrompt, getSessions, {
+        clientMessageId,
+        autoArchive,
+        images: msg.images as ImageAttachment[] | undefined,
+      });
     });
 
     return {
@@ -352,15 +362,20 @@ export class AgentService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
 
-    // No live provider session — either a daemon restart (reloads records but never
-    // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
-    // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a draft
-    // that was never spawned, spawns it for the first time and replays its pinned model.
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    // One turn at a time: claimed before the spawn below, so two concurrent sends cannot both
+    // start a turn (each would subscribe and broadcast every later event twice). The workbench
+    // steers while a turn runs instead of sending; a send that loses the race gets `busy`.
+    await this.deps.manager.runExclusive(agentId, "turn", async () => {
+      // No live provider session — either a daemon restart (reloads records but never
+      // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
+      // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a
+      // draft that was never spawned, spawns it for the first time and replays its pinned model.
+      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
 
-    await this.runTurn(agentId, session, prompt, getSessions, {
-      clientMessageId: msg.clientMessageId as string | undefined,
-      images: msg.images as ImageAttachment[] | undefined,
+      await this.runTurn(agentId, session, prompt, getSessions, {
+        clientMessageId: msg.clientMessageId as string | undefined,
+        images: msg.images as ImageAttachment[] | undefined,
+      });
     });
     return { type: "agent_prompt_response", agentId, status: "idle" };
   }
