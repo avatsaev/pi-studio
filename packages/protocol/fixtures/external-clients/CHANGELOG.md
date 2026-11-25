@@ -117,7 +117,7 @@ disappeared, no migration. A daemon built before this change answers only `{ "st
 
 ## Additive — 2026-11-25 (formatVersion stays 2)
 
-Create and send (pi-studio 0.0.133, no feature flag): `create_agent_request.json` and
+Create and send (pi-studio 0.0.134, no feature flag): `create_agent_request.json` and
 `create_agent_response.json`, `send_agent_prompt.json` and `agent_prompt_response.json`. New files
 only; no existing fixture changed a leaf path or type, so the fixture change is additive and
 `formatVersion` stays 2. The rest of this entry is a **behaviour change that is breaking for any

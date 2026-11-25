@@ -348,7 +348,7 @@ the contract. **A fixture's shape is the contract for clients outside this repo*
   as is the `ack` upload request), `{create,subscribe,list,rename,capture,kill}_terminal_*` and the
   `terminals_update` broadcast. Most have no Zod schema (Layer B is their only guard);
   `file_upload_complete` is validated by `fileUploadCompleteSchema`.
-- Create and send (`since` 0.0.133, additive, `formatVersion` stays 2): `create_agent_request` /
+- Create and send (`since` 0.0.134, additive, `formatVersion` stays 2): `create_agent_request` /
   `create_agent_response` and `send_agent_prompt` / `agent_prompt_response` (`payload.agentId`, no
   `status`; validated by their Zod schemas). Both answers mean *accepted*, not "the turn finished";
   Layer B also proves the answer precedes the turn's first `agent_stream` frame and the turn ends in

@@ -75,7 +75,7 @@ contract the Zod-only protocol cannot give: many list/stat/orchestration respons
   label) and `hello.agentStreams.json` (since 0.0.119, `requiresFeature: "agentStreamsMode"`: the
   optional `agentStreams` string, `"none"` shown, which opts the connection out of every
   `agent_stream` frame; all three are answered by `status.server_info.json`).
-- Create and send (since 0.0.133): `create_agent_request` → `create_agent_response` and
+- Create and send (since 0.0.134): `create_agent_request` → `create_agent_response` and
   `send_agent_prompt` → `agent_prompt_response` (`payload.agentId`, no `status`). Both answers mean
   **accepted**, not "the turn finished": the answer precedes the turn's first `agent_stream` frame
   and the outcome is the turn's rows plus one `agent_update` (`idle` or `error`). Layer B also

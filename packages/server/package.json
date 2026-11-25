@@ -1,11 +1,6 @@
 {
   "name": "@av-pi-studio/server",
-  "version": "0.0.132",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/avatsaev/pi-studio.git",
-    "directory": "packages/server"
-  },
+  "version": "0.0.133",
   "bin": {
     "pi-studio-daemon": "dist/daemon/main.js"
   },
@@ -33,8 +28,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@av-pi-studio/protocol": "^0.0.132",
-    "@av-pi-studio/relay": "^0.0.132",
+    "@av-pi-studio/protocol": "^0.0.133",
+    "@av-pi-studio/relay": "^0.0.133",
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
@@ -57,5 +52,10 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/which": "^3.0.4",
     "@types/ws": "^8.18.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/server"
   }
 }
