@@ -2,8 +2,10 @@
 
 Pi-Studio's job is to drive [Pi](https://pi.dev) — the terminal coding agent by Earendil — locally
 or remotely, through a long-lived daemon that manages agent processes, terminals, and git
-worktrees. Two clients talk to that daemon: this CLI, and a full browser UI. `pi-studio` starts
-the daemon and gets you into either one:
+worktrees. Three clients talk to that daemon: the desktop app
+([download](https://github.com/avatsaev/pi-studio/releases/latest); it installs its own daemon and needs
+no CLI), this CLI, and a browser client. `pi-studio` is the command line for servers, scripts and the
+terminal: it starts the daemon and drives agents:
 
 ```bash
 pi-studio daemon start   # start (or find) a local daemon, print a pairing QR

@@ -1,9 +1,27 @@
 ---
 title: Quickstart
-subtitle: Install the CLI, log in to a model provider, and run your first agent.
+subtitle: Install the desktop app or the CLI, log in to a model provider, and run your first agent.
 ---
 
-## Install
+## With the desktop app
+
+1. Download the installer for your system from the
+   [latest release](https://github.com/avatsaev/pi-studio/releases/latest): macOS (`.dmg`, Apple Silicon and
+   Intel), Windows x64 (`-setup.exe` or `.msi`) or Linux x64 (`.deb`, `.rpm` or `.AppImage`). The builds are
+   not signed with a real identity: on macOS allow the app in System Settings → Privacy & Security; on
+   Windows choose "More info", then "Run anyway".
+2. Open it. On macOS and Linux the app downloads its own `pi-studio` daemon the first time it needs one and
+   starts it; there is no Node, npm or CLI to install. Windows has no local daemon: add a daemon on another
+   machine or in WSL2 from the Daemons screen (an address, an SSH host or a relay pairing link).
+3. Log in to a model provider: Settings (the gear) → Model Providers.
+4. Open a workspace, a project folder on the daemon's machine, and start a session.
+
+The app's Daemons screen also installs, starts and updates the daemon on an SSH host, and its settings can
+put a `pi-studio` command on your `PATH` (`~/.local/bin/pi-studio`).
+
+## Install the CLI
+
+For servers, scripts and staying in the terminal:
 
 ```bash
 npm install -g @av-pi-studio/cli
@@ -14,12 +32,6 @@ This exposes the `pi-studio` binary on your `PATH`. Without a global install, ru
 ```bash
 npx @av-pi-studio/cli [options] [command] [args]
 ```
-
-<Note>
-  The desktop app does not need the CLI: on macOS and Linux it downloads its own `pi-studio` daemon the first
-  time it needs one, and it installs the same daemon on an SSH host from its Daemons screen. Its daemon
-  Settings can put a `pi-studio` command on your `PATH` (`~/.local/bin/pi-studio`) if you want one.
-</Note>
 
 No Node or npm on the machine? Every release also publishes `pi-studio` as a single executable per system
 (macOS arm64 and x64, Linux x64 and arm64) on the `daemon-v<version>` releases of the
@@ -58,7 +70,8 @@ restart. `auth` is entirely local and never opens a connection to a daemon. See
 pi-studio daemon start
 ```
 
-For the full browser workspace, use the desktop app or the hosted web client — see [Web UI](/web-ui).
+For the full workspace, use the desktop app, which opens this daemon as "This machine". In a browser, see
+[Web UI](/web-ui).
 
 ## Or stay in the terminal
 

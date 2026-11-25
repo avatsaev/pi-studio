@@ -1,34 +1,102 @@
 # Pi-Studio
 
 Pi-Studio drives [**Pi**](https://pi.dev) — the terminal coding agent by Earendil — **locally or
-remotely**. A long-lived daemon runs on your machine and manages agent processes, terminals, git
-worktrees, and projects; two clients talk to it: a CLI and a full browser UI.
+remotely**. A long-lived daemon runs on your machine, or on a server you own, and manages agent
+processes, terminals, git worktrees, and projects. **Pi Studio Desktop**, a native app for macOS,
+Linux and Windows, is the main way to use it: it runs the daemon for you and connects to daemons on
+other machines. A CLI and a browser client talk to the same daemon.
 
-Your code never leaves your machine.
+**[Download Pi Studio Desktop](https://github.com/avatsaev/pi-studio/releases/latest)**
 
-```bash
-npm install -g @av-pi-studio/cli
-
-pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
-```
-
-**The desktop app needs none of this.** On macOS and Linux it downloads its own `pi-studio` daemon the first
-time it needs one, so there is no CLI to install for the app's sake, and it can install the same daemon on an
-SSH host from its Daemons screen. The daemon's Settings in the app can also put a `pi-studio` command on your
-`PATH` (`~/.local/bin/pi-studio`). The npm install above stays the way to get the CLI on a server.
-
-**Single binary.** Every release also publishes `pi-studio` as one executable per system (macOS arm64 and x64,
-Linux x64 and arm64) on the `daemon-v<version>` GitHub releases: the CLI, the daemon, Pi and the `skills` CLI
-together, with no Node needed. The Linux binaries need glibc 2.17 or newer (CentOS 7 works; Alpine does not).
-`git` must be on the machine for `skills add owner/repo` and `pi install git:…`.
+| System                          | Installer                     |
+| ------------------------------- | ----------------------------- |
+| macOS (Apple Silicon and Intel) | `.dmg` (universal)            |
+| Windows (x64)                   | `-setup.exe` or `.msi`        |
+| Linux (x64)                     | `.deb`, `.rpm` or `.AppImage` |
 
 <p align="center">
-  <img src="packages/cli/assets/screenshots/chat-workspace.webp" alt="Pi-Studio web UI — an agent reading, editing, and running shell commands, each as its own tool-call card" width="850">
+  <img src="packages/cli/assets/screenshots/chat-workspace.webp" alt="Pi-Studio — an agent reading, editing, and running shell commands, each as its own tool-call card" width="850">
 </p>
 
 ---
 
-## Quick start
+## Pi Studio Desktop
+
+1. **Install it.** Take the installer for your system from the
+   [latest release](https://github.com/avatsaev/pi-studio/releases/latest). The builds are not signed with a
+   real identity, so the system warns before the first open: on macOS allow the app in System Settings →
+   Privacy & Security; on Windows choose "More info", then "Run anyway" in the SmartScreen dialog.
+2. **Open it.** On macOS and Linux the app downloads its own `pi-studio` daemon the first time it needs one
+   (one executable, checked against the SHA-256 the app was built with) and starts it. There is no Node, npm
+   or CLI to install. Windows has no local daemon: add a daemon on another machine or in WSL2 instead
+   (see [Connect to any daemon](#connect-to-any-daemon)).
+3. **Log in to a model provider.** Settings (the gear) → Model Providers. The credential is written on the
+   daemon's machine, where the agents read it.
+4. **Open a workspace**, a project folder on the daemon's machine, and start a session.
+
+What the app does that a browser tab cannot:
+
+- **It runs the daemon.** It installs, starts and updates the daemon on this machine and, from its Daemons
+  screen, on an SSH host. Quitting the app does not stop the daemon, so agents keep working.
+- **It keeps secrets out of the page.** Passwords, pairing links and SSH passphrases are in the system's
+  keychain (macOS Keychain, Windows Credential Manager, the Secret Service on Linux), or in a file only you
+  can read when there is none.
+- **It moves large files.** Uploads and saves go between the disk and the daemon without passing through the
+  page: up to three at once, each with a percentage and a Cancel button, and one that loses its connection
+  continues by itself.
+- **It updates itself.** It checks at launch and once a day ("Check for Updates…" is in the menu), and a
+  build is offered only after it passed an update check on all three systems.
+- **It can put `pi-studio` on your `PATH`** (`~/.local/bin/pi-studio`, from the settings on the Daemons
+  screen; macOS and Linux).
+
+### Connect to any daemon
+
+The Daemons screen keeps a list of daemons and the app opens on the one used last. There are four kinds:
+
+| Kind         | What it reaches                                                        | What it needs |
+| ------------ | ---------------------------------------------------------------------- | ------------- |
+| This machine | The daemon the app runs locally (macOS and Linux)                      | Nothing |
+| SSH          | A daemon on a Linux or macOS host you can `ssh` into, through a channel of the SSH connection | No open daemon port. It reads `~/.ssh/config` and logs in through jump hosts with the agent, key files or a password. When the daemon there is missing, stopped or too old, the screen offers Install, Start or Update |
+| Address      | A daemon at `host:port`                                                | The daemon's password when it listens beyond loopback |
+| Relay        | A daemon behind NAT or a firewall, through the [E2EE relay](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall) | A pairing link from `pi-studio daemon pair` |
+
+## The workspace
+
+Every tool call an agent makes (read/edit/write/shell) renders as its own card, with live diff
+stats, right in the chat — that's the screenshot above. Review what it changed without leaving the
+window:
+
+<p align="center">
+  <img src="packages/cli/assets/screenshots/git-diff.webp" alt="Pi-Studio — git changes diff view" width="850">
+</p>
+
+Split the workspace into multiple panes — chat next to a live terminal (backed by `node-pty`), a
+file, or another session — and the layout is kept per workspace:
+
+<p align="center">
+  <img src="packages/cli/assets/screenshots/split-panes.webp" alt="Pi-Studio — split panes with chat and a live terminal side by side" width="850">
+</p>
+
+Every file opens with full syntax highlighting:
+
+<p align="center">
+  <img src="packages/cli/assets/screenshots/code-viewer.webp" alt="Pi-Studio — syntax-highlighted code viewer" width="850">
+</p>
+
+## The CLI
+
+`pi-studio` is the daemon's command line, for servers, scripts and staying in the terminal: it starts and
+stops daemons and drives agents.
+
+```bash
+npm install -g @av-pi-studio/cli
+```
+
+**Single binary.** Every release also publishes `pi-studio` as one executable per system (macOS arm64 and x64,
+Linux x64 and arm64) on the `daemon-v<version>` GitHub releases: the CLI, the daemon, Pi and the `skills` CLI
+together, with no Node needed. It is the binary the desktop app installs. The Linux binaries need glibc 2.17
+or newer (CentOS 7 works; Alpine does not). `git` must be on the machine for `skills add owner/repo` and
+`pi install git:…`.
 
 ```bash
 # log in to a model provider (the `pi` provider needs one before it can run a turn)
@@ -37,7 +105,7 @@ pi-studio auth login
 # start a local daemon (if one isn't already running) and print a pairing QR code
 pi-studio daemon start
 
-# ...or stay in the terminal: run an agent, list it, attach to stream live output
+# run an agent, list it, attach to stream live output
 pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
 pi-studio agent ls
 pi-studio agent attach <agentId>
@@ -46,38 +114,20 @@ pi-studio agent attach <agentId>
 pi-studio --host workstation.local:6767 agent ls
 ```
 
+A machine has one daemon, shared by the CLI and the app: a daemon started from a terminal is the one the
+app's "This machine" entry opens.
+
 Run `pi-studio --help` (or `<command> --help`) for the full command tree, and see
 [`packages/cli/README.md`](packages/cli/README.md) for the complete CLI reference — every command
 group, global option, and the library API.
 
-## The web UI
+## In a browser: Pi Studio Lite
 
-The browser UI is not served by the CLI; use the desktop app or the hosted web client, which reach
-your daemon through the relay.
-
-Every tool call an agent makes (read/edit/write/shell) renders as its own card, with live diff
-stats, right in the chat — that's the screenshot above. Review what it changed without leaving the
-tab:
-
-<p align="center">
-  <img src="packages/cli/assets/screenshots/git-diff.webp" alt="Pi-Studio web UI — git changes diff view" width="850">
-</p>
-
-Split the workspace into multiple panes — chat next to a live terminal (backed by `node-pty`), a
-file, or another session — and the layout persists across reloads:
-
-<p align="center">
-  <img src="packages/cli/assets/screenshots/split-panes.webp" alt="Pi-Studio web UI — split panes with chat and a live terminal side by side" width="850">
-</p>
-
-Every file opens with full syntax highlighting:
-
-<p align="center">
-  <img src="packages/cli/assets/screenshots/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" width="850">
-</p>
-
-An optional **E2EE relay** lets a client reach a daemon behind NAT/firewall without exposing it
-directly — see [below](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall).
+The browser client ("Pi Studio Lite") shows the same workspace in a tab, for a machine where you cannot
+install the app. It connects only through the [E2EE relay](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall),
+with a pairing link: it has no address or password field, and the daemon refuses a browser that dials its
+port directly. Point the daemon at a relay, run `pi-studio daemon pair` and open the printed link (or scan
+the QR code). The CLI does not serve the browser client; to host your own, see [Docker](#run-with-docker).
 
 ---
 
@@ -85,7 +135,8 @@ directly — see [below](#optional-e2ee-relay-reaching-a-daemon-behind-natfirewa
 
 The daemon reads `$PI_STUDIO_HOME/config.json` and these environment variables — set them before
 `pi-studio daemon start`, or pass them to `docker compose` (see [Docker](#run-with-docker) below).
-All are optional.
+The desktop app starts its daemon in your login shell's environment, so a variable exported in your
+shell profile applies there too. All are optional.
 
 | Variable                   | Default                 | Purpose                                                   |
 | -------------------------- | ----------------------- | --------------------------------------------------------- |
@@ -115,7 +166,7 @@ issued (e.g. one leaked), mint a fresh keypair: `pi-studio daemon rotate-key`.
 ### Updating the daemon
 
 Any connected client can update a daemon that was installed with `npm i -g @av-pi-studio/cli` or that is the
-single binary (the desktop app's, or one downloaded from a `daemon-v*` release): the web UI shows a "Daemon X"
+single binary (the desktop app's, or one downloaded from a `daemon-v*` release): the app and the browser client show a "Daemon X"
 pill when a newer version is available (npm for the package, the `daemon-updates` release of this repository for
 the binary; checked at start, every 6 h, and when a client connects whose last check is over 10 minutes old; Settings → Daemon has "Check now" and a switch, or set
 `PI_STUDIO_UPDATE_AUTOCHECK=false`). The desktop app's Daemons screen offers Update for a local or SSH daemon that
@@ -145,7 +196,7 @@ The client reaches the daemon's WebSocket directly. Nothing extra to run.
 
 ```mermaid
 graph LR
-  C["Client<br/>(CLI / web UI)"] -- "ws(s)://daemon:6767<br/>hello → status → RPC" --> D["Daemon<br/>(server)"]
+  C["Client<br/>(desktop app / CLI)"] -- "ws(s)://daemon:6767<br/>hello → status → RPC" --> D["Daemon<br/>(server)"]
   D --> A["Pi agent<br/>(pi --mode rpc)"]
 ```
 
@@ -161,7 +212,7 @@ traffic.
 ```mermaid
 graph LR
   subgraph client_net["Client network"]
-    C["Client<br/>(CLI / web UI)"]
+    C["Client<br/>(desktop app / browser)"]
   end
   subgraph public["Public / reachable host"]
     R["Relay server<br/>(pi-studio-relay :7000)<br/>zero-knowledge bridge"]
@@ -210,9 +261,11 @@ pi-studio relay start --listen 0.0.0.0:7000
 #    or env: PI_STUDIO_RELAY_ENABLED=true PI_STUDIO_RELAY_ENDPOINT=relay-host:7000
 ```
 
-The client then pairs via a pairing URL (carrying the daemon's public key + relay session id) and
-swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API works unchanged. See
-[`packages/relay/README.md`](packages/relay/README.md) for the full protocol and library API.
+The client then pairs via a pairing link (carrying the daemon's public key + relay session id) from
+`pi-studio daemon pair`: add it in the desktop app as a "Relay (pairing link)" daemon, or open it in a
+browser. In the SDK it swaps in the relay transport — every other `DaemonClient`/`PiStudioClient` API
+works unchanged. See [`packages/relay/README.md`](packages/relay/README.md) for the full protocol and
+library API.
 
 > **Treat a pairing link like a password.** On a relay connection its `offer=` key *is* the
 > credential, and the relay session id is derived from that key — so a leaked link keeps working
@@ -232,8 +285,9 @@ cd docker
 PI_STUDIO_PASSWORD=choose-a-password docker compose up --build   # relay :7000 + daemon :6767 + web UI :8080; the password is required
 ```
 
-Then drive it from the CLI: `pi-studio --host http://localhost:6767 --password "$PI_STUDIO_PASSWORD" ls`.
-The web UI connects through the relay only, with a pairing link (see [`docker/README.md`](docker/README.md)
+Then add it in the desktop app as an "Address" daemon (`localhost:6767`, with the password), or drive it
+from the CLI: `pi-studio --host http://localhost:6767 --password "$PI_STUDIO_PASSWORD" ls`.
+The browser client connects through the relay only, with a pairing link (see [`docker/README.md`](docker/README.md)
 for generating one). Mount your
 projects at `/workspace` (`PI_STUDIO_PROJECTS=/abs/path`), persist state in the `/data` volume, and
 supply pi credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
@@ -241,10 +295,10 @@ supply pi credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
 
 ## The `pi` provider
 
-The `pi` CLI is **bundled** inside `@earendil-works/pi-coding-agent` — the daemon launches
-`node <pkg>/dist/cli.js --mode rpc`, so **no global `pi` install is required**. You only need pi
-_authenticated_. The supported way is `pi-studio auth login` (see below); alternatively set
-`ANTHROPIC_API_KEY` (etc.) in the daemon's environment.
+The `pi` CLI is **bundled** with the daemon (`@earendil-works/pi-coding-agent`; the daemon launches it
+as `pi --mode rpc`), so **no global `pi` install is required**. You only need pi _authenticated_: in the
+desktop app, Settings → Model Providers; from a terminal, `pi-studio auth login` (see below);
+alternatively set `ANTHROPIC_API_KEY` (etc.) in the daemon's environment.
 
 ```bash
 pi-studio auth login                          # interactive: pick a provider, enter a key
@@ -272,6 +326,8 @@ dependency-free smoke test, use the `mock` provider instead.
 
 ## More
 
+- The desktop app's source, build and design: [`desktop/README.md`](desktop/README.md),
+  [`desktop/docs/architecture.md`](desktop/docs/architecture.md)
 - Full CLI command reference and library API: [`packages/cli/README.md`](packages/cli/README.md)
 - User-facing docs site (Fern) source: [`fern/`](fern/) — preview with `cd fern && fern docs dev`
 - Building from source, running tests, and the monorepo layout:
