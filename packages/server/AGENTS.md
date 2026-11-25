@@ -24,8 +24,9 @@ src/
                                    every `server_info.version` handshake and the extensions sync.
                                    Also `PACKAGE_NAME` (`@av-pi-studio/cli`, the package updates install).
   version.generated.ts            PACKAGE_VERSION — written from package.json by `scripts/gen-version.mjs`
-                                   (committed; rewritten by `npm run build[:server]`, which the release
-                                   runs after the version bump; `version.test.ts` fails on drift). A static
+                                   (committed; rewritten by `npm run build[:server]` and by
+                                   `npm run version:set` (scripts/set-version.mjs, which moves the
+                                   version); `version.test.ts` fails on drift). A static
                                    constant instead of `createRequire`, which Bun's bundler does not follow.
   runtime/                        What differs when the daemon is the single compiled binary
                                    (architecture/single-binary-daemon.md; milestone 6, built).
@@ -68,7 +69,8 @@ src/
     update-service.ts             UpdateService (features/self-update.md § Check/Apply) — memory-only status
                                    (`idle|checking|available|installing|updating_extensions|restarting|failed|
                                    cannot_update`), single-flight `check("manual"|"automatic")`, `apply()`
-                                   (refuses `in_progress|cannot_update|not_available`) running an injected
+                                   (refuses `in_progress|cannot_update|not_available`; a `source` install is
+                                   never offered an update: the checkout's version is only the release floor) running an injected
                                    `UpdatePipeline` (required dep; production: `createUpdatePipeline` —
                                    install → extensions → helper → pause → shutdown → exit, with
                                    `classifyInstallFailure`/`failureMessage`),

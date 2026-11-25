@@ -115,5 +115,5 @@ repo root (`npm test`; the root `vitest.config.ts` aliases the package to `src/`
 ## Release
 
 Not published: `"private": true`, absent from `PUBLISH_ORDER` in `scripts/publish.sh`. It keeps the
-monorepo's lockstep version (`publish.sh` bumps it with the rest) and depends on no workspace package. Record
+monorepo's lockstep version (`npm run version:set` sets it with the rest) and depends on no workspace package. Record
 breaking changes (removed/renamed export, changed prop, token rename) in `CHANGELOG.md`.

@@ -77,8 +77,8 @@ src/
                         resolved module URL.
   relay-logger.test.ts
   version.generated.ts   PACKAGE_VERSION — generated from package.json by `scripts/gen-version.mjs`
-                        (committed, rewritten by every build, so Bun's bundler follows it as a
-                        plain import); `version.generated.test.ts` guards drift after a version bump.
+                        (committed, rewritten by every build and by `npm run version:set`, so Bun's bundler follows it as a
+                        plain import); `version.generated.test.ts` guards drift after a version change.
   relay-main.ts          Process entry (`bin: pi-studio-relay`). Reads `--listen host:port` /
                         `PI_STUDIO_RELAY_LISTEN` (default `0.0.0.0:7000`), builds the stdout
                         logger (`PI_STUDIO_RELAY_LOG_LEVEL`, default `info`), logs its own

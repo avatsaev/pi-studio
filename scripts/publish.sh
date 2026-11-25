@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # Publish the Pi-Studio packages to npm.
 #
-# - Bumps the patch version of EVERY workspace package so the whole monorepo stays on one
-#   aligned version number (web-client shows its own version in the UI), even though only the
-#   five packages below are actually pushed to the registry. workbench, ui-library and
-#   web-client are private (built from source by the desktop app and the web-client image).
-# - Rewrites internal "@av-pi-studio/*" dependency ranges of the PUBLISHED packages to match the
-#   new version. Private packages depend on each other with "*" and are left alone.
+# - Publishes the version in packages/*/package.json; it never changes it. In CI that is the
+#   release's version, written by `scripts/set-version.mjs next` (the committed one is only a
+#   floor); locally it is the committed one. Every workspace package stays on one aligned version
+#   number (web-client shows its own version in the UI), even though only the five packages below
+#   are pushed to the registry. workbench, ui-library and web-client are private (built from
+#   source by the desktop app and the web-client image).
+# - Refuses to run when the lockstep versions or the published packages' internal
+#   "@av-pi-studio/*" ranges do not match that version.
 # - Builds, typechecks, and tests before publishing anything.
 # - Publishes the packages to npm in dependency order (protocol/relay have no workspace deps and
 #   go first; client depends on protocol+relay; server/cli depend on the others and go last).
+#   A package already on npm at this version is skipped, so a re-run is safe.
 #
 # Usage:
-#   npm run publish                 # bump patch + publish everything below
+#   npm run publish                 # publish the committed version
 #   npm run publish -- --dry-run    # do everything except the actual `npm publish`
-#   npm run publish -- --no-bump    # publish the current versions as-is (no version bump)
 #
 # Requires: npm login locally (interactive; the registry may prompt for 2FA/OTP). In GitHub
 # Actions no login is needed: publishing uses npm trusted publishing (OIDC, `id-token: write`).
@@ -27,19 +29,17 @@ cd "$ROOT_DIR"
 # any private workspace package.
 PUBLISH_ORDER=(protocol relay client server cli)
 
-# Every versioned workspace package, kept in version lockstep for a consistent release tag. The
-# private ones (ui-library workbench web-client) are bumped but never published.
+# Every versioned workspace package, kept in version lockstep (scripts/set-version.mjs sets them).
+# The private ones (ui-library workbench web-client) are versioned but never published.
 ALL_PACKAGES=(protocol relay client server cli ui-library workbench web-client)
 
 DRY_RUN=false
-BUMP=true
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
-    --no-bump) BUMP=false ;;
     *)
       echo "Unknown argument: $arg" >&2
-      echo "Usage: $0 [--dry-run] [--no-bump]" >&2
+      echo "Usage: $0 [--dry-run]" >&2
       exit 1
       ;;
   esac
@@ -62,53 +62,46 @@ else
 fi
 
 log "Checking git working tree"
-if [[ -n "$(git status --porcelain)" ]]; then
+# CI runs this after `set-version.mjs next`, which leaves the tree modified on purpose.
+if [[ "${GITHUB_ACTIONS:-}" != "true" && -n "$(git status --porcelain)" ]]; then
   die "working tree is not clean — commit or stash changes before publishing"
 fi
 
-# --- Version bump -----------------------------------------------------------------------------
+# --- Version ------------------------------------------------------------------------------------
+#
+# This script never changes a version: it publishes the one in packages/*/package.json. In CI
+# `scripts/set-version.mjs next` has just written the release's version there (the committed one
+# is only a floor); locally it is the committed one. Move the floor with
+# `npm run version:set -- patch|minor|major|x.y.z` and commit.
 
-if [[ "$BUMP" == true ]]; then
-  log "Bumping patch version for all packages"
+NEXT_VERSION="$(node -e "console.log(require('./packages/protocol/package.json').version)")"
+log "Publishing version $NEXT_VERSION"
 
-  # Compute the single next version from protocol's current version (all packages are kept
-  # aligned, so any one of them is representative of "the current version").
-  NEXT_VERSION="$(node -e "
-    const p = require('./packages/protocol/package.json');
-    const [maj, min, patch] = p.version.split('.').map(Number);
-    console.log(\`\${maj}.\${min}.\${patch + 1}\`);
-  ")"
-  echo "New version: $NEXT_VERSION"
-
-  for pkg in "${ALL_PACKAGES[@]}"; do
-    PUBLISHED=false
-    for published in "${PUBLISH_ORDER[@]}"; do
-      [[ "$published" == "$pkg" ]] && PUBLISHED=true
-    done
-    node -e "
-      const fs = require('fs');
-      const path = 'packages/$pkg/package.json';
-      const p = JSON.parse(fs.readFileSync(path, 'utf8'));
-      p.version = '$NEXT_VERSION';
-      // Private packages keep \"*\" workspace ranges: nothing is published against them.
-      if ($PUBLISHED) {
-        for (const depsKey of ['dependencies', 'devDependencies']) {
-          if (!p[depsKey]) continue;
-          for (const dep of Object.keys(p[depsKey])) {
-            if (dep.startsWith('@av-pi-studio/')) p[depsKey][dep] = '^$NEXT_VERSION';
-          }
+# The lockstep and the published packages' internal ranges must match the version, or a package
+# would be published against a dependency version that is not the one released with it.
+node -e "
+  const fs = require('fs');
+  const version = '$NEXT_VERSION';
+  const all = '${ALL_PACKAGES[*]}'.split(' ');
+  const published = '${PUBLISH_ORDER[*]}'.split(' ');
+  const problems = [];
+  for (const pkg of all) {
+    const p = JSON.parse(fs.readFileSync('packages/' + pkg + '/package.json', 'utf8'));
+    if (p.version !== version) problems.push(pkg + ' is at ' + p.version);
+    if (!published.includes(pkg)) continue;
+    for (const key of ['dependencies', 'devDependencies']) {
+      for (const [dep, range] of Object.entries(p[key] ?? {})) {
+        if (dep.startsWith('@av-pi-studio/') && range !== '^' + version) {
+          problems.push(pkg + ' depends on ' + dep + '@' + range);
         }
       }
-      fs.writeFileSync(path, JSON.stringify(p, null, 2) + '\n');
-    "
-  done
-
-  log "Syncing lockfile"
-  npm install >/dev/null
-else
-  NEXT_VERSION="$(node -e "console.log(require('./packages/protocol/package.json').version)")"
-  log "Publishing existing version $NEXT_VERSION (--no-bump)"
-fi
+    }
+  }
+  if (problems.length) {
+    console.error(problems.join('\n'));
+    process.exit(1);
+  }
+" || die "package versions are not in lockstep at $NEXT_VERSION (listed above) — fix those package.json files (npm run version:set moves all of them together)"
 
 # --- Verify ------------------------------------------------------------------------------------
 
@@ -198,8 +191,7 @@ for pkg in "${PUBLISH_ORDER[@]}"; do
 done
 
 if [[ "$DRY_RUN" == true ]]; then
-  log "Dry run complete — nothing was actually published. Version files were still bumped; revert with git checkout if needed."
+  log "Dry run complete — nothing was actually published."
 else
   log "Published @av-pi-studio/{${PUBLISH_ORDER[*]// /,}}@$NEXT_VERSION"
-  echo "Don't forget to commit the version bump: git add -A && git commit -m \"chore: release $NEXT_VERSION\""
 fi

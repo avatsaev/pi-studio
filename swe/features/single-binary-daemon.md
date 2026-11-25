@@ -53,8 +53,8 @@ How a binary daemon updates itself is [self-update.md](self-update.md).
   `LocalState` has `cli_missing` and `cli_outdated`. On Windows the local entry is `unsupported`.
 - The app's local settings (`autoStartLocalDaemon`, `checkForUpdates`, `cliPath`) are shown on the
   workbench's Daemons screen (`packages/workbench/src/features/daemons/`).
-- `release.yml` is one Linux job: bump, npm publish, Docker publish, Dokploy deploy, and a commit
-  `chore: release X [skip ci]`. There are no git tags for npm versions. Desktop releases are
+- `release.yml` is one Linux job: version (computed on the runner from npm, never committed), npm publish,
+  Docker publish, Dokploy deploy. There are no git tags for npm versions. Desktop releases are
   `desktop-v<version>`; the app reads `desktop-updates/latest.json`.
 - `minDaemonVersion` is a constant in `desktop/crates/shell/src/daemons.rs` (0.0.127).
 
@@ -173,8 +173,10 @@ CliToolState =
 
 ### Release (P1, P13, S1–S3)
 
-`release.yml` keeps its first job (bump, npm, Docker, deploy, version commit). The job also outputs
-the version and the commit it pushed. New jobs run after it:
+`release.yml` is one job (npm, Docker, deploy) that first computes the version
+(`scripts/set-version.mjs next`: the patch after the highest version on npm, or the committed floor when
+higher; written on the runner, never committed). The job outputs the version and the commit it released
+(the commit holds only the floor, so the binaries build gets `--version`). New jobs run after it:
 
 ```
 binaries (matrix of the four targets, each on its own runner, S3):

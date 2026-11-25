@@ -76,7 +76,7 @@ sets it to `docker`.
 |---|---|---|
 | `npm-global` | the server package's directory is inside `npm root -g` | yes |
 | `docker` | the environment variable | no |
-| `source` | the server package is `<root>/packages/server` and `<root>/package.json` has `workspaces` | no |
+| `source` | the server package is `<root>/packages/server` and `<root>/package.json` has `workspaces` | no; and never offered one: a checkout's committed version is only the release floor (the release's version is computed on the runner, `release.yml`), so no comparison with npm's `latest` is made and the state stays `idle` (`reason: source` is no longer produced; the wire value stays) |
 | `unknown` | anything else (a project-local install, `npx`, `npm` not found) | no |
 | `binary` (milestone 6) | a build-time constant of the single binary | yes, when the executable is `$PI_STUDIO_HOME/bin/versions/<version>/pi-studio` and `bin` is writable; otherwise `cannot_update(unmanaged_binary)` |
 

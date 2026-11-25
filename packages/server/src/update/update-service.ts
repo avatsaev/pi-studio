@@ -522,6 +522,10 @@ export class UpdateService {
     by: "manual" | "automatic",
     hasAsset: boolean,
   ): Promise<DaemonUpdateState> {
+    // A repository checkout carries the committed version, which is only a floor under the
+    // release's computed one (release.yml), so comparing it with the registry says nothing: never
+    // offer an update there. A developer updates with `git pull`.
+    if (this.installKind === "source") return { kind: "idle" };
     if (compareVersions(latest, this.deps.currentVersion) <= 0) return { kind: "idle" };
     if (by === "automatic" && latest === this.skippedVersion) return { kind: "idle" };
     const binary = this.installKind === "binary";

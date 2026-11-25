@@ -209,7 +209,7 @@ publishes it (there is no pack smoke).
 
 - Relative imports only inside the package (no `@web-client/*` alias): emitted `.d.ts` files must
   resolve for a consumer.
-- Workspace dependencies use `*` (this package is private; `publish.sh` bumps its version in
+- Workspace dependencies use `*` (this package is private; `npm run version:set` moves its version in
   lockstep but never rewrites its ranges).
 
 ---

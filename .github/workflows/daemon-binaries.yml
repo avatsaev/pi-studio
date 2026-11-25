@@ -4,7 +4,7 @@ name: Daemon binaries
 # targets, each on its own system, smoke-tests it there, and — only when called with `publish: true`
 # and only when all four passed — publishes `daemon-v<version>` and updates `daemon-updates/latest.json`.
 #
-# Called by release.yml after the npm/Docker release (`publish: true`, the commit that release pushed).
+# Called by release.yml after the npm/Docker release (`publish: true`, the commit that was released).
 # On a pull request that changes what the binary is made of it builds and smoke-tests only: nothing
 # is published. npm and Docker never wait for these jobs and never fail because of them.
 on:
@@ -15,7 +15,7 @@ on:
         type: string
         required: true
       ref:
-        description: "The commit to build (the release's version-bump commit)"
+        description: "The commit to build (the commit that was released)"
         type: string
         required: true
       publish:
@@ -70,8 +70,13 @@ jobs:
       - name: Build the packages
         run: npm run build
 
+      # The checked-out commit holds only the committed floor version; the release's own version is
+      # computed on the release runner (release.yml, `Next version`) and given here. A pull request's
+      # run has none and builds the committed one.
       - name: Build the binary
-        run: npm run build:binary -- --target ${{ matrix.target }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: npm run build:binary -- --target ${{ matrix.target }} ${VERSION:+--version "$VERSION"}
 
       - name: Name the build folder
         id: folder
@@ -86,7 +91,9 @@ jobs:
 
       - name: Smoke test
         timeout-minutes: 10
-        run: npm run test:binary -- "${{ steps.folder.outputs.path }}"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: npm run test:binary -- "${{ steps.folder.outputs.path }}" ${VERSION:+--expect-version "$VERSION"}
 
       - name: Upload the archive
         uses: actions/upload-artifact@v4
