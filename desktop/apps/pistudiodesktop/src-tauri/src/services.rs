@@ -206,6 +206,8 @@ pub fn native<R: Runtime>(native: &Arc<Native<R>>) -> Services {
         remote_daemon_version: None,
         // Filled by `main` with the updater plug-in's hook (`update.rs`).
         updater: None,
+        // Filled by `main` with the usage data's sender when this build has a token (`usage.rs`).
+        usage: None,
         // Filled by `main` with the local supervisor, which looks at `~/.local/bin` (`cli_tool.*`).
         cli_tool: None,
     }

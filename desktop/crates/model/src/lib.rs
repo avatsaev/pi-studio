@@ -140,6 +140,12 @@ pub struct Settings {
     /// "Check for Updates…" works either way. Absent reads as `true`.
     #[serde(default = "default_true")]
     pub check_for_updates: bool,
+    /// Whether the app reports anonymous usage data. Absent reads as `true`.
+    #[serde(default = "default_true")]
+    pub share_usage_data: bool,
+    /// The stored usage ID (a lower-case v4 UUID). No command sets it; the shell writes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_id: Option<String>,
     /// The workbench's global keys.
     #[serde(default)]
     pub workbench: BTreeMap<String, String>,
@@ -153,7 +159,15 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { version: VERSION, auto_start_local_daemon: true, check_for_updates: true, workbench: BTreeMap::new(), unknown: Map::new() }
+        Settings {
+            version: VERSION,
+            auto_start_local_daemon: true,
+            check_for_updates: true,
+            share_usage_data: true,
+            usage_id: None,
+            workbench: BTreeMap::new(),
+            unknown: Map::new(),
+        }
     }
 }
 
@@ -167,6 +181,9 @@ impl Settings {
             "checkForUpdates" => {
                 self.check_for_updates = value.as_bool().ok_or_else(|| SettingError::WrongType(name.to_owned()))?;
             }
+            "shareUsageData" => {
+                self.share_usage_data = value.as_bool().ok_or_else(|| SettingError::WrongType(name.to_owned()))?;
+            }
             _ => return Err(SettingError::UnknownKey(name.to_owned())),
         }
         Ok(())
@@ -175,6 +192,18 @@ impl Settings {
     fn valid(&self) -> bool {
         check_scope(&self.workbench).is_ok()
     }
+}
+
+/// Whether `s` is a lower-case hyphenated UUID version 4 (the usage ID's form).
+pub fn is_usage_id(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 36
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => *c == b'-',
+            14 => *c == b'4',
+            19 => matches!(*c, b'8' | b'9' | b'a' | b'b'),
+            _ => matches!(*c, b'0'..=b'9' | b'a'..=b'f'),
+        })
 }
 
 /// One daemon entry's stored state. Unknown fields are kept and written back.
@@ -364,6 +393,47 @@ mod tests {
         assert_eq!(s.set("cliPath", &json!("/bin/pi")), Err(SettingError::UnknownKey("cliPath".into())));
         assert_eq!(s.set("cliPath", &json!(null)), Err(SettingError::UnknownKey("cliPath".into())));
         assert_eq!(s, before);
+    }
+
+    #[test]
+    fn share_usage_data_and_usage_id() {
+        let mut s = Settings::default();
+        assert!(s.share_usage_data);
+        assert_eq!(s.set("shareUsageData", &json!(false)), Ok(()));
+        assert!(!s.share_usage_data);
+        let before = s.clone();
+        assert_eq!(s.set("shareUsageData", &json!("no")), Err(SettingError::WrongType("shareUsageData".into())));
+        assert_eq!(s.set("usageId", &json!("x")), Err(SettingError::UnknownKey("usageId".into())));
+        assert_eq!(s, before);
+        let id = "123e4567-e89b-42d3-a456-426614174000";
+        let src = format!(r#"{{"version":1,"shareUsageData":false,"usageId":"{id}","future":1}}"#);
+        let loaded = decode_settings(src.as_bytes()).unwrap();
+        assert_eq!(loaded.usage_id.as_deref(), Some(id));
+        let back: Value = serde_json::from_slice(&encode_settings(&loaded)).unwrap();
+        assert_eq!((&back["usageId"], &back["shareUsageData"], &back["future"]), (&json!(id), &json!(false), &json!(1)));
+        let none: Value = serde_json::from_slice(&encode_settings(&Settings::default())).unwrap();
+        assert!(none.get("usageId").is_none());
+        assert_eq!(none["shareUsageData"], json!(true));
+    }
+
+    #[test]
+    fn usage_id_form() {
+        for ok in ["123e4567-e89b-42d3-a456-426614174000", "00000000-0000-4000-8000-000000000000", "ffffffff-ffff-4fff-bfff-ffffffffffff"] {
+            assert!(is_usage_id(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "123E4567-E89B-42D3-A456-426614174000",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "018f3a52-7c1d-7abc-8def-0123456789ab",
+            "123e4567-e89b-42d3-c456-426614174000",
+            "123e4567-e89b-42d3-a456-42661417400",
+            "123e4567-e89b-42d3-a456-4266141740000",
+            "123e4567e89b42d3a456426614174000xxxx",
+            "123e4567-e89b-42d3-a456-42661417400g",
+        ] {
+            assert!(!is_usage_id(bad), "{bad}");
+        }
     }
 
     #[test]

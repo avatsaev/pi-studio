@@ -8,7 +8,15 @@
  */
 
 import { lazy } from "react";
-import { Atom, KeyRound, Palette, Puzzle, Server, type LucideIcon } from "lucide-react";
+import {
+  Atom,
+  KeyRound,
+  Palette,
+  Puzzle,
+  Server,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
 import type { ComponentType } from "react";
 
 /** Server capabilities a settings category may gate its availability on. Grows as new
@@ -20,6 +28,8 @@ export interface SettingsCategoryCapabilities {
   skills: boolean;
   /** sprint-137: `server_info.features.daemonUpdate` — gates the Daemon category. */
   daemonUpdate: boolean;
+  /** sprint-157: the host has a `usageData` member (the desktop app) — gates Privacy. */
+  usageData: boolean;
 }
 
 export interface SettingsCategory {
@@ -46,6 +56,10 @@ const DaemonSettingsPanel = lazy(() =>
 
 const AppearancePanel = lazy(() =>
   import("./AppearancePanel.js").then((m) => ({ default: m.AppearancePanel })),
+);
+
+const PrivacyPanel = lazy(() =>
+  import("./PrivacyPanel.js").then((m) => ({ default: m.PrivacyPanel })),
 );
 
 const ViewersPanel = lazy(() =>
@@ -98,18 +112,28 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     component: DaemonSettingsPanel,
     available: (caps) => caps.daemonUpdate,
   },
+  {
+    // sprint-157 — host-gated, not daemon-gated: only the desktop host has `usageData`.
+    id: "privacy",
+    label: "Privacy",
+    icon: ShieldCheck,
+    component: PrivacyPanel,
+    available: (caps) => caps.usageData,
+  },
 ];
 
 /** Builds the capability object every category's `available` predicate is evaluated against,
- *  from the connection store's `serverInfo.features` map. Shared by `SettingsDialog` (to filter
+ *  from the connection store's `serverInfo.features` map and the host's optional members. Shared by `SettingsDialog` (to filter
  *  the sidebar) and `ConnectionBar` (to gate the settings gear itself — "reachable whenever any
  *  category is available") so neither duplicates the `serverInfo?.features?.[…]` reads. */
 export function buildSettingsCategoryCapabilities(
   features: Record<string, unknown> | undefined,
+  host: { usageData: boolean },
 ): SettingsCategoryCapabilities {
   return {
     providerAuth: Boolean(features?.["providerAuth"]),
     skills: Boolean(features?.["skills"]),
     daemonUpdate: Boolean(features?.["daemonUpdate"]),
+    usageData: host.usageData,
   };
 }

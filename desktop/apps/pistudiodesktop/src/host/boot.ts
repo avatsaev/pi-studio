@@ -1,7 +1,8 @@
-import { type AppUpdateState } from "@av-pi-studio/workbench";
+import { type AppUpdateState, type UsageDataView } from "@av-pi-studio/workbench";
 
 import { isRecord, parseDaemonsView, type DaemonsView } from "./daemons-view.js";
 import { parseUpdateState } from "./updates.js";
+import { parseUsageDataView } from "./usage-data.js";
 
 /** One file the engine could not read at start, reset and kept under another name (`null`: it could not be renamed). */
 export interface FileResetNotice {
@@ -38,6 +39,8 @@ export interface BootSnapshot {
   daemons: DaemonsView;
   /** The app's own update at boot: `idle` when absent or malformed. */
   update: AppUpdateState;
+  /** The usage-data switch and whether this run sends. */
+  usage: UsageDataView;
 }
 
 function isNotice(value: unknown): value is BootNotice {
@@ -73,6 +76,8 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
   if (transfers !== "engine" && transfers !== "page") return null;
   const daemons = parseDaemonsView(value.daemons);
   if (!daemons) return null;
+  const usage = parseUsageDataView(value.usage);
+  if (!usage) return null;
   return {
     app: { title: app.title, version: app.version, platform: "desktop", minDaemonVersion: app.minDaemonVersion },
     storage: storage as Record<string, string>,
@@ -81,6 +86,7 @@ export function parseBootSnapshot(value: unknown): BootSnapshot | null {
     transfers,
     daemons,
     update: parseUpdateState(value.update),
+    usage,
   };
 }
 

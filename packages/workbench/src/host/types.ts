@@ -543,6 +543,31 @@ export interface HostZoom {
   set(factor: number): void;
 }
 
+/** Why a run never sends usage data; fixed for the life of the process. */
+export type UsageBlockedReason = "build" | "do_not_track" | "ci" | "scripted";
+
+/** The desktop app's usage-data state (`swe/features/desktop-usage-data.md` § 4). */
+export interface UsageDataView {
+  /** The user's switch. */
+  enabled: boolean;
+  /** `enabled` and nothing blocks this run. */
+  sending: boolean;
+  /** Why this run never sends; absent when it can. */
+  blocked?: UsageBlockedReason;
+  /** The anonymous ID, once one was made. */
+  id?: string;
+}
+
+/**
+ * Optional. The app's anonymous usage data switch. Absent (the browser): Settings has no Privacy
+ * category.
+ */
+export interface HostUsageData {
+  current(): UsageDataView;
+  /** Rejects with the command's error; `current()` reflects the change once it resolves. */
+  setEnabled(enabled: boolean): Promise<void>;
+}
+
 /**
  * The one object an embedding shell supplies to the workbench for everything browser-bound
  * (`swe/architecture/workbench-host-adapter.md`). `web-client` passes `createBrowserHost(...)`; a
@@ -591,4 +616,8 @@ export interface WorkbenchHost {
    * Appearance points to the browser's zoom and Ctrl/Cmd + = / − / 0 are left to the browser.
    */
   zoom?: HostZoom;
+  /**
+   * Optional. Anonymous usage data (desktop only). Absent (the browser): no Privacy category.
+   */
+  usageData?: HostUsageData;
 }

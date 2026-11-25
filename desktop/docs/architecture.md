@@ -212,6 +212,22 @@ app. `update.restart` asks the close question first when transfers run (Cancel k
 asks Tauri to restart (the exit saves as a quit does). Quitting instead drops the kept bytes; Linux and
 macOS run the new build at the next launch, Windows offers the update again.
 
+Anonymous usage data (`swe/features/desktop-usage-data.md`) is sent by Rust alone, from `src-tauri/src/usage.rs`;
+the page holds no token and sends nothing. Every decision, the usage ID and the event's JSON are the shell's
+(`crates/shell/src/usage.rs`, behind `Services::usage`, so the crate stays free of sockets). The app binary adds
+the token, the endpoint and the one `POST`: `PISTUDIODESKTOP_POSTHOG_TOKEN` is read at build time with
+`option_env!` (only `bundle-release` sets it; empty counts as none), and a build without it fills no hook and is
+`blocked: "build"`. `PISTUDIODESKTOP_USAGE_ENDPOINT` (a test build only; a release never sets it) replaces the
+EU endpoint `https://eu.i.posthog.com/i/v1/analytics/events` and lifts the `CI` and scripted-run blocks. The
+request goes through `reqwest` built as `install` builds it (`rustls` with `ring`, the system's verifier, no
+process-wide provider), on a thread of its own with a runtime of its own, one attempt, 10 s (2 s at quit);
+success is a `200` whose result for the event is `ok` or `warning`, else the code `offline`, `timeout`,
+`status_<n>` or `dropped` goes to the log at debug level (never the URL, the ID or the token). The moments:
+`app_started` after setup (a background thread), `app_daily` from the update ticker's hourly step and from the
+wake hook (`update::on_wake`), each off the ticker's thread; `app_closed` blocking at `RunEvent::Exit` and right
+before "Restart to update" hands over (`AppShutdown::save_state`/`restart`), once per run. The system's language
+is read with `sys-locale` (MIT OR Apache-2.0).
+
 ## The registry and the local daemon
 
 **The registry** is `daemons.json`, version 3: the entries (`local`; `direct` with an address; `relay`;

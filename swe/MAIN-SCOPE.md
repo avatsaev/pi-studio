@@ -17,7 +17,9 @@ supervises the Pi agent process (`pi --mode rpc`), and exposes a single WebSocke
 Commander.js CLI) connect to the daemon — directly on localhost/LAN, remotely through an
 end-to-end encrypted **relay**, or from Electron desktop through an **SSH gateway tunnel** to a
 remote daemon's localhost listener. Code never leaves the user's machine; Pi-Studio manages no API keys and
-adds no inference cost (bring-your-own-keys). It has no telemetry and no forced login.
+adds no inference cost (bring-your-own-keys). The daemon, CLI and relay have no telemetry and there is no forced
+login; the published desktop app sends anonymous usage data, on by default and off in Settings → Privacy
+([features/desktop-usage-data.md](features/desktop-usage-data.md)).
 
 Guiding principles: cross-device, self-hosted, privacy-first, open source (AGPL-3.0). The protocol
 is append-only/backward-compatible; individual features may require a newer daemon and are gated by
@@ -284,6 +286,7 @@ provider overrides (`agents.providers`), and `app.baseUrl`. Per-project `pi-stud
 | [features/desktop-self-update.md](features/desktop-self-update.md) | feature      | Desktop app self-update through the Tauri updater: the app checks at launch and once a day, shows "Update <N>" next to the version, installs after one click (a `.deb` through `pkexec`) and restarts after a second; every release proves on GitHub's Linux, macOS and Windows machines that it can update and be updated before the manifest offers it — **built (sprints 131–134), released and seen working on macOS by the owner (0.3.0 → 0.3.1, 2026-11-24). OS code signing is last on the roadmap (owner)** |
 | [features/single-binary-daemon.md](features/single-binary-daemon.md) | feature      | Desktop milestone 6: `pi-studio` as one executable per system (macOS arm64/x64, Linux x64/arm64) in every release; the desktop app downloads the version pinned in its build, checks it and runs the local daemon from it (no Node, no installed CLI); the binary takes over an npm daemon's folder and port; "Install the command-line tool" — **built 2026-11-24 (sprints 139–145), checked live on Linux; macOS only by the smoke test on a runner; from the grill `grills/single-binary-daemon.md`** |
 | [features/desktop-ssh-daemon-install.md](features/desktop-ssh-daemon-install.md) | feature      | Desktop milestone 6: Install on an SSH host — the app sends the pinned binary over the SSH connection, unpacks it under the host's `~/.pi-studio/bin/` and starts it; a running npm daemon is used until it stops — **built 2026-11-24 (sprints 143–145), checked live on Linux against real OpenSSH hosts** |
+| [features/desktop-usage-data.md](features/desktop-usage-data.md) | feature      | Anonymous usage data from the desktop app to PostHog Cloud EU: a random ID, system, CPU, version, installer, language, daemon entries by kind; `app_started`, a daily event, `app_closed` with the duration; country only, no IP; on by default, off in Settings → Privacy, published installers only, off under `DO_NOT_TRACK`, `CI` and scripted runs — **specified 2026-11-25, not built; from the grill `grills/desktop-usage-telemetry.md` (D1–D17, P1–P11)** |
 | [features/app-navigation-screens.md](features/app-navigation-screens.md) | feature (UI) | Route map, navigation shell, onboarding/pairing, settings/projects IA         |
 | [features/workspace-ui.md](features/workspace-ui.md)                     | feature (UI) | Workspace screen, tab model, pane/split layout, headers, draft seeding        |
 | [features/workspace-split-panes.md](features/workspace-split-panes.md)   | feature (UI) | Drag-a-tab-to-split panes: drop regions, resize, per-workspace persistence     |

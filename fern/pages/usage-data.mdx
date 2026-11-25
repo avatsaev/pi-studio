@@ -1,0 +1,48 @@
+---
+title: Usage data
+subtitle: What the Pi Studio desktop app sends about its use, and how to turn it off.
+---
+
+The published Pi Studio desktop app sends a few anonymous usage events to
+[PostHog](https://posthog.com) (EU cloud) so the project can see how many people use it, on which
+systems and versions. The daemon, the CLI, the relay and the browser client send nothing.
+
+## When
+
+| Event | Sent |
+| --- | --- |
+| `app_started` | When the app starts |
+| `app_daily` | Once every 24 hours while the app keeps running |
+| `app_closed` | When you quit (or restart to update), with how many seconds the app ran |
+
+A failed send is not retried.
+
+## What
+
+Every event carries:
+
+- a random anonymous ID, made the first time an event is sent and kept in the app's `settings.json`
+  (it is not derived from your machine, account or anything you typed);
+- the operating system (`macos`, `windows`, `linux`) and CPU (`x86_64`, `aarch64`);
+- the app version and how it was installed (`appimage`, `deb`, `rpm`, `app`, `nsis`, `msi`);
+- the system language, such as `en-US`;
+- how many daemon entries of each kind you have (local, direct, relay, SSH): counts only.
+
+Never sent: daemon names, addresses or host names, paths, project, workspace, agent, model or
+provider names, or anything you wrote.
+
+PostHog derives your **country** from the connection. The IP address is not stored, and no location
+finer than the country is kept.
+
+## Turn it off
+
+- **Settings → Privacy** in the desktop app: switch off "Share anonymous usage data". The panel also
+  shows your anonymous ID.
+- Or start the app with the environment variable `DO_NOT_TRACK=1`.
+
+Builds made from source, and runs with `CI` set or started by a script, send nothing.
+
+## Delete your data
+
+Open an issue at [github.com/avatsaev/pi-studio](https://github.com/avatsaev/pi-studio/issues) quoting
+the anonymous ID shown in Settings → Privacy, and the events with that ID will be deleted.

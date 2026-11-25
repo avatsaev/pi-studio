@@ -10,8 +10,10 @@ import {
   type HostDaemons,
   type HostPreview,
   type HostUpdates,
+  type HostUsageData,
   type TransferOptions,
   type TransferState,
+  type UsageDataView,
   type WorkbenchHost,
 } from "../host/types.js";
 
@@ -54,6 +56,8 @@ export interface TestHostOptions {
   updates?: HostUpdates;
   /** Give the host a `zoom` member (each `set` is recorded as `zoom.set`). Absent by default. */
   zoom?: boolean;
+  /** The host's `usageData`, e.g. from `createTestUsageData`. Absent by default. */
+  usageData?: HostUsageData;
 }
 
 /** One `files.upload` or `files.saveToDisk` call, with the options it was given. */
@@ -82,6 +86,24 @@ export interface TestHost extends WorkbenchHost {
   /** Fire every `connection.onResume` listener. */
   emitResume(): void;
   resumeListenerCount(): number;
+}
+
+/** A scripted `usageData`: `setEnabled` rejects with `failWith` when given, else flips `enabled`. */
+export function createTestUsageData(
+  initial: UsageDataView,
+  failWith?: string,
+): HostUsageData & { setEnabledCalls: boolean[] } {
+  let view = initial;
+  const setEnabledCalls: boolean[] = [];
+  return {
+    setEnabledCalls,
+    current: () => view,
+    setEnabled: async (enabled) => {
+      setEnabledCalls.push(enabled);
+      if (failWith !== undefined) throw new Error(failWith);
+      view = { ...view, enabled, sending: enabled && view.blocked === undefined };
+    },
+  };
 }
 
 /** `work`, rejected with an `AbortError` as soon as `signal` aborts. */
@@ -234,6 +256,7 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
     ...(preview ? { preview } : {}),
     ...(options.daemons ? { daemons: options.daemons } : {}),
     ...(options.updates ? { updates: options.updates } : {}),
+    ...(options.usageData ? { usageData: options.usageData } : {}),
     ...(options.zoom ? { zoom: { set: (factor: number) => record("zoom.set", factor) } } : {}),
   };
 }

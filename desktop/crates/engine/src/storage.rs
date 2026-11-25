@@ -302,12 +302,24 @@ impl Storage {
     /// Change one setting and write `settings.json` before returning. When the write fails the
     /// setting is as it was and the error says so.
     pub(crate) fn set_setting(&mut self, name: &str, value: &Value) -> Result<()> {
-        let before = (self.settings.auto_start_local_daemon, self.settings.check_for_updates);
+        let before = (self.settings.auto_start_local_daemon, self.settings.check_for_updates, self.settings.share_usage_data);
         self.settings.set(name, value).map_err(|e| EngineError::BadParams(e.to_string()))?;
         let was_unwritten = self.settings_unwritten;
         self.mark_unwritten(Scope::Global);
         self.write(Scope::Global).inspect_err(|_| {
-            (self.settings.auto_start_local_daemon, self.settings.check_for_updates) = before;
+            (self.settings.auto_start_local_daemon, self.settings.check_for_updates, self.settings.share_usage_data) = before;
+            self.settings_unwritten = was_unwritten;
+        })
+    }
+
+    /// Store the usage ID and write `settings.json` before returning. When the write fails the
+    /// previous ID is back. No command reaches this; the shell does.
+    pub(crate) fn set_usage_id(&mut self, id: &str) -> Result<()> {
+        let before = self.settings.usage_id.replace(id.to_owned());
+        let was_unwritten = self.settings_unwritten;
+        self.mark_unwritten(Scope::Global);
+        self.write(Scope::Global).inspect_err(|_| {
+            self.settings.usage_id = before;
             self.settings_unwritten = was_unwritten;
         })
     }
@@ -475,7 +487,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, notices) = open(dir.path());
         assert!(notices.is_empty());
-        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "shareUsageData": true}));
         assert!(s.storage_snapshot().is_empty());
         assert!(!s.storage_unwritten());
         s.storage_flush().unwrap();
@@ -487,7 +499,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut s, _) = open(dir.path());
         let answer = s.execute("settings.set", json!({"key": "autoStartLocalDaemon", "value": false})).unwrap();
-        assert_eq!(answer, json!({"autoStartLocalDaemon": false, "checkForUpdates": true}));
+        assert_eq!(answer, json!({"autoStartLocalDaemon": false, "checkForUpdates": true, "shareUsageData": true}));
         let on_disk = decode_settings(&std::fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
         assert!(!on_disk.auto_start_local_daemon);
         assert!(!s.storage_unwritten());
@@ -495,7 +507,7 @@ mod tests {
 
         let (mut again, notices) = open(dir.path());
         assert!(notices.is_empty());
-        assert_eq!(again.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": false}));
+        assert_eq!(again.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": false, "shareUsageData": true}));
     }
 
     #[test]
@@ -504,7 +516,7 @@ mod tests {
         std::fs::write(dir.path().join("settings.json"), br#"{"version":1,"autoStartLocalDaemon":false,"cliPath":"/opt/pi-studio"}"#).unwrap();
         let (mut s, notices) = open(dir.path());
         assert!(notices.is_empty(), "{notices:?}");
-        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": true}));
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": false, "checkForUpdates": true, "shareUsageData": true}));
         assert!(matches!(s.execute("settings.set", json!({"key": "cliPath", "value": "/x"})), Err(EngineError::BadParams(_))));
     }
 
@@ -596,7 +608,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("settings.json"), b"{ not json").unwrap();
         let (mut s, notices) = open(dir.path());
-        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
+        assert_eq!(s.execute("settings.get", json!({})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "shareUsageData": true}));
         let [Notice::FileReset { file, kept_as: Some(kept) }] = notices.as_slice() else { panic!("one notice with a kept name: {notices:?}") };
         assert_eq!(file, "settings.json");
         assert!(kept.starts_with("settings.json.corrupt-"), "{kept}");
@@ -671,6 +683,30 @@ mod tests {
         assert!(s.execute("settings.set", json!({"key": "checkForUpdates", "value": false})).is_err());
         assert!(s.settings().check_for_updates);
         assert!(!s.storage_unwritten());
+    }
+
+    #[test]
+    fn a_usage_switch_or_id_that_cannot_be_written_is_rolled_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut s, _) = open(dir.path());
+        std::fs::create_dir_all(dir.path().join("settings.json")).unwrap();
+        std::fs::write(dir.path().join("settings.json/keep"), b"k").unwrap();
+        assert!(s.execute("settings.set", json!({"key": "shareUsageData", "value": false})).is_err());
+        assert!(s.settings().share_usage_data);
+        assert!(s.store_usage_id("123e4567-e89b-42d3-a456-426614174000").is_err());
+        assert!(s.settings().usage_id.is_none());
+        assert!(!s.storage_unwritten());
+    }
+
+    #[test]
+    fn a_stored_usage_id_is_written_and_survives_a_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "123e4567-e89b-42d3-a456-426614174000";
+        let (mut s, _) = open(dir.path());
+        s.store_usage_id(id).unwrap();
+        let (again, _) = open(dir.path());
+        assert_eq!(again.settings().usage_id.as_deref(), Some(id));
+        assert!(again.settings().share_usage_data);
     }
 
     #[test]

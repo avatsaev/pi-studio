@@ -77,6 +77,9 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tar = "0.4"
 flate2 = "1"
+# The app's anonymous usage data (`apps/pistudiodesktop/src-tauri`, `usage.rs`): the system's first preferred language, as a BCP 47 tag
+# (`sys-locale`, MIT OR Apache-2.0; no dependency on Linux, macOS and Windows beyond the platform's own crates).
+sys-locale = "0.3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

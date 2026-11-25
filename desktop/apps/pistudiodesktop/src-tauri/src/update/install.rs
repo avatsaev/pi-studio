@@ -81,11 +81,15 @@ pub struct AppShutdown<R: Runtime> {
 
 impl<R: Runtime> Shutdown for AppShutdown<R> {
     fn save_state(&self) {
+        // The usage data's `app_closed` goes first (U10): the installer ends the process without an exit event.
+        crate::usage::close(&self.handle);
         // The connections stay: the app is still running if the installer does not start.
         crate::bridge::flush_stored_keys(&self.handle);
     }
 
     fn restart(&self) {
+        // A restart is a quit (P8); the exit that follows finds `app_closed` sent already.
+        crate::usage::close(&self.handle);
         self.handle.request_restart();
     }
 }

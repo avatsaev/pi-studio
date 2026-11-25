@@ -32,6 +32,7 @@ mod ssh_session;
 mod transfers;
 mod transport;
 mod update;
+mod usage;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -213,6 +214,8 @@ fn main() {
     // thread holds the same ones.
     let dialogs = services::Native::new(app.handle(), title.clone());
     let mut services = services::native(&dialogs);
+    // The usage data's sender: only a build with the token compiled in has one (`usage.rs`).
+    services.usage = usage::sender().map(usage::Sender::hook);
     // The daemon's binary: the launch's pin, and the archives kept in the app's data folder (S9; in the folder
     // `--config-dir` names when one is given, so that a scripted run leaves the real folders alone).
     let data_dir = match args.config_dir.clone().map_or_else(|| app.path().app_data_dir(), Ok) {
@@ -225,7 +228,15 @@ fn main() {
     services.archives = Some(installer);
     // The self-update: the plug-in behind the shell's hook, the shell's state over it (it reads `--update-manifest`),
     // and the runner that begins what the `update.*` commands accept and carries out the schedule.
-    services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), update::Env::detect())));
+    let env = update::Env::detect();
+    let usage = Arc::new(usage::Usage::new(
+        requests.clone(),
+        services.usage.clone(),
+        // A scripted run (`--control`, `--config-dir` or their environment forms) sends nothing (D13).
+        args.control.is_some() || args.config_dir.is_some(),
+        usage::facts(env.kind),
+    ));
+    services.updater = Some(Arc::new(update::PluginUpdater::new(app.handle().clone(), env)));
     let updater = Arc::new(Updater::new(services.updater.clone(), update::manifest(args.update_manifest.as_ref())));
     updater.set_notify(update::notify_page(app.handle().clone()));
     let update_runner = Arc::new(update::Runner::new(
@@ -312,13 +323,19 @@ fn main() {
     // The ticker tells the page after a sleep (`connection_resume`); it ends with the app.
     app.manage(resume::start(app.handle().clone(), Arc::clone(&resume_signals)));
     // The update ticker checks at launch and every hour (P16); a wake does too (`resume.rs`).
-    app.manage(update::start(update_runner));
+    app.manage(update::start(update_runner, Arc::clone(&usage)));
+    // The usage data's launch event goes after setup, off this thread; a second launch never gets here (single-instance
+    // ends it first). `RunEvent::Exit` and the update's restart send `app_closed`.
+    usage.launch();
+    app.manage(usage);
     // The network watcher tells the page when the machine's addresses change; it ends with the app.
     app.manage(network::start(app.handle().clone(), resume_signals));
     menu::install(app.handle().clone());
     // The owner thread writes stored keys a second after they change; `on_run_event` writes the
     // rest on the way out.
     app.run(|handle, event| {
+        // First: `app_closed` may write the usage ID, which the flush after it must not miss; it waits at most 2 s.
+        usage::on_run_event(handle, &event);
         bridge::on_run_event(handle, &event);
         resume::on_run_event(handle, &event);
         update::on_run_event(handle, &event);

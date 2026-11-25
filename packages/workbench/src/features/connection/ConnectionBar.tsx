@@ -94,7 +94,9 @@ export function ConnectionBar() {
   // against a daemon with zero capabilities. Shares `SettingsDialog`'s own caps-builder so this
   // never drifts from the sidebar's own filter, and the `.some(...)` form is what keeps this
   // correct if a future category goes back to being capability-gated.
-  const settingsCaps = buildSettingsCategoryCapabilities(serverInfo?.features);
+  const settingsCaps = buildSettingsCategoryCapabilities(serverInfo?.features, {
+    usageData: getHost().usageData !== undefined,
+  });
   const settingsReachable = SETTINGS_CATEGORIES.some((c) => c.available(settingsCaps));
   // Defers the settings chunk's `import()` until settings has ever been opened, while still
   // letting `Dialog`'s close animation play out afterward (an `open && <SettingsDialog/>` guard

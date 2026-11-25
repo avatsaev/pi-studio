@@ -13,7 +13,8 @@
 //!   is the rule of when a newer build can not be installed in place, over injected probes.
 //! - [`Runner`] takes the actions the owner thread hands over ([`pistudiodesktop_shell::owner::Notify::update`]),
 //!   begins them and runs them on the blocking pool, answers the menu with U11's dialog, and carries out
-//!   the schedule of P16 (at launch, every hour on [`start`]'s thread, after a wake: [`on_wake`]).
+//!   the schedule of P16 (at launch, every hour on [`start`]'s thread, after a wake: [`on_wake`]). The same
+//!   hour and the same wake also step the usage data's daily event (`usage.rs`), on a thread of its own.
 //! - [`notify_page`] tells the page of every change with the `update_changed` event.
 //! - [`install::Installer`] is the download, the install and the restart behind [`PluginUpdater`]: the plug-in
 //!   downloads (15 min limit, signature verified) and swaps the AppImage and the macOS application, the app's own
@@ -45,6 +46,7 @@ use tauri::{AppHandle, Emitter as _, Manager as _, RunEvent, Runtime, Url};
 use tauri_plugin_updater::UpdaterExt as _;
 
 use self::install::{AppShutdown, Installer, PluginOffer, SystemCommands};
+use crate::usage::Usage;
 
 /// The event the page hears on every change of the state; the payload is the state as `boot`'s `update`.
 pub const EVENT: &str = "update_changed";
@@ -336,7 +338,7 @@ fn answer_for(result: &Result<UpdateState, UpdateCode>, current: &str) -> Option
 type Job = Box<dyn FnOnce() + Send>;
 
 /// The wall clock in milliseconds since the Unix epoch (0 when the clock is before it).
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).ok().and_then(|since| u64::try_from(since.as_millis()).ok()).unwrap_or(0)
 }
 
@@ -494,6 +496,9 @@ impl Runner {
 
 /// A wake from sleep: the schedule's step for it, on the blocking pool (the resume ticker's thread must not wait).
 pub fn on_wake<R: Runtime>(handle: &AppHandle<R>) {
+    if let Some(usage) = handle.try_state::<Arc<Usage>>() {
+        usage.tick();
+    }
     if let Some(runner) = handle.try_state::<Arc<Runner>>() {
         let runner = Arc::clone(&runner);
         tauri::async_runtime::spawn_blocking(move || runner.scheduled(Trigger::Elapsed));
@@ -516,11 +521,13 @@ impl Ticker {
 
 /// Start the thread: the check at launch (when `checkForUpdates` allows it), then a step of the
 /// schedule every [`TICK_MS`] (an hour). A check runs on this thread, so the next tick waits for it.
-pub fn start(runner: Arc<Runner>) -> Ticker {
+pub fn start(runner: Arc<Runner>, usage: Arc<Usage>) -> Ticker {
     let (stop, stopped) = channel::<()>();
     let spawned = std::thread::Builder::new().name("update-ticker".into()).spawn(move || {
         runner.scheduled(Trigger::Launch);
         while matches!(stopped.recv_timeout(Duration::from_millis(TICK_MS)), Err(RecvTimeoutError::Timeout)) {
+            // Before the check, which may take its 30 s: the usage step runs on a thread of its own.
+            usage.tick();
             runner.scheduled(Trigger::Elapsed);
         }
         log::debug!("the update ticker stopped");

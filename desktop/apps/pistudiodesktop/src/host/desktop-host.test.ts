@@ -11,6 +11,7 @@ const snapshotWith = (transfers: "engine" | "page", kind: "local" | "direct" | "
     notices: [],
     preview: "inert",
     transfers,
+    usage: { enabled: true, sending: true },
     daemons: {
       currentId: "e1",
       entries: [{ id: "e1", kind, name: "n", hasPassword: false }],
@@ -54,5 +55,12 @@ describe("desktop host files", () => {
     const { host, listen } = build(snapshotWith("engine", kind));
     expect("pickUploads" in host.files).toBe(true);
     expect(listen.mock.calls.filter(([event]) => event === "transfer_progress")).toHaveLength(1);
+  });
+});
+
+describe("desktop host usageData", () => {
+  it("is present and reads the boot view", () => {
+    const { host } = build(snapshotWith("page", "local"));
+    expect(host.usageData?.current()).toEqual({ enabled: true, sending: true });
   });
 });

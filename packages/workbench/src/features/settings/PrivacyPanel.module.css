@@ -1,0 +1,78 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-10) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  min-width: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-10) var(--pi-spacing-12);
+  border: 1px solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.name {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.description,
+.sent {
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.sent {
+  margin: 0;
+  padding-left: var(--pi-spacing-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.link {
+  color: var(--pi-color-foreground);
+  text-decoration: underline;
+}
+
+/* The ID is long and unbroken: one ellipsized line, still selectable for a deletion request. */
+.id {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-statusDanger);
+}

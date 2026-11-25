@@ -5,7 +5,7 @@
 use pistudiodesktop_engine::Notice;
 use serde_json::{Value, json};
 
-use crate::{AppShell, daemons, preview};
+use crate::{AppShell, daemons, preview, usage};
 
 /// The platform the page is told it runs on.
 pub const PLATFORM: &str = "desktop";
@@ -39,6 +39,9 @@ impl Default for AppInfo {
 ///   update: { state: "idle" | "checking" | "up_to_date" | "available" | "downloading" | "restart_needed"
 ///             | "cannot_install" | "failed", …camelCase fields }  the app's self-update ([`crate::update::UpdateState`]);
 ///                                                     `idle` where the app has no updater
+///   usage: { enabled, sending, blocked?: "build" | "do_not_track" | "ci" | "scripted", id? }
+///                                                     the usage-data switch and why this run sends nothing
+///                                                     ([`crate::usage::UsageView`]); `id` once one was made
 /// ```
 ///
 /// The notices are handed out once: this call clears them, so a page reload does not show them
@@ -54,6 +57,7 @@ pub fn boot(app: &mut AppShell) -> Value {
         "preview": preview::kind().as_str(),
         "transfers": app.transfers.as_str(),
         "update": app.update.state_json(),
+        "usage": usage::boot_view(app),
     })
 }
 

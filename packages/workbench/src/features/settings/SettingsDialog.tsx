@@ -17,6 +17,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { Dialog, type DialogProps, EmptyState, Icon, Spinner } from "@av-pi-studio/ui-library";
+import { getHost } from "../../host/install.js";
 import { useConnectionStore } from "../../lib/connection/connection-store.js";
 import { useUiStore } from "../../stores/ui-store.js";
 import { LoginDialog } from "../provider-auth/LoginDialog.js";
@@ -40,7 +41,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   // Reactive over `serverInfo` (a tracked Zustand field) rather than the imperative
   // `PiStudioClient#hasProviderAuthCapability()` — the store's `client` reference stays stable
   // across a reconnect while its internal `_features` mutates in place.
-  const caps = buildSettingsCategoryCapabilities(serverInfo?.features);
+  const caps = buildSettingsCategoryCapabilities(serverInfo?.features, {
+    usageData: getHost().usageData !== undefined,
+  });
   const categories = SETTINGS_CATEGORIES.filter((c) => c.available(caps));
 
   const [selectedId, setSelectedId] = useState<string | undefined>(categories[0]?.id);

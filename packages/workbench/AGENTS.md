@@ -71,6 +71,11 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   through its `window_set_zoom` command): the workbench owns the level (`stores/zoom-store.ts`), applies it
   at install and on each change, and binds Ctrl/Cmd + = / − / 0. Absent (the browser) → the browser's own
   zoom and keys are left alone, and Settings → Appearance says so.
+  Optional `usageData` (`HostUsageData`: `current(): UsageDataView` `{enabled, sending, blocked?, id?}`,
+  `setEnabled(enabled): Promise<void>`; set by the desktop host only, `swe/features/desktop-usage-data.md`
+  § 6): gates Settings → Privacy (`SettingsCategoryCapabilities.usageData`, passed by `SettingsDialog`
+  and `ConnectionBar` as the second argument of `buildSettingsCategoryCapabilities`). Absent (the browser)
+  → no Privacy category. `test-host.ts` takes `usageData` (e.g. `createTestUsageData`).
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
@@ -828,7 +833,14 @@ src/
                             than hiding the row; see § Invariants "Viewer-disable gate" and
                             "Settings gear reachability"), and Daemon (`available: (caps) =>
                             caps.daemonUpdate` = `server_info.features.daemonUpdate`, sprint-137/
-                            task-003): DaemonSettingsPanel.tsx (+ module.css, lazy) draws
+                            task-003): Privacy (sprint-157, `available: (caps) => caps.usageData`,
+                            host-gated): PrivacyPanel.tsx (+ module.css, lazy) draws
+                            privacy-view.ts's `privacyView(UsageDataView)` (switch state, the "this
+                            run sends nothing: <reason>" line for the four `blocked` reasons, the
+                            "Your anonymous ID" line) and its fixed `USAGE_DATA_SENT` list, the
+                            destination, and a link to `USAGE_DATA_DOCS_URL`; a failed `setEnabled`
+                            shows the error and the switch stays as it was; the ID is ellipsized and
+                            selectable. DaemonSettingsPanel.tsx (+ module.css, lazy) draws
                             daemon-settings-view.ts's `daemonSettingsView({status, pendingAutoCheck,
                             now})` (+ test — version, install kind, "Last checked" wording
                             (`lastCheckedText`: Never / Just now / N minutes|hours|days ago), the

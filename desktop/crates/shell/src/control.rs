@@ -3,7 +3,7 @@
 //!
 //! - `engine.execute {command, params?}`: run any command by id
 //! - `engine.commands`: the registry, with what is enabled now
-//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }`, `transfers`, `update` (the self-update's state, this app's version, the install kind, the setting and the manifest, never a path, a key or an address but the release page's) and the menu bar: exactly what the frontend draws
+//! - `ui.inspect`: the UI state, the settings, the daemon registry (no secret), `connection: { secretStore, transports, lastError, resumeSignals }`, `transfers`, `update` (the self-update's state, this app's version, the install kind, the setting and the manifest, never a path, a key or an address but the release page's), `usage` (`{ enabled, sending, blocked? }`: never the usage ID) and the menu bar: exactly what the frontend draws
 //! - `ui.set {}`: change UI state; it has no field yet, so any field is an error
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use serde_json::{Value, json};
 
 use crate::daemons::{self, LocalOp};
-use crate::{AppShell, menus};
+use crate::{AppShell, menus, usage};
 
 pub const METHODS: &[&str] = &["engine.commands", "engine.execute", "ui.inspect", "ui.set"];
 
@@ -34,6 +34,9 @@ pub enum Request {
     Engine { id: String, params: Value },
     /// A short operation of the local-daemon supervisor; never from automation.
     Local(LocalOp),
+    /// The app's usage-data moments (launch, tick, close); never from automation. The answer's
+    /// result is the request to send, or null (see [`crate::usage::answer`]).
+    Usage(crate::usage::UsageOp),
 }
 
 /// One request on its way to the thread that owns the shell, with the channel its reply goes
@@ -101,6 +104,7 @@ pub fn view(app: &mut AppShell) -> Value {
         },
         "transfers": transfers,
         "update": app.update.inspect(&app.info.version, app.session.settings().check_for_updates),
+        "usage": usage::inspect_view(app),
         "menus": menus::model(app),
     })
 }

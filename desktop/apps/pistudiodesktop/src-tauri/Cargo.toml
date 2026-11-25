@@ -41,6 +41,11 @@ log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 getrandom = { workspace = true }
+sys-locale = { workspace = true }
+# The usage data's POST (`usage.rs`) builds its client as `install` does: reqwest over rustls with `ring` and the system's verifier.
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
 if-addrs = { workspace = true }
 # The SSH session's shared connection attempt, its idle timer and the socket that carries a lease on it; the socket's message type is the library's.
 # `rt`: the daemon download's runtime of its own (`daemon_install.rs`). `fs`: the archive the SSH install sends is opened with it.
