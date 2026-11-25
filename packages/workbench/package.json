@@ -1,6 +1,6 @@
 {
   "name": "@av-pi-studio/workbench",
-  "version": "0.0.133",
+  "version": "0.0.134",
   "private": true,
   "description": "The Pi-Studio client application as a library: every feature, its stores and its shell regions, for web and desktop shells",
   "license": "AGPL-3.0",
