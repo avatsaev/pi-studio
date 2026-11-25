@@ -67,6 +67,10 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   connection bar's update indicator; absent in a browser, which then draws nothing.
   Optional `reloadPage()` (set by the browser host only): the update dialog's Reload button, shown after
   an update when the page's version differs from the daemon's; absent → no button.
+  Optional `zoom` (`HostZoom`: `set(factor)`, the window's native page zoom; set by the desktop host only,
+  through its `window_set_zoom` command): the workbench owns the level (`stores/zoom-store.ts`), applies it
+  at install and on each change, and binds Ctrl/Cmd + = / − / 0. Absent (the browser) → the browser's own
+  zoom and keys are left alone, and Settings → Appearance says so.
 - `browser-files.ts` — the browser `files` (upload hands the `File` itself to the SDK, which slices and
   paces it, so nothing is held in memory, and passes it `onProgress` and `signal`;
   the SDK's `downloadTo` chunks collected straight into a `Blob` (never concatenated into one array first) for
@@ -307,7 +311,12 @@ src/
                            write cannot orphan a pane; `loadPaneLayout` returns a `LoadedPaneLayout`
                            (`{ workspaces, activeWorkspaceCwd }`) validated via pane-tree's
                            `parsePaneTree` (sprint-048/049) (+ test)
-  stores/                  Zustand slices: ui-store (fileMenu carries a `background` flag for the
+  stores/                  zoom-store (+ test — the window's zoom level: `ZOOM_LEVELS` ladder 50–200%,
+                           `parseZoom`/`stepZoom`/`zoomShortcut` pure; stored under host storage
+                           `pi-studio-zoom`, applied through `host.zoom` at install and on change;
+                           Ctrl/Cmd + = / − / 0 bound in use-shortcuts' capture phase, only when
+                           the host has `zoom`, so a focused terminal cannot swallow Ctrl+−).
+                           Zustand slices: ui-store (fileMenu carries a `background` flag for the
                            Files tree's empty-space context menu; `collapsedWorkspaces` seeded in
                            bulk via setCollapsedWorkspaces, not just toggled one at a time;
                            `daemonUpdateDialogOpen` + `openDaemonUpdateDialog`/`closeDaemonUpdateDialog`
@@ -800,8 +809,16 @@ src/
                             own eager imports (`Dialog`, `LoginDialog`, `provider-auth-store`) into
                             the main bundle ahead of the gear ever being clicked; the panel
                             components stay `lazy()`-loaded regardless of which module imports the
-                            registry array. Four categories today: Model Providers
-                            (`available: (caps) => caps.providerAuth`, capability-gated), Skills
+                            registry array. Five categories today: Model Providers
+                            (`available: (caps) => caps.providerAuth`, capability-gated; first, so the
+                            chat's "Connect a model provider" nudge lands on it), Appearance
+                            (`available: () => true`, client-only — AppearancePanel (+ module.css):
+                            a card per theme, each a miniature window drawn in that theme's own
+                            `THEME_VARIANTS` colours (inline styles, never the live tokens), set
+                            through ui-library's `useAppearanceControls().setMode`; a "Match the
+                            system" switch (`mode: "system"`); and the zoom row (− / % / + / Reset
+                            over `zoom-store`) when the host has `zoom`, else a line pointing to the
+                            browser's zoom keys), Skills
                             (`available: (caps) => caps.skills`, capability-gated — sprint-075/
                             task-006; `skills/` below), Viewers (`available: () => true`,
                             capability-INDEPENDENT — ViewersPanel (+ module.css) degrades its

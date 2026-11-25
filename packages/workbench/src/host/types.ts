@@ -534,6 +534,16 @@ export type HostPreview =
   | { kind: "inert" };
 
 /**
+ * Optional. The window's page zoom, the native kind a browser's Ctrl/Cmd + and − apply (layout,
+ * pointer coordinates and device pixels all follow it, unlike CSS `zoom`). The workbench owns the
+ * level: it stores it, applies it at start and on every change, and binds Ctrl/Cmd + = / − / 0.
+ */
+export interface HostZoom {
+  /** Sets the zoom factor (1 = 100%); the workbench passes only values of its own ladder. */
+  set(factor: number): void;
+}
+
+/**
  * The one object an embedding shell supplies to the workbench for everything browser-bound
  * (`swe/architecture/workbench-host-adapter.md`). `web-client` passes `createBrowserHost(...)`; a
  * desktop shell passes its own implementation. Members are added as the call sites move behind it.
@@ -576,4 +586,9 @@ export interface WorkbenchHost {
    * desktop app): no button.
    */
   reloadPage?: () => void;
+  /**
+   * Optional. The window's zoom. Absent (the browser, whose own zoom does the same): Settings →
+   * Appearance points to the browser's zoom and Ctrl/Cmd + = / − / 0 are left to the browser.
+   */
+  zoom?: HostZoom;
 }

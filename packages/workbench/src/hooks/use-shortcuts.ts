@@ -1,11 +1,14 @@
 /**
  * Global keymap: Ctrl/Cmd+T new terminal, Ctrl/Cmd+W close active tab, Esc close overlays
- * (POC `document.addEventListener("keydown", …)`, POC_TO_APP_PLAN_UI.md §4.8).
+ * (POC `document.addEventListener("keydown", …)`, POC_TO_APP_PLAN_UI.md §4.8), and Ctrl/Cmd + = / − / 0
+ * zoom when the host has `zoom` (a browser keeps its own zoom keys).
  */
 
 import { useEffect } from "react";
 import { useTabStore, openNewTerminal, closeTab } from "../stores/tab-store.js";
 import { useUiStore } from "../stores/ui-store.js";
+import { useZoomStore, zoomShortcut } from "../stores/zoom-store.js";
+import { getHost } from "../host/install.js";
 import { useToastStore } from "@av-pi-studio/ui-library";
 
 export function useShortcuts(): void {
@@ -50,7 +53,22 @@ export function useShortcuts(): void {
       }
     }
 
+    // Capture phase, so a focused terminal or editor never sees the keys: xterm turns Ctrl+− into a
+    // control character and would swallow it.
+    function onZoomKey(ev: KeyboardEvent) {
+      if (!getHost().zoom) return;
+      const action = zoomShortcut(ev);
+      if (!action) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      useZoomStore.getState().apply(action);
+    }
+
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onZoomKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onZoomKey, true);
+    };
   }, []);
 }

@@ -33,3 +33,12 @@ export function createNativeLinks(ipc: Ipc, log: Log): WorkbenchHost["links"] {
     },
   };
 }
+
+/** The window's page zoom, applied in Rust (`window_set_zoom`); fire and forget. */
+export function createNativeZoom(ipc: Ipc, log: Log): NonNullable<WorkbenchHost["zoom"]> {
+  return {
+    set(factor) {
+      ipc.invoke("window_set_zoom", { factor }).catch((error: unknown) => log("window_set_zoom failed", error));
+    },
+  };
+}

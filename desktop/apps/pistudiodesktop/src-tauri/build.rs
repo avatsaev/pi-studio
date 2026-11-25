@@ -25,6 +25,7 @@ fn main() {
         "preview_release",
         "transport_open",
         "ssh_config_hosts",
+        "window_set_zoom",
     ]);
     if let Err(e) = tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)) {
         eprintln!("pistudiodesktop: build script failed: {e:#}");

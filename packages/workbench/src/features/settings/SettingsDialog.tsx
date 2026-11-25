@@ -2,9 +2,8 @@
  * SettingsDialog — the app's settings shell (sprint-065/task-003): a large `Dialog`-primitive
  * modal with a category sidebar and a content pane. There is no settings screen or router in
  * web-client today (`routes/WorkspacePage.tsx` is a single shell) — this modal *is* the settings
- * IA rather than a one-off provider modal that would need migrating later: future categories
- * (Appearance is the obvious next) add a registry entry in `settings-categories.ts`, not a new
- * surface, and `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` route renders
+ * IA rather than a one-off provider modal that would need migrating later: new categories
+ * add a registry entry in `settings-categories.ts`, not a new surface, and `app-navigation-screens.md`'s `/settings/hosts/[serverId]/providers` route renders
  * these same category panels when that scope lands.
  *
  * The category registry itself (`SETTINGS_CATEGORIES`, `buildSettingsCategoryCapabilities`) lives

@@ -8,7 +8,7 @@
  */
 
 import { lazy } from "react";
-import { Atom, KeyRound, Puzzle, Server, type LucideIcon } from "lucide-react";
+import { Atom, KeyRound, Palette, Puzzle, Server, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
 /** Server capabilities a settings category may gate its availability on. Grows as new
@@ -44,6 +44,10 @@ const DaemonSettingsPanel = lazy(() =>
   import("./DaemonSettingsPanel.js").then((m) => ({ default: m.DaemonSettingsPanel })),
 );
 
+const AppearancePanel = lazy(() =>
+  import("./AppearancePanel.js").then((m) => ({ default: m.AppearancePanel })),
+);
+
 const ViewersPanel = lazy(() =>
   import("./ViewersPanel.js").then((m) => ({ default: m.ViewersPanel })),
 );
@@ -55,6 +59,15 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: KeyRound,
     component: ModelProvidersPanel,
     available: (caps) => caps.providerAuth,
+  },
+  {
+    // Client-only (theme and zoom), so always available. Second, not first: the chat's "Connect a
+    // model provider" nudge opens Settings on the first available category.
+    id: "appearance",
+    label: "Appearance",
+    icon: Palette,
+    component: AppearancePanel,
+    available: () => true,
   },
   {
     // sprint-075/task-006 — capability-gated (unlike Viewers): an old/dev daemon without the

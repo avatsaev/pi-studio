@@ -1,0 +1,170 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-24);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-10);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--pi-font-size-3xs);
+  font-weight: var(--pi-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pi-color-foregroundMuted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--pi-spacing-10);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-8);
+  margin: 0;
+  padding: var(--pi-spacing-6);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-lg);
+  background: none;
+  color: var(--pi-color-foregroundMuted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--pi-color-surface1);
+  color: var(--pi-color-foreground);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--pi-color-accentBright);
+  outline-offset: -2px;
+}
+
+.cardSelected,
+.cardSelected:hover {
+  border-color: var(--pi-color-accent);
+  background: color-mix(in srgb, var(--pi-color-accent) 14%, transparent);
+  color: var(--pi-color-foreground);
+}
+
+.cardLabel {
+  padding: 0 var(--pi-spacing-4) var(--pi-spacing-2);
+  font-size: var(--pi-font-size-xs);
+  font-weight: var(--pi-font-weight-medium);
+}
+
+/* The preview's colours come from the theme it shows (inline styles), never from the tokens of the
+   theme in use. */
+.preview {
+  display: flex;
+  height: 72px;
+  overflow: hidden;
+  border: var(--pi-border-width-1) solid;
+  border-radius: var(--pi-radius-md);
+}
+
+.previewSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-4);
+  width: 28%;
+  padding: var(--pi-spacing-8) var(--pi-spacing-6);
+  border-right: var(--pi-border-width-1) solid;
+}
+
+.previewRow {
+  height: 6px;
+  border-radius: var(--pi-radius-sm);
+}
+
+.previewMain {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--pi-spacing-6);
+  padding: var(--pi-spacing-8) var(--pi-spacing-10);
+}
+
+.previewTitle {
+  font-size: var(--pi-font-size-sm);
+  font-weight: var(--pi-font-weight-semibold);
+  line-height: 1;
+}
+
+.previewLine {
+  width: 60%;
+  height: 4px;
+  border-radius: var(--pi-radius-sm);
+  opacity: 0.6;
+}
+
+.previewDots {
+  display: flex;
+  gap: var(--pi-spacing-4);
+  margin-top: auto;
+}
+
+.previewDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--pi-radius-full);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pi-spacing-10);
+  padding: var(--pi-spacing-10) var(--pi-spacing-12);
+  border: var(--pi-border-width-1) solid var(--pi-color-border);
+  border-radius: var(--pi-radius-md);
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pi-spacing-2);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--pi-font-size-sm);
+  color: var(--pi-color-foreground);
+}
+
+.description,
+.note {
+  margin: 0;
+  font-size: var(--pi-font-size-2xs);
+  color: var(--pi-color-foregroundMuted);
+}
+
+.kbd {
+  font-family: var(--pi-font-mono);
+  font-size: var(--pi-font-size-3xs);
+  white-space: pre;
+}
+
+.zoomControls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--pi-spacing-4);
+}
+
+.zoomValue {
+  min-width: 48px;
+  text-align: center;
+  font-size: var(--pi-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--pi-color-foreground);
+}

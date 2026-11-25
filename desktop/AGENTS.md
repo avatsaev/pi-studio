@@ -11,7 +11,7 @@ live on Linux; on macOS and Windows only the automated checks have run (GitHub r
 still runs). The window draws the workbench with a desktop host: at start the page calls `boot` (the
 stored workbench keys, the registry view, the preview kind), and every storage write goes back
 through `storage_set` to the Rust engine, which writes the files in the configuration directory.
-Confirm and alert dialogs, external links and save-to-disk are native, through Rust commands, and
+Confirm and alert dialogs, external links, save-to-disk and the window's zoom (`window_set_zoom`, the level the workbench's Settings → Appearance and Ctrl/Cmd + = / − / 0 set) are native, through Rust commands, and
 the HTML preview is served from an origin of its own. The engine holds the daemon registry
 (`daemons.json`, version 3, mode 0600, no secret in it; local, direct, relay and SSH entries; the secrets
 are in a store the engine is given: the keychain when it answers, else `secrets.json`; `--secret-store`
