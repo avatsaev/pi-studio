@@ -105,14 +105,14 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 | Command                                              | Description                                    |
 | ---------------------------------------------------- | ----------------------------------------------- |
-| `agent run --provider pi/<model> "prompt"`           | Create an agent and run the first turn         |
+| `agent run --provider pi/<model> "prompt" [--no-wait] [--timeout <seconds>]` | Create an agent, run the first turn and wait for it |
 | `agent ls`                                           | List all agents                                |
 | `agent attach <agentId>`                             | Stream an agent's live events                  |
-| `agent send <agentId> "prompt"`                      | Send a follow-up prompt                        |
+| `agent send <agentId> "prompt" [--no-wait] [--timeout <seconds>]` | Send a follow-up prompt and wait for the turn |
 | `agent steer <agentId> "message"`                    | Steer a running turn (after current tool calls) |
 | `agent follow-up <agentId> "message"`                | Queue a message for after the agent stops      |
 | `agent stop <agentId>`                               | Interrupt the current turn                     |
-| `agent wait <agentId>`                               | Block until the agent goes idle or closes      |
+| `agent wait <agentId> [--timeout <seconds>]`         | Wait for the agent's turn to end (exit 0 when idle) |
 | `agent logs <agentId> [-n <limit>]`                  | Print paged timeline history                   |
 | `agent inspect <agentId>`                            | Print the full agent record                    |
 | `agent update <agentId>`                             | Update model/thinking/title                    |
@@ -123,6 +123,15 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 `run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
 (`pi-studio ls`, `pi-studio run …`).
+
+`run`, `send` and `wait` follow the turn: `run` and `send` print the agent id at once, then wait for
+the turn to end and exit 0 when the agent goes idle, non-zero when the turn failed (the reason goes to
+stderr), the agent is closed, `--timeout <seconds>` runs out, or you press Ctrl-C (which only stops
+waiting; the turn keeps running). `--no-wait` returns as soon as the daemon accepted the prompt.
+With `--json` they print exactly one line at the end: `{"agentId", "status", "error"?}` (`status` is
+`idle`, `error` or `closed`; a timeout or Ctrl-C gives `{"agentId", "error": "timeout"}` /
+`"interrupted"`; `--no-wait` gives `{"agentId"}`). The answer text is not printed: use `agent logs`
+or `agent attach`. `agent attach <agentId> --until-idle` also exits non-zero when the turn failed.
 
 Session management mirrors Pi's own slash commands — `agent session` (/session), `compact`,
 `new-session`, `resume-session`, `fork`, `fork-messages`, `clone`, `name`, `export`, `model`,

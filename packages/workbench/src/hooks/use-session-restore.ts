@@ -82,6 +82,33 @@ export function hasStringTitle(
   return typeof msg.title === "string";
 }
 
+/**
+ * Applies one `agent_update` to the sessions it belongs to. Broadcast by every RPC that changes
+ * agent state (create/status/model/…); it reaches `onSessionMessage` because the daemon wraps every
+ * non-session-enveloped broadcast in `{type:"session", message}` (`wrapSessionEnvelope`,
+ * `daemon/bootstrap.ts`). The status goes through the one rule in `lib/agent-status.ts`, in arrival
+ * order with the agent's stream events: an accepted prompt is `running` and its turn's end is an
+ * `idle` or `error` update, the only end signal a prompt an extension handles inline has. A
+ * `model`, `thinkingLevel` or `title` carried by the same update is applied too (a `/model` set,
+ * sprint-042). Exported for direct unit testing (no DOM in this project's vitest config).
+ */
+export function applyAgentUpdate(msg: AgentUpdateMessage): void {
+  const sessions = useSessionStore.getState();
+  sessions.applyStatusSignalByAgentId(msg.agentId, { source: "update", status: msg.status });
+  if (hasStringModel(msg)) {
+    const modelProvider = typeof msg.modelProvider === "string" ? msg.modelProvider : undefined;
+    sessions.setModelByAgentId(msg.agentId, msg.model, modelProvider);
+  }
+  if (hasStringThinkingLevel(msg)) {
+    sessions.setThinkingLevelByAgentId(msg.agentId, msg.thinkingLevel);
+  }
+  if (hasStringTitle(msg)) {
+    sessions.setTitleByAgentId(msg.agentId, msg.title);
+    const entry = useSessionStore.getState().findByAgentId(msg.agentId);
+    if (entry) useTabStore.getState().updateLabel(tabIds.chat(entry.id), msg.title);
+  }
+}
+
 export function useSessionRestore(): void {
   const client = useConnectionStore((s) => s.client);
   const status = useConnectionStore((s) => s.status);
@@ -100,28 +127,12 @@ export function useSessionRestore(): void {
     });
   }, [status, client]);
 
-  // Live model updates from an explicit `/model` set (sprint-042). `agent_update` is broadcast
-  // by every RPC that changes agent state (create/status/model/…) and reaches `onSessionMessage`
-  // because the daemon wraps every non-session-enveloped broadcast in `{type:"session", message}`
-  // (`wrapSessionEnvelope`, `daemon/bootstrap.ts`) — this listener only reacts to the ones that
-  // carry a `model`. Lives for the whole connection (not gated by `restoredRef`, unlike the
-  // one-shot restore fetch above), so a model change on any session — active or not — is captured.
+  // Live agent state from `agent_update` (`applyAgentUpdate`). Lives for the whole connection (not
+  // gated by `restoredRef`, unlike the one-shot restore fetch above), so a change on any session —
+  // active or not — is captured.
   useEffect(() => {
     if (status !== "open" || !client) return;
-    return client.onAgentUpdate((msg) => {
-      if (hasStringModel(msg)) {
-        const modelProvider = typeof msg.modelProvider === "string" ? msg.modelProvider : undefined;
-        useSessionStore.getState().setModelByAgentId(msg.agentId, msg.model, modelProvider);
-      }
-      if (hasStringThinkingLevel(msg)) {
-        useSessionStore.getState().setThinkingLevelByAgentId(msg.agentId, msg.thinkingLevel);
-      }
-      if (hasStringTitle(msg)) {
-        useSessionStore.getState().setTitleByAgentId(msg.agentId, msg.title);
-        const entry = useSessionStore.getState().findByAgentId(msg.agentId);
-        if (entry) useTabStore.getState().updateLabel(tabIds.chat(entry.id), msg.title);
-      }
-    });
+    return client.onAgentUpdate(applyAgentUpdate);
   }, [status, client]);
 }
 

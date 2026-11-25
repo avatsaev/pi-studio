@@ -2,9 +2,9 @@
  * Live timeline subscription for a chat session. Subscribes to
  * `client.agent(agentId).timeline.subscribe` whenever both the connection's `client` and the
  * session's `agentId` are available, routing every event through `applyAgentStreamEvent`
- * (POC_TO_APP_PLAN_UI.md §4.3). Also mirrors the POC's `handleAgentStream` turn-lifecycle →
- * `session.status` transitions so the Composer's Stop button and the session-list status dot
- * stay live.
+ * (POC_TO_APP_PLAN_UI.md §4.3). `turn_started` also marks the session `running`, so the
+ * Composer's Stop button and the session-list status dot stay live; the turn's end is the
+ * daemon's `agent_update`, applied by `use-session-restore.ts` (`lib/agent-status.ts`).
  *
  * By design, a deferred draft's `agentId` is bound before any turn can start (at tab-open time
  * via `ensureMaterialized` in the Composer), so this subscription attaches before streaming

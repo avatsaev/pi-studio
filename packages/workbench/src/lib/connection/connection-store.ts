@@ -113,11 +113,6 @@ export const useConnectionStore = create<ConnectionStoreState>()((set, get) => (
         [CLIENT_CAPS.terminal_reflowable_snapshot]: true,
       },
       transport,
-      // The PiStudioClient facade has no per-call timeout override for
-      // createAgent/send/interrupt, and agent turns can run far longer than a
-      // typical RPC (POC used a 30 min turn timeout). One rpcTimeoutMs applies
-      // to every request on this connection, so size it for the longest op.
-      rpcTimeoutMs: 30 * 60 * 1000,
     });
     const client = new PiStudioClient(daemon);
     // The host's timers (worker-backed in the browser, so backoff stays accurate in a hidden,

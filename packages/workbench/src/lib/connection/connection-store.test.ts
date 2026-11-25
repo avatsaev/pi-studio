@@ -1,5 +1,10 @@
-import { RelayConnectError, type Transport } from "@av-pi-studio/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  DEFAULT_RPC_TIMEOUT_MS,
+  RelayConnectError,
+  RpcTimeoutError,
+  type Transport,
+} from "@av-pi-studio/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHost, resetHostForTests } from "../../host/install.js";
 import { createTestHost } from "../../test/test-host.js";
 import { useConnectionStore } from "./connection-store.js";
@@ -106,5 +111,58 @@ describe("a manual disconnect", () => {
     late.arrive();
 
     expect(useConnectionStore.getState().status).toBe("idle");
+  });
+});
+
+/** Answers `hello` with a `server_info` and every later request with nothing at all. */
+function silentDaemonTransport(): Transport {
+  const transport: Transport = {
+    isOpen: true,
+    onMessage: null,
+    onClose: null,
+    onError: null,
+    connect: async () => {},
+    sendText: (data) => {
+      if (!data.includes('"hello"')) return;
+      const info = { status: "server_info", serverId: "s1", features: {}, capabilities: {} };
+      queueMicrotask(() =>
+        transport.onMessage?.(JSON.stringify({ type: "status", payload: info })),
+      );
+    },
+    sendBinary: () => {},
+    close: () => {},
+  };
+  return transport;
+}
+
+describe("the connection's request timeout", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is the SDK default: a daemon that never answers fails the request after 30 s and the socket stays up", async () => {
+    vi.useFakeTimers();
+    installHost(createTestHost({ createTransport: () => silentDaemonTransport() }));
+    await useConnectionStore.getState().connect({ url: "box:6767" });
+    const { daemon } = useConnectionStore.getState();
+    if (!daemon) throw new Error("connect left no daemon");
+
+    let settled = false;
+    const outcome = daemon.request("list_agents_request", {}).then(
+      () => {
+        settled = true;
+        return null;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(DEFAULT_RPC_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+    expect(useConnectionStore.getState().status).toBe("open");
   });
 });

@@ -117,6 +117,11 @@ results in `packages/server/docs/daemon-update-live-results.md`). Run it from a 
 changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop. The single
 binary's update path has its own: `scripts/binary-update-check/` (a Node-less container, a local HTTP
 release channel; `build:binary` takes `--version`/`--out-dir` for it).
+The ordered, bounded shutdown (`daemon/shutdown.ts`, 10 s) was stopped live under load (a running Pi turn, a
+terminal, an install in flight, a client that stopped reading): `daemon stop` took 1.5 s, 3.1 s with a
+terminal that ignores SIGTERM and SIGHUP, and left no process and no PID file; a second SIGTERM exits 1 at
+once (the PID file stays, stale); a second daemon on the port exits 1 and leaves the first's PID file
+untouched; requests during the stop get `shutting_down` (same results file, 2026-11-25).
 What Pi, the `skills` CLI, an OAuth login and older glibc do inside the single binary (a Node-less
 container; real agent turn, `pi install`, a failing extension) was checked live; results are in
 `packages/server/docs/binary-live-results.md`.

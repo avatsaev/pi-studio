@@ -1,7 +1,7 @@
 # Task 002 — CLI: `run`, `send` and `wait` follow events
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/cli (agent commands), docs
 - **Priority:** P1

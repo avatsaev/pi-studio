@@ -1,7 +1,7 @@
 # Task 003 — Workbench: status from `agent_update`, and a composer that is busy from acceptance
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/workbench (chat composer, session status)
 - **Priority:** P1

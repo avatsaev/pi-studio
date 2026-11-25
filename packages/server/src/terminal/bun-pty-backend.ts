@@ -52,7 +52,7 @@ const TERM_NAME = "xterm-256color";
  */
 export interface BunPtyBackendDeps {
   resolveExecutable(bin: string, env?: Record<string, string | undefined>): string;
-  killTree(pid: number | undefined, signal?: NodeJS.Signals): void;
+  killTree(pid: number | undefined, signal?: NodeJS.Signals, then?: () => void): void;
 }
 
 /** Production backend under Bun: a real PTY via `Bun.spawn(…, { terminal })`. */
@@ -108,12 +108,13 @@ export class BunPtyBackend implements PtyBackend {
       },
       kill: (force) => {
         const signal = force ? "SIGKILL" : "SIGTERM";
-        this.deps.killTree(proc.pid, signal);
-        try {
-          proc.kill(signal);
-        } catch {
-          // Already exited.
-        }
+        this.deps.killTree(proc.pid, signal, () => {
+          try {
+            proc.kill(signal);
+          } catch {
+            // Already exited.
+          }
+        });
       },
       onData: (cb) => {
         dataCbs.push(cb);

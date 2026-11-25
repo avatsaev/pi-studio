@@ -130,7 +130,10 @@ export function ensureMaterialized(client: PiStudioClient, sessionId: string): P
   })();
 
   materializing.set(sessionId, promise);
-  void promise.finally(() => materializing.delete(sessionId));
+  // The callers own a rejection (a failed send is toasted, a failed pick is explained); this
+  // cleanup branch must not turn it into a second, unhandled one.
+  const forget = (): void => void materializing.delete(sessionId);
+  void promise.then(forget, forget);
   return promise;
 }
 

@@ -318,7 +318,7 @@ function onUserMessage(
 ): TimelineState {
   // Reconcile against the optimistic row `Composer` inserted synchronously on Send (same
   // `clientMessageId`, echoed back verbatim by the daemon as this event's `messageId` — see
-  // `packages/server/src/agent/agent-service.ts` `runTurn`): confirm it in place instead of
+  // `packages/server/src/agent/agent-service.ts` `beginTurn`): confirm it in place instead of
   // appending a duplicate. No match (session-restore replay, or a `messageId` the daemon minted
   // itself) → append fresh, already-confirmed.
   if (messageId !== undefined) {
@@ -444,12 +444,11 @@ export function addOptimisticUserMessage(
 }
 
 /**
- * Mark a still-pending optimistic row as failed — the RPC that was meant to confirm it
- * (`createAgent`/`send`) rejected before any `user_message` broadcast arrived. No-op if the row
- * was already reconciled (server confirmed it before the RPC promise settled — the RPC contract
- * is "resolves after the whole turn", so a `user_message` broadcast can arrive, then the promise
- * can still reject later from a failure elsewhere in that same turn; the row is already correct
- * by then and must not be clobbered back into a failed state).
+ * Mark a still-pending optimistic row as failed — the request that was meant to confirm it (the
+ * send, or the draft's `createAgent` before it) was refused or lost before any `user_message`
+ * broadcast arrived (`composer-send.ts`). No-op if the row was already reconciled: the daemon
+ * accepted the prompt after all (an answer lost with the connection, say) and its `user_message`
+ * confirmed the row, which must not be turned back into a failed one.
  */
 export function markUserMessageFailed(
   state: TimelineState,

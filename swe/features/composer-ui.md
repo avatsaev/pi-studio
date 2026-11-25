@@ -83,6 +83,22 @@ a small pill and clears once a `queue_update` stream event no longer lists the r
 [timeline-rendering.md § User rows](timeline-rendering.md). Follow-up (queue-until-idle) is
 SDK/CLI-only for now — not surfaced as composer UI.
 
+### Send, busy, and refusals (workbench)
+The daemon answers a send (`send_agent_prompt`, and a draft's `create_agent_request`) when it
+**accepts** the prompt, not when the turn ends; the turn then reports through the agent's stream rows and
+exactly one `agent_update` (`idle` or `error`). So the composer's `sending` flag covers only the request.
+- **Accepted:** the session is `running` from the answer until the turn's one `agent_update` (`idle` or
+  `error`), which the daemon sends after the turn's last row. A `turn_*` row does not end it: the daemon
+  refuses a send until that update has gone out (an inline-handled slash command has only the update).
+  A running session offers Steer instead of Send, so a second send cannot slip in between the answer and
+  the turn's first event, or between the turn's last row and its end.
+- **Refused** (`busy`, unknown agent, connection lost before the answer, a draft that could not be
+  materialized): nothing was started. The optimistic row is marked failed, the status is unchanged and a
+  toast shows the reason (`Couldn't send: the agent is running.`; any other message as it came).
+- **A turn that fails after acceptance** (no credential, provider 403/429, Pi cannot start) is not a refusal:
+  its reason is a `turn_failed` row, drawn as an error row (`Error · <reason>`), and the status ends `error`
+  on the `agent_update` that follows.
+
 ### Text input
 Controlled multiline that auto-grows (native content-size; web height-mirror) between min/max with scroll
 past max. Cursor/selection is tracked to detect the active `/command` or `@file` token. Non-editable while

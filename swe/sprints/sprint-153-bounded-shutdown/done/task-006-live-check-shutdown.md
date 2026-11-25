@@ -1,7 +1,7 @@
 # Task 006 — Live check of shutdown, and the update recipes
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** in_progress
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server, scripts, docs
 - **Priority:** P1

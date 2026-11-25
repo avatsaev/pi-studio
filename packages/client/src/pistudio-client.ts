@@ -108,6 +108,37 @@ export const PREVIEW_SKILL_SOURCE_TIMEOUT_MS = 150 * 1000;
  */
 export const INSTALL_SKILLS_TIMEOUT_MS = 660 * 1000;
 
+/**
+ * RPC timeout for `extension_packs_set_request`. The response arrives only after the triggered sync
+ * finishes; the daemon installs entries one after another, each bounded at 180 s, so 900 s covers
+ * five installs.
+ */
+export const EXTENSION_PACKS_SYNC_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * RPC timeout for the requests that may start the agent's Pi process before they act: `resume_agent`,
+ * `import_agent_session`, `agent_fork_request`, `agent_fork_messages_request`,
+ * `agent_clone_request` and `agent_list_commands_request` (a process spawned lazily after a daemon
+ * restart, then one Pi command). The daemon bounds each Pi request at 60 s, so 150 s covers the
+ * spawn and the command plus margin.
+ */
+export const SESSION_START_TIMEOUT_MS = 150 * 1000;
+
+/**
+ * RPC timeout for the requests that are one Pi command which is not instant: `interrupt_agent`,
+ * `agent_new_session_request` and `agent_switch_session_request` (a large session file loads). The
+ * daemon rejects a Pi command at 60 s, so 90 s lets its own error arrive instead of a generic
+ * timeout.
+ */
+export const PI_COMMAND_TIMEOUT_MS = 90 * 1000;
+
+/**
+ * RPC timeout for `create_pistudio_worktree_request` and `pistudio_worktree_archive_request`.
+ * `git worktree add` checks out a whole tree and the project's `setup`/`teardown` commands run
+ * before the answer, with no daemon-side bound. No facade method sends these; the CLI does.
+ */
+export const WORKTREE_TIMEOUT_MS = 10 * 60_000;
+
 // ─── Update handler types ─────────────────────────────────────────────────────
 
 export type PiStudioAgentUpdateHandler = (update: AgentUpdateMessage) => void;
@@ -613,9 +644,8 @@ export class PiStudioClient {
   }
 
   /**
-   * Change the selection and sync. Resolves only after the daemon's sync completes — pass a
-   * generous opts.timeoutMs for a first-run install, which can exceed the client's default
-   * rpcTimeoutMs.
+   * Change the selection and sync. Resolves only after the daemon's sync completes, so the request
+   * waits `EXTENSION_PACKS_SYNC_TIMEOUT_MS` unless `opts.timeoutMs` says otherwise.
    */
   setExtensionPacks(
     packs: string[],
@@ -624,7 +654,7 @@ export class PiStudioClient {
     return this.daemon.request<ExtensionPacksSetResponse>(
       "extension_packs_set_request",
       { packs },
-      opts?.timeoutMs,
+      opts?.timeoutMs ?? EXTENSION_PACKS_SYNC_TIMEOUT_MS,
     );
   }
 
@@ -636,7 +666,7 @@ export class PiStudioClient {
     return this.daemon.request<ExtensionPacksSetResponse>(
       "extension_packs_set_request",
       {},
-      opts?.timeoutMs,
+      opts?.timeoutMs ?? EXTENSION_PACKS_SYNC_TIMEOUT_MS,
     );
   }
 
@@ -1280,7 +1310,7 @@ class AgentHandle implements PiStudioAgentActions {
   }
 
   interrupt(): Promise<unknown> {
-    return this.daemon.request("interrupt_agent", { agentId: this.agentId });
+    return this.daemon.request("interrupt_agent", { agentId: this.agentId }, PI_COMMAND_TIMEOUT_MS);
   }
 
   steer(
@@ -1318,7 +1348,7 @@ class AgentHandle implements PiStudioAgentActions {
   }
 
   resume(): Promise<unknown> {
-    return this.daemon.request("resume_agent", { agentId: this.agentId });
+    return this.daemon.request("resume_agent", { agentId: this.agentId }, SESSION_START_TIMEOUT_MS);
   }
 
   archive(): Promise<unknown> {
@@ -1351,26 +1381,43 @@ class AgentHandle implements PiStudioAgentActions {
   }
 
   newSession(): Promise<AgentNewSessionResponse["payload"]> {
-    return this.daemon.request("agent_new_session_request", { agentId: this.agentId });
+    return this.daemon.request(
+      "agent_new_session_request",
+      { agentId: this.agentId },
+      PI_COMMAND_TIMEOUT_MS,
+    );
   }
 
   switchSession(sessionPath: string): Promise<AgentSwitchSessionResponse["payload"]> {
-    return this.daemon.request("agent_switch_session_request", {
-      agentId: this.agentId,
-      sessionPath,
-    });
+    return this.daemon.request(
+      "agent_switch_session_request",
+      { agentId: this.agentId, sessionPath },
+      PI_COMMAND_TIMEOUT_MS,
+    );
   }
 
   fork(entryId: string): Promise<AgentForkResponse["payload"]> {
-    return this.daemon.request("agent_fork_request", { agentId: this.agentId, entryId });
+    return this.daemon.request(
+      "agent_fork_request",
+      { agentId: this.agentId, entryId },
+      SESSION_START_TIMEOUT_MS,
+    );
   }
 
   forkMessages(): Promise<AgentForkMessagesResponse["payload"]> {
-    return this.daemon.request("agent_fork_messages_request", { agentId: this.agentId });
+    return this.daemon.request(
+      "agent_fork_messages_request",
+      { agentId: this.agentId },
+      SESSION_START_TIMEOUT_MS,
+    );
   }
 
   clone(): Promise<AgentCloneResponse["payload"]> {
-    return this.daemon.request("agent_clone_request", { agentId: this.agentId });
+    return this.daemon.request(
+      "agent_clone_request",
+      { agentId: this.agentId },
+      SESSION_START_TIMEOUT_MS,
+    );
   }
 
   setSessionName(name: string): Promise<AgentSetSessionNameResponse["payload"]> {
@@ -1405,7 +1452,11 @@ class AgentHandle implements PiStudioAgentActions {
 
   /** Command discovery (sprint-040) — Pi `get_commands` via the daemon. */
   listCommands(): Promise<AgentListCommandsResponse["payload"]> {
-    return this.daemon.request("agent_list_commands_request", { agentId: this.agentId });
+    return this.daemon.request(
+      "agent_list_commands_request",
+      { agentId: this.agentId },
+      SESSION_START_TIMEOUT_MS,
+    );
   }
 
   setThinking(level: string): Promise<AgentSetThinkingResponse["payload"]> {
@@ -1463,7 +1514,7 @@ export function importAgentSession(
   daemon: DaemonClient,
   args: { provider: string; cwd: string; providerHandleId: string },
 ): Promise<unknown> {
-  return daemon.request("import_agent_session", args);
+  return daemon.request("import_agent_session", args, SESSION_START_TIMEOUT_MS);
 }
 
 export type { SessionMessage };

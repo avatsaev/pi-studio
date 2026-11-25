@@ -1,7 +1,7 @@
 # Task 004 — Workbench: the 30-minute request timeout goes
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/workbench (connection), packages/client (per-call timeouts)
 - **Priority:** P2

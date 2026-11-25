@@ -256,6 +256,10 @@ src/
                            into one ordered event list; see Invariants "Restored history") (+ test)
   lib/agent-deep-link.ts   parseAgentDeepLink / stripAgentParam / applyAgentDeepLink — `#agent=` grammar,
                            cleanup, one-shot apply with injected effects (sprint-082)
+  lib/agent-status.ts      nextAgentStatus — the one pure rule that moves a session's status from
+                           `turn_started`, an `agent_update`'s status (the only thing that ends a
+                           turn) and the daemon's acceptance of a send (see Invariants "One status
+                           rule") (+ test)
   lib/paths.ts             resolveWorkspacePath — shared relative-path + base joiner (moved out
                            of use-file-live-refresh.ts, task-002 sprint-045; also used by
                            timeline/image-src.ts's relative-path branch); dirOf (parent directory
@@ -322,7 +326,9 @@ src/
                            discardIfEmpty; closeByPathPrefix closes every file/diff/molecule tab
                            nested under a deleted path), session-store
                            (SessionEntry.model/modelProvider/thinkingLevel, poll-reconciled + live-updated by
-                           agent_update; setTimeline/setTimelineByAgentId — unconditional wholesale
+                           agent_update; applyStatusSignal/applyStatusSignalByAgentId — the status
+                           actions over lib/agent-status.ts, written only on a change;
+                           setTimeline/setTimelineByAgentId — unconditional wholesale
                            replace, the fork-resync counterpart to applyStreamEvent's incremental
                            updates, sprint-072/task-001), draft-store (per-session composer draft text lifted out
                            of Composer.tsx's own useState — sprint-069/task-007 — plus a one-shot
@@ -436,8 +442,9 @@ src/
                            — pages each agent's timeline to completion via lib/protocol/timeline-paging,
                            reopens EVERY hydrated chat a persisted pane still claims (falling back to
                            the most recent one when nothing is claimed),
-                           + a connection-lifetime `agent_update` listener that keeps
-                           session-store.model live on an explicit `/model` set), use-session-stats
+                           + a connection-lifetime `agent_update` listener (`applyAgentUpdate`, exported
+                           for tests) that keeps session-store.model live on an explicit `/model` set
+                           and applies the update's `status` through `applyStatusSignalByAgentId`), use-session-stats
                            (per-session context/token/cost/model poll — sprint-042, see AGENTS.md
                            § Invariants "Status bar"), use-terminal-restore
                            (one-shot reopen of every daemon-side terminal as a tab on connect —
@@ -924,7 +931,10 @@ src/
                             picker") + slash-commands.ts (pure token/filter/apply logic,
                             client built-ins + `parseBuiltinInvocation`, unit-tested),
                             composer-gate.ts (+ test — pure `canSubmitDraft`/`canCompact`,
-                            sprint-074/task-008), composer-path-drop.ts (+ test — pure `refRoot`/
+                            sprint-074/task-008), composer-busy.ts (+ test — `isComposerBusy`),
+                            composer-send.ts (+ test — `sendPrompt`: materialize, send, then
+                            `running` when accepted or a failed row + reason toast when refused;
+                            `sendFailureToast`; sprint-152), composer-path-drop.ts (+ test — pure `refRoot`/
                             `relativeRefPath`/`formatRefToken`/`planInsertion`/`decideComposerDrop`
                             for dropping a Files-tree row onto the composer, sprint-081), use-bottom-anchor (the timeline's bottom-anchor
                             controller: gesture/scroll/resize listeners over
@@ -1233,6 +1243,14 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   host's `connection.createTransport(target, options)` (browser host: relay transport for a relay
   pairing link; anything else refused, bar the dev-only `/daemon-ws`). Close code `4000` is in the WebSocket private-use range —
   it appears only in logs, no wire meaning.
+- **One request timeout, the SDK's.** `connection-store.ts` builds its `DaemonClient` with no
+  `rpcTimeoutMs`, so every request waits `DEFAULT_RPC_TIMEOUT_MS` (30 s) and then fails alone
+  (`RpcTimeoutError`, the socket stays `open`). It used to set 30 minutes for the whole connection,
+  only because create and send blocked for a turn; they answer at acceptance now, so a daemon that
+  stops answering is reported after 30 s. A request that really takes longer is named in the SDK
+  (`packages/client/AGENTS.md` § Per-request timeouts) and its facade method passes the timeout:
+  never raise the connection default again, and never call `client.connection.request` for a slow
+  request without one of those constants. Test: `connection-store.test.ts` (a silent daemon).
 - **A reconnect keeps the client object; whatever the daemon holds per connection must be asked
   for again.** `ReconnectionManager` reconnects in place: `connection-store`'s `client` and `daemon`
   stay the same objects and only `status` leaves `open` and comes back. The daemon's session is new,
@@ -1619,14 +1637,55 @@ string[]}`, no ids — best-effort text correlation) clears `queued` once the ro
   longer listed (`reducer.ts`'s `onQueueUpdate`, wired into `applyStreamEvent`'s `queue_update`
   case); `UserRow.tsx` renders a small "queued" pill while it's set. Follow-up (`.followUp(...)`,
   delivered only once the turn fully stops) is SDK/CLI-only — intentionally not surfaced in this UI.
-  `Composer.tsx` tracks **two independent busy flags** (`sending` for Send/create-agent, `steering`
-  for Steer) rather than one shared flag: the Send/create-agent RPC blocks server-side for the
-  _entire_ turn (`AgentService.runTurn` doesn't resolve until the turn ends), so a single shared
-  flag left the Steer button disabled for the whole turn — the button's `disabled` is keyed off
-  whichever flag matches the currently-rendered action (`running ? steering : sending`). All three
+  `Composer.tsx` tracks **two independent in-flight flags** (`sending` for Send, `steering` for
+  Steer), each covering only its own request: the daemon answers `send_agent_prompt` and
+  `create_agent_request` when it ACCEPTS the prompt (the agent is `running`), not when the turn
+  ends, so `sending` is true for the materialize + send round trips and no longer. The button's
+  `disabled` is keyed off whichever flag matches the currently-rendered action
+  (`isComposerBusy`: `running ? steering : sending`). All three
   actions are icon-only circular buttons in the composer toolbar (see next bullet): Send is
   `ArrowUp`, Steer is `Navigation`, Stop is a `destructive` `Square` rendered _beside_ the primary
   action while running, never replacing it.
+- **Send and busy (sprint-152).** The send path lives in `features/chat/composer-send.ts`'s
+  `sendPrompt` (the steer path stays in `Composer.tsx`): materialize the draft if needed
+  (`ensureMaterialized`), `client.agent(id).send(...)`, then record the outcome.
+  - **Accepted** → the session is `running` until its turn ends (`lib/agent-status.ts`'s
+    `accepted` signal, applied when the answer arrives; the daemon sends nothing of a turn before
+    the answer to the prompt that started it, so this can never override that turn's own end). A
+    running session offers Steer, so a second send cannot slip in between the answer and the turn's
+    first event, or between the turn's last row and its end.
+  - **Refused** (`busy: agent <id> …`, `unknown agent`, a connection lost before the answer, a
+    draft that could not be materialized) → nothing was started: the optimistic row is marked
+    failed (`markUserMessageFailed`, which leaves a row the daemon already confirmed alone), the
+    status is left as it was, and a toast shows the reason (`sendFailureToast`: a busy refusal
+    reads `Couldn't send: the agent is running.`, any other message is shown as it came).
+  - **A turn that fails after acceptance** (no credential, provider 403/429, Pi cannot start) is
+    not a refusal: the daemon records a `turn_failed` row carrying the reason, which the reducer
+    turns into an `error` row (`ErrorRow`: "Error · <reason>", wrapping long reasons), then sends
+    `agent_update error`.
+- **One status rule: `lib/agent-status.ts`'s `nextAgentStatus`.** A session's `status` moves by
+  three kinds of report, applied in arrival order through the store's `applyStatusSignal`
+  (written only when the status changes):
+  - the `status` of an `agent_update` — `running`, `idle` or `error` only; `initializing`,
+    `closed` and an absent status say nothing about a turn (`use-session-restore.ts`'s
+    `applyAgentUpdate`, the connection-lifetime listener and the only `agent_update` consumer).
+    **This is the ONLY thing that ends a turn.** The daemon sends `agent_update running` once it
+    accepts a prompt and exactly one `idle`/`error` after the turn's last row, on the same socket,
+    so it always follows every row of the turn and carries every ending: completed or canceled
+    (`idle`), failed (`error`), a failure before the turn started, and a prompt an extension
+    handles inline (no `turn_*` rows at all);
+  - the stream's `turn_started` → `running` (`hooks/agent-stream-events.ts`). `turn_completed`,
+    `turn_canceled` and `turn_failed` deliberately do NOT change the status: the daemon refuses a
+    send until its `agent_update` has gone out, so a session shown idle after `turn_completed`
+    would offer a Send refused as busy. `turn_failed` still draws its reason as an error row (the
+    reducer), and the session turns `error` on the `agent_update` right after it;
+  - `accepted` (above), the daemon's answer to a send.
+
+  Both wire sources arrive in order on the one socket, so last-writer-wins needs no sequence
+  numbers. After a reconnect the status still comes from the daemon's agent list
+  (`use-session-resync.ts`), applied with `setStatus`. Everything that reads `session.status`
+  (Composer, Stop, `TurnProgressBar`, the sidebar and tab dots, fork and compact gates, the stats
+  re-poll) therefore changes at the `agent_update`, a moment after the last row.
 - **Composer layout: one card, one bottom toolbar.** `Composer.tsx` renders a bordered `.card`
   (`Composer.module.css`) holding the autosizing textarea, the `Attachments` strip, and a
   `.toolbar` row along the bottom edge: attach (`+`) and slash-commands (`/`) on the left, model
@@ -3033,9 +3092,11 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
     never shipped).
   - **Resolved `TODO(verify)`: Pi tears a mid-stream turn down cleanly on fork, it never errors.**
     Forking while a turn is running does not throw or reject either RPC: the daemon's
-    `agent_fork_request` answers normally, and the in-flight `send_agent_prompt` call settles with
-    `status: "idle"` moments later (live-verified: the turn's own duration dropped to ~1s, matching
-    exactly when the fork was issued, well short of the multi-step task it was mid-way through) —
+    `agent_fork_request` answers normally and the turn ends moments later like any other turn (its
+    stream rows, then its one `agent_update`). (Live-verified while `send_agent_prompt` still
+    blocked until the turn ended: that call settled at that moment — it now resolves at
+    acceptance, long before — and the turn's own duration dropped to ~1s, matching exactly
+    when the fork was issued, well short of the multi-step task it was mid-way through.) That is
     consistent with this app's own design of never offering the fork affordance while `running` is
     true; a client that bypassed that gate would see a silently truncated turn, not an error.
   - **Resolved `TODO(verify)`: steered/queued messages join `get_fork_messages()` the moment they

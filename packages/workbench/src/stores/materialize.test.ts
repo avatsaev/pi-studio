@@ -313,6 +313,23 @@ describe("ensureMaterialized", () => {
 
     expect(createAgentCalls).toHaveLength(1);
   });
+
+  it("a failed materialize is forgotten, so the next call retries, and nothing is left unhandled", async () => {
+    useSessionStore.getState().createSession("/work");
+    const sessionId = useSessionStore.getState().order[0]!;
+    let attempts = 0;
+    const { client, createAgentCalls } = fakeClient({
+      createAgent: () =>
+        ++attempts === 1
+          ? Promise.reject(new Error("socket closed: connection lost"))
+          : Promise.resolve({ agentId: "agent-retry" }),
+    });
+
+    // Were the cleanup branch to re-reject, vitest would report the run's unhandled error.
+    await expect(ensureMaterialized(client, sessionId)).rejects.toThrow("connection lost");
+    await expect(ensureMaterialized(client, sessionId)).resolves.toBe("agent-retry");
+    expect(createAgentCalls).toHaveLength(2);
+  });
 });
 describe("discardIfEmpty", () => {
   it("hard-deletes and removes a never-used, already-bound session", async () => {

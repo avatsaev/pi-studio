@@ -140,14 +140,14 @@ Default action (no subcommand):
 
 | Command                                      | RPC                                 | Description                                                                                              |
 | -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `run --provider pi/<model> "prompt"`         | `create_agent_request`              | Create an agent and run first turn                                                                       |
+| `run --provider pi/<model> "prompt" [--no-wait] [--timeout <s>]` | `create_agent_request` | Create an agent and run first turn; print the id, wait for the turn (see below)                  |
 | `ls`                                         | `list_agents_request`               | List all agents                                                                                          |
-| `attach <agentId>`                           | subscribe `agent_stream`            | Stream live events from an agent                                                                         |
-| `send <agentId> "prompt"`                    | `send_agent_prompt`                 | Send a follow-up prompt                                                                                  |
+| `attach <agentId> [--until-idle]`            | subscribe `agent_stream`            | Stream live events from an agent; `--until-idle` exits 1 on `turn_failed`                                |
+| `send <agentId> "prompt" [--no-wait] [--timeout <s>]` | `send_agent_prompt`        | Send a follow-up prompt; print the id, wait for the turn (see below)                                     |
 | `stop <agentId>`                             | `interrupt_agent`                   | Interrupt the current turn                                                                               |
 | `steer <agentId> "message"`                  | `steer_agent_request`               | Steer a running turn (after current tool calls)                                                          |
 | `follow-up <agentId> "message"`              | `follow_up_agent_request`           | Queue a message for after the agent stops                                                                |
-| `wait <agentId>`                             | `wait_for_agent`                    | Block until idle/closed                                                                                  |
+| `wait <agentId> [--timeout <s>]`             | `list_agents_request` + `agent_update` (SDK `waitForAgentIdle`) | Block until the turn ends: exit 0 idle, 1 error/closed/timeout                                           |
 | `logs <agentId> [-n <limit>]`                | `fetch_agent_timeline_request`      | Print paged timeline history                                                                             |
 | `inspect <agentId>`                          | `inspect_agent_request`             | Print agent record                                                                                       |
 | `archive <agentId>`                          | `archive_agent`                     | Soft-delete                                                                                              |
@@ -202,7 +202,46 @@ Since sprint-149 the daemon also refuses `send_agent_prompt`, new session, switc
 resume with `busy: agent <id> is running` (or `is compacting` / `is changing its session`) while
 the agent has a turn, a compaction or a session operation in flight. `pi-studio agent send` needs no
 code for it: `withDaemon` prints the `RpcError` as `error: busy: … (handler_error)` and exits
-`EXIT_ERROR`; use `agent steer` / `agent follow-up` to reach a running turn.
+`EXIT_ERROR` (nothing was started, so no wait begins); use `agent steer` / `agent follow-up` to
+reach a running turn.
+
+**`run`, `send` and `wait` follow the turn (sprint-152).** `create_agent_request` and
+`send_agent_prompt` answer at acceptance (`{ agentId }`); the turn ends with one `agent_update`
+(`idle` | `error`) and, on a failure, a `turn_failed` stream row with the reason. These commands
+wait for that end with the SDK's `waitForAgentIdle(client, agentId, { timeoutMs, signal })` (the
+CLI holds a `DaemonClient`, not an `AgentHandle`); `AGENT_RPC.wait` / `wait_for_agent` is gone —
+the daemon never had a handler. A script that runs a prompt and then reads the result keeps
+working (the wait is the default; owner's choice, M4 contract point 5). Behaviour, in
+`agent-commands.ts` (`awaitTurn`, `followAccepted`, `settledOutcome`, `unsettledOutcome`):
+
+- **Plain output.** `run` and `send` print the agent id at once (stdout), then wait. `wait` prints
+  the status (`idle`) on success. Failures print one line on stderr (`error: <reason>`).
+- **Exit code.** 0 when the agent settles `idle`; 1 when it settles `error` (reason = the last
+  `turn_failed` row seen on this connection, installed before the request; without one,
+  `agent <id> ended with status error`), is `closed` (archived/deleted, or not in the listing —
+  an unknown id), the wait times out, Ctrl-C ends it, or the connection drops.
+- **`--json`.** Exactly one compact line (`renderJsonLine`), at the end, nothing before it:
+  `{agentId, status: "idle"|"error"|"closed", error?}`; `{agentId, error: "timeout"}`;
+  `{agentId, error: "interrupted"}`; `{agentId, error: <message>}` for any other failure;
+  `--no-wait` prints `{agentId}`. `wait` prints the same shapes. The stderr line is printed too.
+- **`--no-wait`** (`run`, `send`): return exit 0 once the daemon accepted, never reads the status.
+- **`--timeout <seconds>`** (`run`, `send`, `wait`; positive number, `parseTimeoutSeconds` rejects
+  the rest at parse time; default none): the wait ends non-zero with `error: "timeout"`; the turn
+  keeps running (nothing is cancelled).
+- **Ctrl-C** during the wait (`interruptSignal`, a `process.once("SIGINT")` held only while
+  waiting) ends the wait only — exit 1, `interrupted: stopped waiting for agent <id>; the turn
+  keeps running` on stderr; the turn is not stopped (`agent stop` does that). `WaitOptions.signal`
+  is the test seam.
+- `attach --until-idle` exits 1 when the turn ended in `turn_failed` (0 for completed or canceled).
+
+The answer text is not printed (out of scope): use `agent logs` or `attach`.
+
+**Slow requests use the SDK's named timeouts** (imported from `@av-pi-studio/client`, never a local
+number; the raw `client.request(type, params, timeoutMs)` third argument): `SESSION_START_TIMEOUT_MS`
+(150 s) for `agent reload`, `import`, `fork`, `fork-messages`, `clone`, `commands`;
+`PI_COMMAND_TIMEOUT_MS` (90 s) for `agent stop`, `new-session`, `resume-session`;
+`COMPACT_TIMEOUT_MS` for `compact`; `WORKTREE_TIMEOUT_MS` (10 min) for `worktree create` / `archive`
+(`featureRpc` and `simpleAgentRpc` take an optional `timeoutMs`).
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
@@ -322,10 +361,11 @@ file is missing/unreadable) and the new QR is printed. Deliberately touches noth
 | `extensions select [packs...]`    | `extension_packs_set_request` (with `packs`)                  | Replace the selection (`core` always implicit), then sync                                        |
 | `extensions sync`                 | `extension_packs_set_request` (no `packs` key)                | Sync now without changing the selection — the ungated manual path, works with `autoSync: false`  |
 
-`select`/`sync` use `client.request(type, params, EXTENSIONS_SYNC_TIMEOUT_MS)` directly
-(`EXTENSIONS_SYNC_TIMEOUT_MS = 600_000`), **not** `runRpc` (no timeout slot) and not `withDaemon`'s
-default `rpcTimeoutMs` — the response arrives only after the daemon's triggered sync completes,
-which can exceed the SDK's 30 s default on a first-run install of five packages. Report rendering
+`select`/`sync` use `client.request(type, params, EXTENSION_PACKS_SYNC_TIMEOUT_MS)` directly
+(the SDK's named 15 min constant, imported from `@av-pi-studio/client`), **not** `runRpc` (no
+timeout slot) and not `withDaemon`'s default `rpcTimeoutMs` — the response arrives only after the
+daemon's triggered sync completes, which can exceed the SDK's 30 s default on a first-run install of
+five packages. Report rendering
 (`renderSyncReport`) and exit-code mapping (`exitCodeForSetResponse`) are pure, unit-tested
 functions: `ok`/`noop` ⇒ `EXIT_OK`; `partial`/`failed`/`skipped`, or a rejected `ok: false`
 response, ⇒ `EXIT_ERROR` — no carve-out for "expected" failures, successful installs are always

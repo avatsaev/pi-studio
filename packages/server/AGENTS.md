@@ -483,7 +483,9 @@ src/
                                   `import()`: never under Bun, `undefined` → ChildProcessPtyBackend
                                   fallback if the native binding fails), `createDefaultPtyBackend()`
                                   (Bun → BunPtyBackend, else Node); injectable for tests.
-                                  `PtyProcess.kill(force?)`: SIGTERM, or SIGKILL of the tree when forced.
+                                  `PtyProcess.kill(force?)`: SIGTERM, or SIGKILL of the tree when forced; the tree is signalled
+                                  first and the shell itself only in `killTree`'s `then` (a shell that dies
+                                  first reparents a `nohup` job out of the walk, and it outlives the daemon).
     bun-pty-backend.ts            BunPtyBackend — `Bun.spawn(…, { terminal })` real PTY under Bun, with a
                                   local minimal Bun type declaration (no @types/bun) and `isBunRuntime()`;
                                   `resolveExecutable`/`killTree` are injected (no runtime import of
@@ -2369,7 +2371,10 @@ kill switch every future viewer plugin reads. Invariants:
   (`always`; removed only when it still names this process).
 - **Dev order** (`dev-bootstrap.ts`): the same without `installs`, `login flows`, `file watch`,
   `relay` and `pid file`.
-- **Nothing the daemon started outlives it.** The three steps after `terminals` end what the daemon
+- **Nothing the daemon started outlives it.** A terminal's descendants are signalled before its shell
+  (`killTree(pid, signal, then)`, `terminal/pty-backend.ts`), so a foreground process that ignores
+  SIGHUP (`nohup`) is stopped too (`pty-backend.test.ts`, real processes). The three steps after
+  `terminals` end what the daemon
   spawned or timed: install children (`pi install`, `skills`) are killed as process trees, SIGTERM
   then SIGKILL after 2 s (`InstallProcesses.stop()`); queued installs reject; login-flow timers are
   cleared; uploads in flight lose their `.pistudio-upload-*.part` file. The update helper is spawned
@@ -2379,7 +2384,7 @@ kill switch every future viewer plugin reads. Invariants:
 - **Process exit** (`daemon/run.ts`, installed by `runDaemon`, so the npm daemon and the compiled
   binary both have it). One stop path: `handle.close()` → `flushLogger(handle.logger)` → `exit`.
   The first SIGINT/SIGTERM exits 0; a rejecting `close()` is logged (`shutdown failed`) and exits 1;
-  a second signal exits 1 at once; a timer of `SHUTDOWN_DEADLINE_MS` + `HARD_KILL_GRACE_MS` (2 s)
+  a second signal exits 1 at once (the PID file stays, stale: the next start or `daemon stop` reclaims it); a timer of `SHUTDOWN_DEADLINE_MS` + `HARD_KILL_GRACE_MS` (2 s)
   exits 1 when the stop has not finished. `uncaughtException` logs at `fatal`, runs the same stop and
   exits 1 (also when a signal's shutdown is already running: its exit code becomes 1).
   `unhandledRejection` logs at `error` with the reason and stack and keeps running. A failure while

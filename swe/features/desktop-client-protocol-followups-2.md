@@ -61,7 +61,7 @@ device, not an authorization control". The file is read with no start or end pos
 carries `transferId`, `fileName`, `mimeType`; the schema allows `totalBytes` but the daemon never
 sets it. **`file_download_response` is sent after the last frame**, so the request stays pending for
 the whole transfer: `DaemonClient`'s default RPC timeout is 30 s (`packages/client/src/daemon-client.ts`;
-the workbench raises it to 30 minutes), and a transfer that outlasts it is reported as failed. The
+the workbench raised it to 30 minutes then and no longer does: a download is now answered before it streams), and a transfer that outlasts it is reported as failed. The
 daemon does not track downloads: the stream id is whatever the client sent, and nothing can stop a
 download except closing the socket.
 

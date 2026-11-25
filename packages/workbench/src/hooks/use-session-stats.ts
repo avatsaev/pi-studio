@@ -9,10 +9,10 @@
  * - once when a session with a bound `agentId` becomes the argument (mount / session switch /
  *   agent bound after create),
  * - every `POLL_INTERVAL_MS` as a backstop while that stays true,
- * - immediately when the session's `status` transitions away from `"running"` — a proxy for
- *   `turn_completed`/`turn_failed`/`turn_canceled` that avoids a second raw `agent_stream`
- *   subscription: `agent-stream-events.ts` already drives exactly that status transition off those
- *   stream events, so watching `SessionEntry.status` here is equivalent and simpler.
+ * - immediately when the session's `status` transitions away from `"running"` — a proxy for the
+ *   end of a turn that avoids a second raw `agent_stream` subscription: the daemon's closing
+ *   `agent_update` (`idle` or `error`) drives exactly that status transition
+ *   (`lib/agent-status.ts`), so watching `SessionEntry.status` here is equivalent and simpler.
  *
  * A session with no `agentId` yet (a fresh, never-run chat) polls nothing — there is no agent to
  * ask. Failures (unsupported provider, no live session right now) are swallowed; the previous

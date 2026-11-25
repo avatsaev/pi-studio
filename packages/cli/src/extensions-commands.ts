@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import type { DaemonClient } from "@av-pi-studio/client";
+import { type DaemonClient, EXTENSION_PACKS_SYNC_TIMEOUT_MS } from "@av-pi-studio/client";
 import {
   SERVER_FEATURES,
   type ExtensionPackInfo,
@@ -33,14 +33,6 @@ import { renderJson, renderTable } from "./output.js";
  * `extensions` command group (features/preinstalled-extensions.md § CLI surface): `list`,
  * `select`, `sync`, plus a daemon-free `list --local` mode mirroring the `auth` group's operation.
  */
-
-/**
- * `select`/`sync` need a generous per-call timeout: the response arrives only after the daemon's
- * triggered sync completes, which can exceed the SDK's default 30s `rpcTimeoutMs` on a first-run
- * install of five packages. `runRpc` has no timeout slot, so these go through `withDaemon` +
- * `client.request` directly instead.
- */
-export const EXTENSIONS_SYNC_TIMEOUT_MS = 600_000;
 
 /** Resolve the effective `$PI_STUDIO_HOME` — mirrors `daemon-commands.ts`/`relay-commands.ts`. */
 function resolveCtxHome(ctx: CliContext, opts: GlobalOptions): string {
@@ -207,7 +199,7 @@ async function runSetRequest(
   const res = await client.request<ExtensionPacksSetResponse>(
     "extension_packs_set_request",
     params,
-    EXTENSIONS_SYNC_TIMEOUT_MS,
+    EXTENSION_PACKS_SYNC_TIMEOUT_MS,
   );
 
   if (opts.json) {

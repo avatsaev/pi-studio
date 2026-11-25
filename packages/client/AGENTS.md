@@ -296,6 +296,27 @@ npm/git/skills-repo/local-path classifier) is re-exported from `pistudio-client.
 classify a pasted source string client-side before calling `previewSkillSource()`; the daemon
 always re-runs detection authoritatively and never trusts a client-sent `kind`.
 
+**Per-request timeouts.** `DaemonClient` applies `DEFAULT_RPC_TIMEOUT_MS` (30 s) to every request
+that does not name its own;
+`request(type, params, timeoutMs)` is the only way to lengthen one, and no app raises the default for
+a whole connection. A request that can legitimately take longer names a constant exported from
+`pistudio-client.ts`, set above the daemon's own bound for that work (the table-driven test in
+`pistudio-client.test.ts` pins method → timeout):
+
+| Constant | Value | Requests |
+| --- | --- | --- |
+| `COMPACT_TIMEOUT_MS` | 10 min | `compact()` |
+| `SESSION_START_TIMEOUT_MS` | 150 s | requests that may spawn the agent's Pi process first: `resume()`, `importAgentSession`, `fork()`, `forkMessages()`, `clone()`, `listCommands()` (daemon bound: 60 s per Pi request) |
+| `PI_COMMAND_TIMEOUT_MS` | 90 s | one slow Pi command: `interrupt()`, `newSession()`, `switchSession()` |
+| `EXTENSION_PACKS_SYNC_TIMEOUT_MS` | 15 min | `setExtensionPacks()`, `syncExtensionPacks()` (the response follows the sync; `opts.timeoutMs` overrides) |
+| `REMOVE_SKILL_TIMEOUT_MS` / `UPDATE_ALL_SKILLS_TIMEOUT_MS` / `PREVIEW_SKILL_SOURCE_TIMEOUT_MS` / `INSTALL_SKILLS_TIMEOUT_MS` | 660 s / 1 300 s / 150 s / 660 s | the skills requests above |
+| `WORKTREE_TIMEOUT_MS` | 10 min | `create_pistudio_worktree_request`, `pistudio_worktree_archive_request` (`git worktree add` plus the project's `setup`/`teardown` commands, no daemon-side bound). No facade method sends them; the CLI passes the constant to `request()` |
+
+Everything else keeps the default: `createAgent`/`send` answer at acceptance, `daemon_update_apply_request`
+answers when the update is started, `provider_auth_login_request` answers with the flow id, and binary
+file transfers are not bounded by the request timeout. A timeout fails only that call
+(`RpcTimeoutError`); the socket stays up.
+
 | Method                         | RPC                                                                                                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send(prompt, opts?)`          | `send_agent_prompt` — resolves `{ agentId }` at acceptance, not when the turn ends (see § Create and send answer at acceptance)                                                                                    |
@@ -414,10 +435,11 @@ regression test in `pistudio-client.test.ts`:
   calling `settleProviderAuthFlow` — the dialog hung forever with no error, discovered live during
   sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
   `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
-  alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
-  way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (a value from when an
-  agent turn was one RPC; since sprint 151 `createAgent`/`send` answer at acceptance, so no agent
-  turn rides on an RPC), so a daemon death was reported correctly but not quickly. That was
+  alongside, but the flow's own promise no longer waits on it). Bound by the client's default
+  `rpcTimeoutMs` (30 s; the workbench keeps it — nothing sets a long app-wide value). The login
+  request itself is answered at once with `{flowId}` and the flow runs on pushed events, so a login
+  that takes minutes never waits on an RPC (tested with fake timers). A daemon that stops answering
+  is reported by the next RPC's timeout after 30 s, not half an hour. That was
   written against relay protocol 1, which had no peer-liveness signal. Under protocol 2 a dead
   daemon data socket closes the client's paired socket (relay forwards the close, or
   `4108 ping_timeout`/`4109
@@ -425,7 +447,7 @@ regression test in `pistudio-client.test.ts`:
 
 ### `importAgentSession(daemon, args)` (named export)
 
-Sends `import_agent_session` RPC — not agent-scoped.
+Sends `import_agent_session` RPC — not agent-scoped. Uses `SESSION_START_TIMEOUT_MS` (see § Per-request timeouts).
 
 ### Extension UI facade surface (`agent_ui_*`, sprint-067)
 

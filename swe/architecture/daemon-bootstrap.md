@@ -78,11 +78,15 @@ function close():
     release pid lock
 ```
 
-> **State and amendment (2026-11-23, [../features/self-update.md](../features/self-update.md) § Shutdown).**
-> The code today does not close agent runtimes and never removes `pi-studio.pid` (plain text, the
-> PID only; no lock check at start). The daemon self-update makes both lines above true: `close()`
-> closes every live agent session (5 s each, then the process tree is killed), clears the update
-> check's timer, and removes the PID file when it still names this process.
+> **State (2026-11-25, [../features/self-update.md](../features/self-update.md) § Shutdown).**
+> `close()` is an ordered, bounded list of steps (`daemon/shutdown.ts`; the order and the rules are in
+> `packages/server/AGENTS.md` § Daemon shutdown): stop accepting (requests answered `shutting_down`,
+> upgrades 503), agents (`closeAll()`), terminals (the tree is signalled before the shell; SIGKILL after
+> 2 s), installs, login flows, transfers, watchers, relay, sockets (1 s grace), HTTP, and last the PID
+> file, which is removed only when it still names this process. A step that throws or hangs is
+> logged and skipped; the whole is bounded by 10 s, and a second signal exits 1 at once (leaving the PID
+> file, stale). Seen live under load in `packages/server/docs/daemon-update-live-results.md`
+> (2026-11-25): 1.5 s with a Pi turn, a terminal, an install and a stalled client, nothing left behind.
 
 > **Critical operational rule:** the production daemon on port `6767` manages all running agents;
 > restarting it kills every agent process. Never restart without explicit user intent.
@@ -109,7 +113,7 @@ function close():
 - [ ] `GET /api/health` returns success without auth or host validation.
 - [ ] After restart, persisted agents reload.
 - [ ] `serverId` is stable across restarts for the same home.
-- [ ] Graceful shutdown kills agent child processes and releases the PID lock.
+- [x] Graceful shutdown kills agent child processes and releases the PID lock (live-checked 2026-11-25).
 
 ## TODO(verify)
 - [ ] Exact PID-file JSON shape and reclaim heuristics.

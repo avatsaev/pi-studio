@@ -22,6 +22,11 @@ export function renderJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+/** Render a value as one compact JSON line (for `--json` output a script reads line by line). */
+export function renderJsonLine(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 /**
  * Render an array of row objects as a fixed-width text table. `columns` selects/orders the fields;
  * when omitted, the union of keys (in first-seen order) is used. Missing cells render empty.

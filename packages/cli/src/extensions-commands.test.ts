@@ -5,7 +5,11 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { DaemonClient, Transport } from "@av-pi-studio/client";
+import {
+  type DaemonClient,
+  EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+  type Transport,
+} from "@av-pi-studio/client";
 import type {
   ExtensionPackInfo,
   ExtensionPacksListResponse,
@@ -15,7 +19,6 @@ import type {
 import {
   buildEntryRows,
   exitCodeForSetResponse,
-  EXTENSIONS_SYNC_TIMEOUT_MS,
   listExtensions,
   listExtensionsLocal,
   renderExtensionsList,
@@ -303,7 +306,7 @@ describe("listExtensions", () => {
 // ─── extensions select / sync ───────────────────────────────────────────────────────
 
 describe("selectExtensions / syncExtensions", () => {
-  it("select sends extension_packs_set_request WITH packs and a 600000ms timeout", async () => {
+  it("select sends extension_packs_set_request WITH packs and the SDK's sync timeout", async () => {
     const { transport, requests } = makeFakeDaemon();
     const { client, ctx } = await connectedClient(transport);
     const spy = vi.spyOn(client, "request");
@@ -315,7 +318,7 @@ describe("selectExtensions / syncExtensions", () => {
     expect(spy).toHaveBeenCalledWith(
       "extension_packs_set_request",
       { packs: ["core"] },
-      EXTENSIONS_SYNC_TIMEOUT_MS,
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
     );
     client.close();
   });
@@ -326,7 +329,11 @@ describe("selectExtensions / syncExtensions", () => {
     const spy = vi.spyOn(client, "request");
     await syncExtensions(client, ctx, {});
     expect(requests[0]!.msg).not.toHaveProperty("packs");
-    expect(spy).toHaveBeenCalledWith("extension_packs_set_request", {}, EXTENSIONS_SYNC_TIMEOUT_MS);
+    expect(spy).toHaveBeenCalledWith(
+      "extension_packs_set_request",
+      {},
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+    );
     client.close();
   });
 
