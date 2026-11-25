@@ -95,8 +95,6 @@ export const agentRecordSchema = z
     lastError: z.string().nullable().optional(),
     internal: z.boolean().optional(),
     archivedAt: isoTimestampSchema.optional(),
-    // One file per agent holds the record AND its timeline rows (row shapes land in sprint-006).
-    timeline: z.array(z.unknown()).default([]),
   })
   .passthrough();
 export type AgentRecord = z.infer<typeof agentRecordSchema>;

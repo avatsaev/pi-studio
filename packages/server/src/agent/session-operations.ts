@@ -6,7 +6,7 @@ import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentClient } from "./provider-contract.js";
 import type { AgentService } from "./agent-service.js";
-import { getTimeline, spawnOrResumeSession } from "./agent-service.js";
+import { spawnOrResumeSession } from "./agent-service.js";
 import type { ImageAttachment } from "@av-pi-studio/protocol";
 
 /**
@@ -115,7 +115,7 @@ export class SessionOperationsService {
     if (!fn) return { type: responseType, agentId, ok: false };
 
     // Optimistic user_message row (best-effort — only if a live timeline exists for this turn).
-    const timeline = getTimeline(agentId);
+    const timeline = this.deps.manager.timelines.get(agentId);
     if (timeline) {
       const messageId = (msg.clientMessageId as string | undefined) ?? randomUUID();
       const row = timeline.append({ kind: "user_message", messageId, text: message, images });
@@ -235,7 +235,6 @@ export class SessionOperationsService {
       updatedAt: this.now(),
       labels: {},
       lastStatus: "idle",
-      timeline: result.timeline.map((e) => ({ epoch: 0, seq: 0, timestamp: this.now(), event: e })),
       persistence: result.persistence as unknown as AgentRecord["persistence"],
     };
 

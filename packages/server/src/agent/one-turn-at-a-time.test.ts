@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MOCK_CAPABILITIES } from "./providers/mock/mock-provider.js";
 import type {
   AgentClient,
@@ -20,8 +20,7 @@ import { SlashCommandOperationsService } from "./slash-command-operations.js";
 /**
  * One turn, compaction or session operation at a time per agent (sprint-149/task-003): a second
  * send, compaction or session operation is refused with `busy` while one runs, each stream event
- * is recorded and broadcast once, and `update_agent` no longer writes back a stale config. Agent
- * ids are random because the timeline map in `agent-service.ts` is module-global.
+ * is recorded and broadcast once, and `update_agent` no longer writes back a stale config.
  */
 
 const NOW = "2026-11-25T12:00:00.000Z";
@@ -86,7 +85,6 @@ async function setup() {
     updatedAt: NOW,
     labels: {},
     lastStatus: "idle",
-    timeline: [],
   };
   const manager = new AgentManager({
     home: "/unused",
@@ -150,7 +148,8 @@ describe("send while a turn runs", () => {
       "turn_completed",
     ]);
     expect(
-      getTimeline(agentId)
+      manager.timelines
+        .get(agentId)
         ?.allRows()
         .map((r) => r.event.kind),
     ).toEqual(["user_message", "turn_started", "assistant_message", "turn_completed"]);

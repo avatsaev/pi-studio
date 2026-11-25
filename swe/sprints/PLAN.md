@@ -175,7 +175,7 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 147 | `sprint-147-drop-dead-subsystems` | server + protocol + client + cli: **Daemon audit M2, part 1 — the approved drops.** Chat, loops, schedules; service proxy, CORS, HTTP password; MCP server; modes; `extends: "pi"` profiles; four uncalled pieces and dead config keys. | 6 |
 | 148 | `sprint-148-shims-and-packaging` | server + protocol + cli + release: **Daemon audit M2, part 2.** Compatibility shims; the legacy permission schema; the CLI and binary without the web app; three packages no longer published; close of M2. | 5 |
 | 149 | `sprint-149-agent-recovery` | server: **Daemon audit M3, part 1 — agents that recover.** A dead Pi ends its turn and is replaced; request timeouts and a real stop; one turn at a time; one Pi process per agent; live check with a real Pi. | 5 |
-| 150 | `sprint-150-timeline-on-disk` | server: **Daemon audit M3, part 2 — saved history.** History loaded before the first turn; the timeline file design (owner gate); the store on the file; restart, resets, delete; live check and close of M3. | 5 |
+| 150 | `sprint-150-lean-timeline` | server: **Daemon audit M3, part 2 — a leaner timeline.** History loaded before the first turn; the timeline file design (written, not adopted); one row per message in memory; eviction on archive and delete and the dead `record.timeline` removed; live check and close of M3. | 5 |
 
 Total: **144 sprints, 729 tasks**, recomputed from the table above when sprints 082–087 were added
 (2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23), by 139–145 (+7/+29, 2026-11-24) and by 146–150 (+5/+27, 2026-11-24), less 140/t002 (dropped: pi-background-tasks left the baseline, +0/−1, 2026-11-24; the table sums to 144/729). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
@@ -3795,10 +3795,9 @@ t001 may run beside sprint 143; then t002, t003.
 > **Daemon audit: milestones M1–M3** (`docs/daemon-audit-handoff.md`, the audit of 2026-11-24 and the
 > owner's decisions recorded there; no separate scope document). M1 to M9 were approved on 2026-11-24;
 > only M1–M3 are planned. The web client stays as a second-class "Lite" (relay only); the desktop app
-> is the first-class client. **Sprint-150/task-002 is a gate:** the timeline file design waits for the
-> owner's approval before any code. Live checks never touch the owner's own daemon: temporary homes and
-> a spare port. Order: 146 alone; then 147; then 148 and 149 side by side (one link: 149/t003 waits for
-> 148/t001, both edit `session-operations.ts`); then 150.
+> is the first-class client. Live checks never touch the owner's own daemon: temporary homes and
+> a spare port. Order: 146 alone; then 147; then 148 and 149 side by side (one link: 149/t003 waits
+> for 148/t001, both edit `session-operations.ts`); then 150.
 
 ### sprint-146-close-the-door
 > **What it ships.** No website can reach the daemon; the web client pairs through the relay only.
@@ -3863,20 +3862,20 @@ t002 and t003 in parallel after t001; t004; t005.
 
 **Done 2026-11-25** (all five tasks). Live-checked on a throwaway daemon with a real bundled Pi 1.4.0: SIGKILL of Pi mid-turn gives a failed turn and the next message answers in the same conversation; two simultaneous sends give one `busy`; resume, archive and daemon stop leave no Pi behind; a SIGKILLed daemon's Pi children exit on stdin EOF (an orphaned tool subprocess does not). One Pi 1.4.0 quirk (haiku-4-5 never answers) recorded in the handoff.
 
-### sprint-150-timeline-on-disk
-> **What it ships.** Conversation history saved to disk and intact after a restart.
+### sprint-150-lean-timeline
+> **What it ships.** History intact after a restart, sent-first or not; a smaller in-memory timeline.
 
 | Task | Title | Type | Depends on | Covers |
 |------|-------|------|------------|--------|
 | task-001 | After a restart, history is loaded before the first turn | bugfix | sprint-149/task-004 | A6 (first half) |
-| task-002 | Design: the agent timeline file (owner review) | docs | task-001 | A5, A6 |
-| task-003 | The timeline store writes to and pages from the file | feature | task-002 | A5 |
-| task-004 | Restart, resets and delete with the timeline file | feature | task-003 | A6 |
-| task-005 | Live check of saved history, and close of M3 | test | task-004 | improvement 3 |
+| task-002 | Design: the agent timeline file (owner review) — **not adopted** | docs | task-001 | A5, A6 |
+| task-003 | One timeline row per message instead of one per chunk | refactor | task-001 | A5 |
+| task-004 | Evict history on archive and delete; drop the dead `record.timeline` | bugfix | task-003 | A5 |
+| task-005 | Live check of the lean timeline, and close of M3 | test | task-004 | improvement 3 |
 
-Sequential; t002 waits for the owner.
+Sequential. Task-002's design (a daemon-owned timeline file) was written and, on 2026-11-25, **not adopted** by the owner: Pi's own file already restores the conversation. Idle eviction was left out on purpose (a rebuild renumbers rows, and an open tab would drop live events).
 
-**State 2026-11-25:** task-001 done; task-002 (the design, `architecture/agent-timeline-persistence.md`) written and **blocked on the owner's approval**; tasks 003-005 wait for it.
+**Done 2026-11-25** (all five tasks; 002 not adopted by the owner). Live-checked on a throwaway daemon with a real bundled Pi 1.4.0 through the `litellm.anthropic` gateway (only the `litellm` API key copied): a send as the first action after a restart returns the full history plus the new turn; memory flat over three turns; archived history still fetches; delete leaves nothing. One-row-per-message and registry size are proven by tests, not from outside the daemon. Intermittent: `update-e2e.test.ts` "apply handoff" (a test-side race, about one run in three).
 
 ## Coverage check
 
@@ -4059,7 +4058,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | architecture/single-binary-daemon.md (designed 2026-11-24) | s139/t001-004 (A1, A3–A6), s140/t001 and t003 (A2, A7–A9), s141/t002 (A10) |
 | features/self-update.md (milestone 6 amendments) | s142/t001-005 (protocol; skipped version; workbench; binary path; live run), s143/t003 and s144/t002 (desktop Update installs the pin) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
-| `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002. **Planned 2026-11-24.** Not turned into tasks yet, by decision: M4–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them). Folded fixes for M5 (F1, F3, F4, extension error text) wait for M5; T6 was fixed by sprint-142/task-002 |
+| `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002 and **not adopted** (owner, 2026-11-25). **Planned 2026-11-24.** Not turned into tasks yet, by decision: M4–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them). Folded fixes for M5 (F1, F3, F4, extension error text) wait for M5; T6 was fixed by sprint-142/task-002 |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.

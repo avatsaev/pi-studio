@@ -22,7 +22,7 @@ $PI_STUDIO_HOME/
 ├── daemon-keypair.json                 # { v:2, publicKeyB64, secretKeyB64 } mode 0600
 ├── pi-studio.pid                           # { pid, startedAt, ... }
 ├── daemon.log                          # pino output (rotating)
-├── agents/{sanitized-cwd}/{id}.json    # one file per agent (record + timeline rows)
+├── agents/{sanitized-cwd}/{id}.json    # one file per agent (the record; the timeline is not stored)
 ├── projects/projects.json              # project registry
 └── projects/workspaces.json            # workspace registry
 ```

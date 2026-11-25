@@ -718,13 +718,11 @@ export class MockAgentClient implements AgentClient {
   async importSession(args: { providerHandleId: string; cwd: string }): Promise<{
     session: import("../../provider-contract.js").AgentSession;
     persistence: import("../../provider-contract.js").PersistenceHandle;
-    timeline: import("@av-pi-studio/protocol").AgentStreamEvent[];
   }> {
     const session = new MockAgentSession({ provider: "mock", cwd: args.cwd }, this.options);
     return {
       session,
       persistence: { provider: "mock", sessionId: session.id, nativeHandle: `mock:${session.id}` },
-      timeline: [],
     };
   }
 }

@@ -818,7 +818,7 @@ export class PiAgentClient implements AgentClient {
     }
   }
 
-  /** Resume one native session (the JSONL file is the `nativeHandle`) and return a hydrated result. */
+  /** Resume one native session (the JSONL file is the `nativeHandle`); a fetch rebuilds its history from that file. */
   async importSession(args: ImportSessionArgs): Promise<ImportSessionResult> {
     const session = await this.resumeSession(
       { provider: this.provider, nativeHandle: args.providerHandleId },
@@ -829,7 +829,6 @@ export class PiAgentClient implements AgentClient {
     return {
       session,
       persistence,
-      timeline: this.hydrateTimeline(persistence).map((row) => row.event),
     };
   }
 

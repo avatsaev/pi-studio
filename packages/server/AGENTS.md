@@ -158,14 +158,21 @@ src/
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast;
                                    closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS) closes every live
                                    session at shutdown (see Agent subsystem); spawnOnce(id, fn)
-                                   memoizes one in-flight spawn per agent.
+                                   memoizes one in-flight spawn per agent. `manager.timelines` (a
+                                   `TimelineRegistry`) holds every agent's in-memory timeline
+                                   store; `archiveAgent` (after the session closes) and
+                                   `deleteAgent` (as the agent leaves memory), cascades included,
+                                   evict the agent's store (sprint-150/task-004). No idle eviction:
+                                   a rebuild restarts numbering, which would make an open tab drop
+                                   live events it already has.
     agent-service.ts              AgentService — RPC handler wiring for agent operations;
                                    ensureSession / spawnOrResumeSession — the one spawn path;
-                                   resetTimeline(agentId, rows) (sprint-071/task-002) —
+                                   `manager.timelines.reset(agentId, rows)` (sprint-071/task-002) —
                                    unconditionally replaces an agent's in-memory timeline (unlike
-                                   seedTimeline, which no-ops once a store exists) — the entry
+                                   `seed`, which no-ops once a store exists) — the entry
                                    point `handleFork`'s post-fork resync installs the hydrated
-                                   forked branch through. appendStreamEvent(agentId, timeline, event,
+                                   forked branch through (skipped for an archived agent).
+                                   appendStreamEvent(agentId, timeline, event,
                                    broadcast, sessions) (sprint-074) — the one append-to-timeline +
                                    `agent_stream` broadcast path, used by `runTurn` and by any
                                    operation that subscribes outside a turn (compaction). Ephemeral
@@ -178,7 +185,19 @@ src/
                                    — the one way to get a store to append to: seeds first, then
                                    get-or-create (used by `runTurn` and `handleCompact`;
                                    `timeline-rpc.ts` seeds via `ensureTimelineSeeded`), so a send
-                                   before any fetch after a restart keeps the history.
+                                   before any fetch after a restart keeps the history. Throws for
+                                   an agent that is gone or archived (sprint-150/task-004), so an
+                                   operation racing an archive or delete cannot bring the evicted
+                                   store back; a turn still ending appends to the store object it
+                                   holds, which nothing registers again. A fetch for an archived
+                                   agent still rebuilds from the Pi file (`ensureTimelineSeeded`).
+    timeline-registry.ts          TimelineRegistry — the per-manager map of agentId ->
+                                   AgentTimelineStore: get / getOrCreate / seed (no-op if present) /
+                                   reset / evict / size (sprint-150/task-004). Replaces the old
+                                   module-global map in agent-service.ts. The agent record no longer
+                                   has a `timeline` field (an old file that has one still loads: the
+                                   schema is `.passthrough()`), and `ImportSessionResult` has no
+                                   `timeline`.
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
                                    for markdown image rendering (task-006, sprint-045); bound at
                                    spawn time only (see its own header comment for the accepted
@@ -230,13 +249,32 @@ src/
                                    broadcasts `agent_timeline_reset` to every active session
                                    whenever the fork's persistence handle actually changed — see
                                    "Fork resync" below.
-    timeline-store.ts             TimelineStore — append/page/cursor the agent event log;
+    timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
+                                   One row per message, not per chunk (sprint-150/task-003):
+                                   CONSECUTIVE `assistant_message`/`reasoning` events of one kind
+                                   (and `messageId`) in one epoch merge on `append` into the last
+                                   row (text grows in place via a NEW event object — the broadcast
+                                   one is never mutated; a `final` chunk seals the row). Every
+                                   other event is one row. `seq` stays per event (each chunk takes
+                                   the next number; `append` returns that event's own
+                                   `{epoch, seq, timestamp}`), a row covers `seq..seqEnd`.
+                                   Cursors stay the base-10 string of a seq: `after c` → rows with
+                                   `seqEnd > c`, `before c` → rows with `seq < c`, a row
+                                   straddling `c` comes back whole; a page's `seqStart`/`seqEnd`
+                                   are the lowest `seq` / highest `seqEnd` of its rows (so the
+                                   workbench's `fetchedThrough` rule holds). An assistant item's
+                                   `events` hold one merged event per row. A fetch during streaming
+                                   returns the text so far. Rows from hydration/fork are one event
+                                   each (`seqEnd === seq`).
                                    replaceRows(rows) (sprint-071/task-002) unconditionally
                                    replaces the row set for a fork resync, continuing epoch/seq
                                    numbering from the installed rows' maximum. The former
                                    truncateBeforeMessage (the dead rewind RPC's only caller) was
                                    removed in sprint-071/task-001.
-    timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded).
+    timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded);
+                                   rejects a `direction` other than `before`/`after` (absent =
+                                   `after`). `timeline-store-equivalence.test.ts` pins the merged
+                                   store against the per-chunk reference kept in the test.
     agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
                                    — see "Extension UI" below.
       agent-ui-service.ts         AgentUiService — wire-id minting, pending dialogs, retained
@@ -1096,7 +1134,7 @@ creation" above.
   `record.persistence?.nativeHandle` once before and once after `persistSessionHandle`; if it
   changed, `resolveClient(record.provider).hydrateTimeline?.(handle)` rebuilds the forked
   branch's rows (the same synchronous-fs-read path `timeline-rpc.ts` already uses for restarted
-  daemons), `agent-service.ts`'s `resetTimeline(agentId, rows)` installs them, and only then does
+  daemons), `manager.timelines.reset(agentId, rows)` installs them, and only then does
   the daemon broadcast `{ type: "agent_timeline_reset", agentId, reason: "fork" }` — a
   no-subscribe-RPC passthrough push following the `terminals_update` convention exactly (root
   `AGENTS.md` § Protocol overview), reaching every active session including relay ones —

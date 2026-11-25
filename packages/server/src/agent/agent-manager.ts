@@ -9,6 +9,7 @@ import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
 import { PI_KILL_GRACE_MS } from "./providers/pi/rpc-transport.js";
 import type { AgentSession } from "./provider-contract.js";
+import { TimelineRegistry } from "./timeline-registry.js";
 
 /**
  * AgentManager — the single source of truth for agent lifecycle state
@@ -123,6 +124,8 @@ const BUSY_REASON: Record<BusyKind, string> = {
 };
 
 export class AgentManager {
+  /** The in-memory timeline of every agent with history held; archive and delete evict. */
+  readonly timelines = new TimelineRegistry();
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly busy = new Map<string, BusyKind>();
   private readonly spawns = new Map<string, Promise<AgentSession>>();
@@ -379,6 +382,10 @@ export class AgentManager {
       managed.session = null;
     }
 
+    // The history leaves memory with the runtime; a later fetch rebuilds it from the provider's
+    // file. A turn still ending keeps appending to the store object it holds, not to the registry.
+    this.timelines.evict(id);
+
     this.broadcastArchived(id, archivedAt);
 
     // Cascade to non-detached children (those whose parent label == this id).
@@ -410,6 +417,7 @@ export class AgentManager {
     const session = managed.session;
     managed.session = null;
     this.agents.delete(id);
+    this.timelines.evict(id);
     if (session) {
       try {
         await session.close();

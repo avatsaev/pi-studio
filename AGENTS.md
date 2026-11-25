@@ -776,7 +776,7 @@ pending-uploads.json  Temporary files of the uploads in progress (`.pistudio-upl
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
-    <agentId>.json    Agent record (status, config, timeline seq, labels, …)
+    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows
 projects/
   projects.json       Project registry
   workspaces.json     Workspace registry

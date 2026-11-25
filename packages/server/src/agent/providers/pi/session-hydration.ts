@@ -165,7 +165,8 @@ export function hydrateTimelineFromSessionFile(sessionFile: string): TimelineRow
   let turnCloserTimestamp = "";
 
   const push = (event: AgentStreamEvent, timestamp: string): void => {
-    rows.push({ epoch, seq: seq++, timestamp, event });
+    rows.push({ epoch, seq, seqEnd: seq, timestamp, event });
+    seq++;
   };
 
   const closeTurn = (): void => {

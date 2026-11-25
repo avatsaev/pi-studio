@@ -1,6 +1,6 @@
 # Task 001 — After a restart, history is loaded before the first turn — Summary
 
-- **Sprint:** sprints/sprint-150-timeline-on-disk
+- **Sprint:** sprints/sprint-150-lean-timeline
 - **Completed:** 2026-11-25
 - **Status:** done
 

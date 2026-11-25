@@ -2,7 +2,7 @@ import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
-import { appendStreamEvent, ensureSession, resetTimeline, timelineFor } from "./agent-service.js";
+import { appendStreamEvent, ensureSession, timelineFor } from "./agent-service.js";
 import type {
   AgentClient,
   AgentCompactResult,
@@ -298,11 +298,11 @@ export class SlashCommandOperationsService {
         await this.deps.manager.persistSessionHandle(agentId);
         const record = this.deps.manager.get(agentId)?.record;
         const handleAfter = record?.persistence?.nativeHandle;
-        if (record && handleAfter != null && handleAfter !== handleBefore) {
+        if (record && !record.archivedAt && handleAfter != null && handleAfter !== handleBefore) {
           const client = this.deps.resolveClient(record.provider);
           const handle = record.persistence as PersistenceHandle | undefined;
           const rows = handle ? (client.hydrateTimeline?.(handle) ?? []) : [];
-          resetTimeline(agentId, rows);
+          this.deps.manager.timelines.reset(agentId, rows);
           this.deps.broadcast(getSessions(), {
             type: "agent_timeline_reset",
             agentId,

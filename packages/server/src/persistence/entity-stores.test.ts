@@ -55,7 +55,6 @@ describe("agent store", () => {
       { type: "toggle", id: "web", label: "Web", value: true },
       { type: "select", id: "mode", label: "Mode", value: null, options: [{ value: "fast" }] },
     ],
-    timeline: [],
   };
 
   it("persists to agents/{sanitized-cwd}/{id}.json and round-trips through Zod", async () => {
@@ -66,6 +65,18 @@ describe("agent store", () => {
     expect(existsSync(path)).toBe(true);
     const loaded = await loadAgent(home, agent.cwd, agent.id);
     expect(loaded).toEqual(agent);
+  });
+
+  it("writes no `timeline` key, and still loads an old record file that has one", async () => {
+    const home = await tempHome();
+    await saveAgent(home, agent);
+    const path = agentFilePath(home, agent.cwd, agent.id);
+    const onDisk = JSON.parse(await readFile(path, "utf8"));
+    expect(onDisk).not.toHaveProperty("timeline");
+
+    await writeFile(path, JSON.stringify({ ...onDisk, timeline: [] }), "utf8");
+    const loaded = await loadAgent(home, agent.cwd, agent.id);
+    expect(loaded?.id).toBe(agent.id);
   });
 
   it("tolerates unknown/optional fields on load", async () => {

@@ -1,6 +1,6 @@
 # Task 001 — After a restart, history is loaded before the first turn
 
-- **Sprint:** sprints/sprint-150-timeline-on-disk
+- **Sprint:** sprints/sprint-150-lean-timeline
 - **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (agent service)

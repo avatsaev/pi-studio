@@ -12,9 +12,9 @@ const NOW = "2026-06-11T12:00:00.000Z";
 /**
  * Simulates the real-world gap this handler fixes: an agent record with a persisted
  * `persistence` handle, but NO in-memory `AgentTimelineStore` for its id — exactly the state every
- * agent is in immediately after a daemon restart (`agent-service.ts`'s timeline map is
- * process-memory only). `getTimeline(agentId)` will genuinely return `undefined` here because this
- * agentId was never passed through `AgentService.runTurn`/`getOrCreateTimeline` in this process.
+ * agent is in immediately after a daemon restart (the manager's timeline registry is
+ * process-memory only). `manager.timelines.get(agentId)` will genuinely return `undefined` here
+ * because this agentId was never passed through `AgentService.runTurn`/`timelineFor` here.
  */
 async function makeRestartedAgentManager(record: AgentRecord): Promise<AgentManager> {
   const manager = new AgentManager({
@@ -38,10 +38,22 @@ function fakeCtx(agentId: string): {
 describe("fetch_agent_timeline_request — restart hydration fallback", () => {
   it("rehydrates from the provider's hydrateTimeline() when no in-memory timeline exists", async () => {
     const rows: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "user_message", text: "hello" } },
-      { epoch: 1, seq: 1, timestamp: NOW, event: { kind: "turn_started" } },
-      { epoch: 1, seq: 2, timestamp: NOW, event: { kind: "assistant_message", text: "hi" } },
-      { epoch: 1, seq: 3, timestamp: NOW, event: { kind: "turn_completed" } },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "user_message", text: "hello" },
+      },
+      { epoch: 1, seq: 1, seqEnd: 1, timestamp: NOW, event: { kind: "turn_started" } },
+      {
+        epoch: 1,
+        seq: 2,
+        seqEnd: 2,
+        timestamp: NOW,
+        event: { kind: "assistant_message", text: "hi" },
+      },
+      { epoch: 1, seq: 3, seqEnd: 3, timestamp: NOW, event: { kind: "turn_completed" } },
     ];
     const client: AgentClient = {
       provider: "pi",
@@ -70,7 +82,6 @@ describe("fetch_agent_timeline_request — restart hydration fallback", () => {
       updatedAt: NOW,
       labels: {},
       lastStatus: "idle",
-      timeline: [],
       persistence: { provider: "pi", sessionId: "s1", nativeHandle: "/fake/session.jsonl" },
     };
     const manager = await makeRestartedAgentManager(record);
@@ -101,7 +112,7 @@ describe("fetch_agent_timeline_request — restart hydration fallback", () => {
     const handler2 = registry2.get("fetch_agent_timeline_request")!;
     await handler2(fakeCtx("agent-1"));
     await handler2(fakeCtx("agent-1"));
-    // Already seeded by the first registry's handler call above (module-level timeline map), so
+    // Already seeded by the first registry's handler call above (the manager's timeline registry), so
     // this provider is never even consulted.
     expect(hydrateCalls).toBe(0);
   });
@@ -115,7 +126,6 @@ describe("fetch_agent_timeline_request — restart hydration fallback", () => {
       updatedAt: NOW,
       labels: {},
       lastStatus: "idle",
-      timeline: [],
     };
     const manager = await makeRestartedAgentManager(record);
     const registry = new HandlerRegistry();
@@ -130,5 +140,34 @@ describe("fetch_agent_timeline_request — restart hydration fallback", () => {
     const resp = (await handler(fakeCtx("agent-2"))) as Record<string, unknown>;
     expect(resp.items).toEqual([]);
     expect(resp.hasNewer).toBe(false);
+  });
+});
+
+describe("fetch_agent_timeline_request — direction", () => {
+  it("rejects a direction that is neither before nor after", async () => {
+    const record: AgentRecord = {
+      id: "agent-3",
+      provider: "pi",
+      cwd: "/work",
+      createdAt: NOW,
+      updatedAt: NOW,
+      labels: {},
+      lastStatus: "idle",
+    };
+    const manager = await makeRestartedAgentManager(record);
+    const registry = new HandlerRegistry();
+    registerTimelineHandler(registry, {
+      manager,
+      resolveClient: () => {
+        throw new Error("should not resolve a client with no handle");
+      },
+    });
+
+    const handler = registry.get("fetch_agent_timeline_request")!;
+    const ctx = fakeCtx("agent-3");
+    ctx.message.direction = "backward";
+    await expect(Promise.resolve().then(() => handler(ctx))).rejects.toThrow(
+      "unknown timeline direction: backward",
+    );
   });
 });

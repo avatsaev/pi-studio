@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { HandlerRegistry } from "../ws/router.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MockAgentClient, type MockAgentSession } from "./providers/mock/mock-provider.js";
 import { registerTimelineHandler } from "./timeline-rpc.js";
 
@@ -23,6 +23,7 @@ interface StreamFrame {
 
 async function setup(): Promise<{
   agentId: string;
+  manager: AgentManager;
   service: AgentService;
   session: MockAgentSession;
   frames: StreamFrame[];
@@ -54,7 +55,7 @@ async function setup(): Promise<{
   )) as Record<string, unknown>;
   const agentId = (result.payload as Record<string, unknown>).agentId as string;
   const session = manager.get(agentId)!.session as MockAgentSession;
-  return { agentId, service, session, frames, registry };
+  return { agentId, manager, service, session, frames, registry };
 }
 
 function isPartial(event: AgentStreamEvent): boolean {
@@ -63,7 +64,7 @@ function isPartial(event: AgentStreamEvent): boolean {
 
 describe("ephemeral partial tool_call broadcast", () => {
   it("broadcasts partials live without seq, persists only start + end rows", async () => {
-    const { agentId, service, session, frames } = await setup();
+    const { agentId, manager, service, session, frames } = await setup();
     await service.runTurn(agentId, session, "#tool shell", () => []);
 
     const partialFrames = frames.filter((f) => isPartial(f.event));
@@ -74,7 +75,8 @@ describe("ephemeral partial tool_call broadcast", () => {
       expect(Number.isNaN(Date.parse(frame.timestamp))).toBe(false);
     }
 
-    const toolRows = getTimeline(agentId)!
+    const toolRows = manager.timelines
+      .get(agentId)!
       .allRows()
       .filter((r) => r.event.kind === "tool_call");
     expect(
@@ -108,7 +110,7 @@ describe("ephemeral partial tool_call broadcast", () => {
 
 describe("ephemeral queue_update broadcast", () => {
   it("is broadcast live without seq and never appended to the timeline", async () => {
-    const { agentId, service, session, frames } = await setup();
+    const { agentId, manager, service, session, frames } = await setup();
     // Steer from inside the turn, once it has started and `runTurn` is subscribed.
     const unsub = session.subscribe((event) => {
       if (event.kind === "turn_started") {
@@ -128,7 +130,8 @@ describe("ephemeral queue_update broadcast", () => {
       followUp: [],
     });
     expect(
-      getTimeline(agentId)!
+      manager.timelines
+        .get(agentId)!
         .allRows()
         .some((r) => r.event.kind === "queue_update"),
     ).toBe(false);

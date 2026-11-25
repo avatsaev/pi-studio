@@ -1,7 +1,7 @@
 # Task 002 — Design: the agent timeline file (owner review)
 
-- **Sprint:** sprints/sprint-150-timeline-on-disk
-- **Status:** blocked
+- **Sprint:** sprints/sprint-150-lean-timeline
+- **Status:** done
 - **Type:** docs
 - **Area:** swe/architecture
 - **Priority:** P1
@@ -47,8 +47,3 @@ approves this document.**
 ## Test / verification plan
 Owner review.
 
-## Blocker
-The design document is written (`swe/architecture/agent-timeline-persistence.md`, status "proposed, awaiting
-owner approval"), but the acceptance criterion is the owner's approval, recorded in the document's
-`Approval` section with the date. Tasks 003 to 005 start only after it. Five decisions are listed in § 18
-of the document, each with a recommendation. Written 2026-11-25.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { PiAgentClient } from "./providers/pi/agent.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./providers/pi/rpc-transport.js";
 
@@ -102,9 +102,10 @@ async function createAgent(service: AgentService, prompt?: string): Promise<stri
   return result.payload.agentId;
 }
 
-function lastEvents(agentId: string, count: number): unknown[] {
+function lastEvents(manager: AgentManager, agentId: string, count: number): unknown[] {
   return (
-    getTimeline(agentId)
+    manager.timelines
+      .get(agentId)
       ?.allRows()
       .slice(-count)
       .map((row) => row.event) ?? []
@@ -123,7 +124,7 @@ describe.each([
     const response = await service.handleSendPrompt({ agentId, prompt: "second" }, () => []);
 
     expect(response).toMatchObject({ type: "agent_prompt_response", agentId });
-    expect(lastEvents(agentId, 1)).toEqual([{ kind: "turn_failed", error: reason }]);
+    expect(lastEvents(manager, agentId, 1)).toEqual([{ kind: "turn_failed", error: reason }]);
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
     expect(manager.get(agentId)?.session).toBeNull();
     expect(processes).toHaveLength(1);
@@ -141,20 +142,20 @@ describe.each([
     expect(processes[1]?.notifies).toContain("prompt");
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
     expect(manager.get(agentId)?.session).not.toBeNull();
-    expect(lastEvents(agentId, 1)).toEqual([{ kind: "turn_completed" }]);
+    expect(lastEvents(manager, agentId, 1)).toEqual([{ kind: "turn_completed" }]);
   });
 
   it("between turns it detaches the session and marks the agent error without a turn_failed", async () => {
     const { service, manager, processes } = setup([[], []]);
     const agentId = await createAgent(service, "first");
-    const rowsBefore = getTimeline(agentId)?.allRows().length;
+    const rowsBefore = manager.timelines.get(agentId)?.allRows().length;
 
     processes[0]?.die(reason);
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(manager.get(agentId)?.session).toBeNull();
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
-    expect(getTimeline(agentId)?.allRows().length).toBe(rowsBefore);
+    expect(manager.timelines.get(agentId)?.allRows().length).toBe(rowsBefore);
 
     await service.handleSendPrompt({ agentId, prompt: "again" }, () => []);
     expect(processes).toHaveLength(2);
@@ -166,26 +167,27 @@ describe("a requested close", () => {
   it("archive closes the session without a turn_failed or an error status", async () => {
     const { service, manager, processes } = setup([[]]);
     const agentId = await createAgent(service, "first");
-    const rowsBefore = getTimeline(agentId)?.allRows().length;
+    const timeline = manager.timelines.get(agentId)!;
+    const rowsBefore = timeline.allRows().length;
 
     await manager.archiveAgent(agentId);
     processes[0]?.die("pi process exited (code null, SIGTERM)"); // the exit close() asked for
 
     expect(processes[0]?.closed).toBe(true);
-    expect(getTimeline(agentId)?.allRows().length).toBe(rowsBefore);
+    expect(timeline.allRows().length).toBe(rowsBefore);
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });
 
   it("shutdown (closeAll) does the same", async () => {
     const { service, manager, processes } = setup([[]]);
     const agentId = await createAgent(service, "first");
-    const rowsBefore = getTimeline(agentId)?.allRows().length;
+    const rowsBefore = manager.timelines.get(agentId)?.allRows().length;
 
     await manager.closeAll();
     processes[0]?.die("pi process exited (code null, SIGTERM)");
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(getTimeline(agentId)?.allRows().length).toBe(rowsBefore);
+    expect(manager.timelines.get(agentId)?.allRows().length).toBe(rowsBefore);
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });
 });

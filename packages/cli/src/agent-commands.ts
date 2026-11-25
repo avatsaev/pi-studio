@@ -277,7 +277,7 @@ export async function logsAgent(
 ): Promise<number> {
   const payload = await client.request<{ items?: unknown[] }>(AGENT_RPC.timeline, {
     agentId,
-    direction: "backward",
+    direction: "before",
     limit: opts.limit ?? 100,
   });
   if (opts.json) {

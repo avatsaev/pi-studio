@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MockAgentClient, type MockAgentSession } from "./providers/mock/mock-provider.js";
 import { SessionOperationsService } from "./session-operations.js";
 
@@ -110,7 +110,8 @@ describe("agent stream mode", () => {
     await service.runTurn(agentId, session, "hello", sessions);
 
     expect(streamKinds(quiet)).toEqual([]);
-    const kinds = getTimeline(agentId)!
+    const kinds = manager.timelines
+      .get(agentId)!
       .allRows()
       .map((r) => r.event.kind);
     expect(kinds).toContain("user_message");

@@ -199,7 +199,6 @@ export interface ImportSessionArgs {
 export interface ImportSessionResult {
   session: AgentSession;
   persistence: PersistenceHandle;
-  timeline: AgentStreamEvent[];
 }
 
 /** One running instance of an agent: one provider, one model, one cwd, one timeline. */

@@ -13,7 +13,7 @@ import type {
   PersistenceHandle,
   RunOptions,
 } from "./provider-contract.js";
-import { AgentTimelineStore, type TimelineRow } from "./timeline-store.js";
+import type { AgentTimelineStore } from "./timeline-store.js";
 import { composeSystemPrompt } from "./compose-system-prompt.js";
 import type { AgentTitleGenerator } from "./structured-generation-runtime.js";
 
@@ -35,46 +35,14 @@ export interface AgentServiceDeps {
   generateAgentTitle?: AgentTitleGenerator;
 }
 
-/** In-memory timeline per agentId; persisted rows are on the AgentRecord.timeline. */
-const timelinesByAgentId = new Map<string, AgentTimelineStore>();
-
 /** Agent ids with an in-flight `generateAgentTitle` call — prevents two overlapping prompts on
  *  the same still-untitled agent from firing two concurrent generations. */
 const titleGenerationInFlight = new Set<string>();
 
-function getOrCreateTimeline(agentId: string, now?: () => string): AgentTimelineStore {
-  let t = timelinesByAgentId.get(agentId);
-  if (!t) {
-    t = new AgentTimelineStore({ now });
-    timelinesByAgentId.set(agentId, t);
-  }
-  return t;
-}
-
-export function getTimeline(agentId: string): AgentTimelineStore | undefined {
-  return timelinesByAgentId.get(agentId);
-}
-
-/**
- * Seed the in-memory timeline for an agent that has none yet (e.g. right after a daemon restart)
- * from externally rehydrated rows — see `timeline-rpc.ts`'s fallback to a provider's
- * `hydrateTimeline()`. No-op if a timeline already exists (never overwrites live/streamed rows).
- */
-export function seedTimeline(agentId: string, rows: TimelineRow[], now?: () => string): void {
-  if (timelinesByAgentId.has(agentId)) return;
-  timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows, now }));
-}
-
-/**
- * Unconditionally replace `agentId`'s in-memory timeline with `rows` (fork resync —
- * features/conversation-fork.md § New daemon-internal surface). Unlike `seedTimeline`, this
- * always replaces — a fork always happens on a live session, which always already has a store,
- * so a no-op-if-exists entry point could never do the job. `rows` may legitimately be empty (a
- * fork to before the first user message). Creates the store if none exists yet so callers never
- * need to special-case a never-spawned session.
- */
-export function resetTimeline(agentId: string, rows: TimelineRow[]): void {
-  getOrCreateTimeline(agentId).replaceRows(rows);
+/** Whether `agentId` is a live agent that may gain history: present, and not archived. */
+function acceptsHistory(manager: AgentManager, agentId: string): boolean {
+  const record = manager.get(agentId)?.record;
+  return record !== undefined && !record.archivedAt;
 }
 
 /**
@@ -120,8 +88,8 @@ export function appendStreamEvent(
  * Seed `agentId`'s in-memory timeline from its provider's durable history when it has none yet (a
  * restarted daemon never has one). No-op when a store exists, or when the record has no persisted
  * handle / the provider has nothing to replay. Prefer `timelineFor` for anything that appends:
- * the first append would otherwise create an empty store, and `seedTimeline` never overwrites an
- * existing one, so history would never hydrate.
+ * the first append would otherwise create an empty store, and `TimelineRegistry.seed` never
+ * overwrites an existing one, so history would never hydrate.
  */
 export function ensureTimelineSeeded(
   agentId: string,
@@ -129,12 +97,12 @@ export function ensureTimelineSeeded(
   resolveClient: (provider: string) => AgentClient,
   now?: () => string,
 ): void {
-  if (timelinesByAgentId.has(agentId)) return;
+  if (manager.timelines.get(agentId)) return;
   const record = manager.get(agentId)?.record;
   const handle = record?.persistence as PersistenceHandle | undefined;
   if (!record || !handle) return;
   const rows = resolveClient(record.provider).hydrateTimeline?.(handle) ?? [];
-  if (rows.length > 0) seedTimeline(agentId, rows, now);
+  if (rows.length > 0) manager.timelines.seed(agentId, rows, now);
 }
 
 /**
@@ -142,6 +110,9 @@ export function ensureTimelineSeeded(
  * first (`ensureTimelineSeeded`), then returns the existing or a fresh store. `runTurn` and
  * compaction append through it, so whichever of send, compact or fetch comes first after a
  * restart, earlier history is already in the store.
+ *
+ * Refuses an agent that is gone or archived: the registry never regains a store an archive or
+ * delete evicted (`AgentManager.timelines`), so an operation that races one cannot bring it back.
  */
 export function timelineFor(
   deps: {
@@ -151,8 +122,11 @@ export function timelineFor(
   },
   agentId: string,
 ): AgentTimelineStore {
+  if (!acceptsHistory(deps.manager, agentId)) {
+    throw new Error(`agent ${agentId} is gone or archived`);
+  }
   ensureTimelineSeeded(agentId, deps.manager, deps.resolveClient, deps.now);
-  return getOrCreateTimeline(agentId, deps.now);
+  return deps.manager.timelines.getOrCreate(agentId, deps.now);
 }
 
 /**
@@ -328,7 +302,6 @@ export class AgentService {
       labels,
       lastStatus: "initializing",
       config: effectiveConfig as AgentRecord["config"],
-      timeline: [],
     };
 
     await this.deps.manager.add(record);

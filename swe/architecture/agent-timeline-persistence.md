@@ -7,8 +7,9 @@
 > [../../docs/daemon-audit-handoff.md](../../docs/daemon-audit-handoff.md) (findings A5, A6; approved
 > improvement 3; improvement 8 for damaged files)
 
-**Status: proposed, awaiting owner approval.** Nothing here is implemented. Sprint-150 task-003 starts
-only after the owner approves this document. Approval is recorded in [Approval](#approval).
+**Status: not adopted (owner decision, 2026-11-25).** Nothing here is implemented, and nothing will be.
+Kept as the evidence for that decision; its measurements (sections 2 and 11) and the merge rule
+(sections 3.2 and 6) are what sprint-150 tasks 003 and 004 use. See [Approval](#approval).
 
 ## 1. Summary
 
@@ -560,4 +561,4 @@ recipe); then a fork and a restart.
 
 | | |
 |---|---|
-| Owner approved | **Pending.** Record the decision and the date here; task-003 starts only after this line is filled. |
+| Owner decision | **Not adopted, 2026-11-25.** Pi's session file already restores the whole conversation, so after a restart only cosmetic things differ (failed or cancelled compaction rows and mid-stream error rows, the "running" step of a tool call, exact timestamps, internal numbering); a restart closes every connection and the workbench refetches everything, so stable numbering across restarts buys almost nothing; paging costs milliseconds at real sizes (section 2.6). A second copy of the conversation adds drift and new disk failure modes (the handle guard of decision 3 exists only to manage them). Kept instead: one row per message in memory, and eviction on archive and delete (sprint-150 tasks 003 and 004). One known loss stays: after a restart a turn killed by a Pi crash shows as completed, because the failure reason lives only in daemon memory. |

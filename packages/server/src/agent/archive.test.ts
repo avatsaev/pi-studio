@@ -22,7 +22,6 @@ function record(overrides: Partial<AgentRecord> = {}): AgentRecord {
     updatedAt: NOW,
     labels: {},
     lastStatus: "idle",
-    timeline: [],
     ...overrides,
   };
 }

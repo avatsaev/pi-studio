@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MOCK_CAPABILITIES, MockAgentSession } from "./providers/mock/mock-provider.js";
 import type {
   AgentClient,
@@ -20,8 +20,7 @@ import type { TimelineRow } from "./timeline-store.js";
 /**
  * `agent_compact_request` (sprint-074 task-003): the busy guards, the resume of a process-less
  * record, the subscription window that records `compaction` events outside a turn, and the
- * synthetic terminal. Agent ids are random because the timeline map in `agent-service.ts` is
- * module-global.
+ * synthetic terminal.
  */
 
 const NOW = "2026-10-09T12:00:00.000Z";
@@ -99,7 +98,6 @@ function record(extra: Partial<AgentRecord> = {}): AgentRecord {
     updatedAt: NOW,
     labels: {},
     lastStatus: "idle",
-    timeline: [],
     ...extra,
   };
 }
@@ -148,8 +146,8 @@ async function setup(
   };
 }
 
-function compactionRows(agentId: string): AgentStreamEvent[] {
-  return (getTimeline(agentId)?.allRows() ?? [])
+function compactionRows(manager: AgentManager, agentId: string): AgentStreamEvent[] {
+  return (manager.timelines.get(agentId)?.allRows() ?? [])
     .map((r) => r.event)
     .filter((e) => e.kind === "compaction");
 }
@@ -165,7 +163,7 @@ describe("agent_compact_request — recording", () => {
 
     const result = (await ops.handleCompact({ agentId }, () => active)) as Record<string, unknown>;
 
-    const rows = compactionRows(agentId);
+    const rows = compactionRows(manager, agentId);
     expect(rows.map((e) => e.kind === "compaction" && e.phase)).toEqual(["started", "completed"]);
     const streamFrames = frames
       .map((f) => ({ sessions: f.sessions, inner: f.message.message as Record<string, unknown> }))
@@ -198,7 +196,7 @@ describe("agent_compact_request — recording", () => {
       }),
     );
     await ops.handleCompact({ agentId }, () => active);
-    const kinds = (getTimeline(agentId)?.allRows() ?? []).map((r) => r.event.kind);
+    const kinds = (manager.timelines.get(agentId)?.allRows() ?? []).map((r) => r.event.kind);
     expect(kinds).toEqual(["compaction", "compaction"]);
   });
 });
@@ -237,10 +235,9 @@ describe("agent_compact_request — guards", () => {
 
     gate.resolve(OK);
     expect(((await first) as Record<string, unknown>).payload).toEqual(OK);
-    expect(compactionRows(agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual([
-      "started",
-      "completed",
-    ]);
+    expect(compactionRows(manager, agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual(
+      ["started", "completed"],
+    );
   });
 
   it("releases the in-flight slot after success, a rejecting compact, an unsupported provider and a failed resume", async () => {
@@ -289,10 +286,22 @@ describe("agent_compact_request — guards", () => {
 describe("agent_compact_request — process-less record", () => {
   it("resumes the session, seeds history from hydration, then appends the compaction rows", async () => {
     const history: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "user_message", text: "hello" } },
-      { epoch: 1, seq: 1, timestamp: NOW, event: { kind: "turn_started" } },
-      { epoch: 1, seq: 2, timestamp: NOW, event: { kind: "assistant_message", text: "hi" } },
-      { epoch: 1, seq: 3, timestamp: NOW, event: { kind: "turn_completed" } },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "user_message", text: "hello" },
+      },
+      { epoch: 1, seq: 1, seqEnd: 1, timestamp: NOW, event: { kind: "turn_started" } },
+      {
+        epoch: 1,
+        seq: 2,
+        seqEnd: 2,
+        timestamp: NOW,
+        event: { kind: "assistant_message", text: "hi" },
+      },
+      { epoch: 1, seq: 3, seqEnd: 3, timestamp: NOW, event: { kind: "turn_completed" } },
     ];
     const session = new ScriptedSession(async (emit) => {
       emit(started("c1"));
@@ -309,13 +318,13 @@ describe("agent_compact_request — process-less record", () => {
       record({ persistence: { provider: "mock", sessionId: "s", nativeHandle: "h" } }),
       client,
     );
-    expect(getTimeline(s.agentId)).toBeUndefined();
+    expect(s.manager.timelines.get(s.agentId)).toBeUndefined();
 
     await s.ops.handleCompact({ agentId: s.agentId }, () => s.active);
 
     expect(resumeSession).toHaveBeenCalledTimes(1);
     expect(s.manager.get(s.agentId)?.session).toBe(session);
-    expect((getTimeline(s.agentId)?.allRows() ?? []).map((r) => r.event.kind)).toEqual([
+    expect((s.manager.timelines.get(s.agentId)?.allRows() ?? []).map((r) => r.event.kind)).toEqual([
       "user_message",
       "turn_started",
       "assistant_message",
@@ -339,7 +348,7 @@ describe("agent_compact_request — synthetic terminal", () => {
 
     await expect(ops.handleCompact({ agentId }, () => active)).rejects.toThrow(/transport closed/);
 
-    expect(compactionRows(agentId)).toEqual([
+    expect(compactionRows(manager, agentId)).toEqual([
       started("c1"),
       { kind: "compaction", compactionId: "c1", phase: "failed", error: "transport closed" },
     ]);
@@ -363,10 +372,9 @@ describe("agent_compact_request — synthetic terminal", () => {
 
     await expect(ops.handleCompact({ agentId }, () => active)).rejects.toThrow(/Already compacted/);
 
-    expect(compactionRows(agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual([
-      "started",
-      "failed",
-    ]);
+    expect(compactionRows(manager, agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual(
+      ["started", "failed"],
+    );
   });
 });
 
@@ -400,10 +408,9 @@ describe("compaction during a turn (automatic path)", () => {
 
     await service.runTurn(agentId, session, "go", () => []);
 
-    expect(compactionRows(agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual([
-      "started",
-      "failed",
-    ]);
+    expect(compactionRows(manager, agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual(
+      ["started", "failed"],
+    );
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });
 });

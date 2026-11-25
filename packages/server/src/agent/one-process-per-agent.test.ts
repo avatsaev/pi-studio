@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, ensureSession, getTimeline, spawnOrResumeSession } from "./agent-service.js";
+import { AgentService, ensureSession, spawnOrResumeSession } from "./agent-service.js";
 import { PiAgentClient } from "./providers/pi/agent.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./providers/pi/rpc-transport.js";
 import { SessionOperationsService } from "./session-operations.js";
@@ -81,7 +81,6 @@ function record(overrides: Partial<AgentRecord> = {}): AgentRecord {
     updatedAt: NOW,
     labels: {},
     lastStatus: "idle",
-    timeline: [],
     ...overrides,
   };
 }
@@ -259,6 +258,7 @@ describe("closing mid-turn", () => {
 
   it("archive interrupts, ends the turn as canceled, and resolves the send", async () => {
     const { manager, processes, send, error } = await startHangingTurn();
+    const timeline = manager.timelines.get("agent-1")!;
 
     await manager.archiveAgent("agent-1");
 
@@ -266,7 +266,7 @@ describe("closing mid-turn", () => {
     expect(processes[0]?.notifies).toContain("abort");
     expect(processes[0]?.closed).toBe(true);
     expect(manager.get("agent-1")?.record.lastStatus).toBe("closed");
-    expect(getTimeline("agent-1")?.allRows().at(-1)?.event.kind).toBe("turn_canceled");
+    expect(timeline.allRows().at(-1)?.event.kind).toBe("turn_canceled");
     expect(error).not.toHaveBeenCalled();
   });
 

@@ -21,10 +21,22 @@ const NOW = "2026-11-25T12:00:00.000Z";
 const AGENT_ID = "recovered-agent";
 
 const HISTORY: TimelineRow[] = [
-  { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "user_message", text: "old question" } },
-  { epoch: 1, seq: 1, timestamp: NOW, event: { kind: "turn_started" } },
-  { epoch: 1, seq: 2, timestamp: NOW, event: { kind: "assistant_message", text: "old answer" } },
-  { epoch: 1, seq: 3, timestamp: NOW, event: { kind: "turn_completed" } },
+  {
+    epoch: 1,
+    seq: 0,
+    seqEnd: 0,
+    timestamp: NOW,
+    event: { kind: "user_message", text: "old question" },
+  },
+  { epoch: 1, seq: 1, seqEnd: 1, timestamp: NOW, event: { kind: "turn_started" } },
+  {
+    epoch: 1,
+    seq: 2,
+    seqEnd: 2,
+    timestamp: NOW,
+    event: { kind: "assistant_message", text: "old answer" },
+  },
+  { epoch: 1, seq: 3, seqEnd: 3, timestamp: NOW, event: { kind: "turn_completed" } },
 ];
 
 /** A mock whose "session file" replays `HISTORY`, as `PiAgentClient.hydrateTimeline` would. */
@@ -50,7 +62,6 @@ async function recoveredAgent(): Promise<{
     updatedAt: NOW,
     labels: {},
     lastStatus: "idle",
-    timeline: [],
     persistence: { provider: "mock", sessionId: "s1", nativeHandle: "/fake/session.jsonl" },
   };
   const manager = new AgentManager({
