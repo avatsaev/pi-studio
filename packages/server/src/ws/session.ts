@@ -1,6 +1,9 @@
 import { supports } from "@av-pi-studio/protocol";
 import type { WebSocket } from "ws";
 
+import type { Logger } from "../logging/logger.js";
+import { MAX_SEND_QUEUE_BYTES } from "./limits.js";
+
 /** `WebSocket.OPEN` (the `ws` package's readyState for an open socket). */
 const WS_OPEN = 1;
 
@@ -41,6 +44,9 @@ export class Session {
   readonly remoteAddress: string | undefined;
   readonly transport: "direct" | "relay";
   private readonly socket: WebSocket;
+  private readonly logger: Logger | undefined;
+  /** True once the send queue passed its cap and the socket was cut off. */
+  private overflowed = false;
 
   constructor(opts: {
     id: string;
@@ -54,6 +60,8 @@ export class Session {
     appVersion?: string;
     remoteAddress?: string;
     transport?: "direct" | "relay";
+    /** Where a cut-off client is logged (warn). */
+    logger?: Logger;
   }) {
     this.id = opts.id;
     this.clientId = opts.clientId;
@@ -66,6 +74,7 @@ export class Session {
     this.remoteAddress = opts.remoteAddress;
     this.transport = opts.transport ?? "direct";
     this.socket = opts.socket;
+    this.logger = opts.logger;
   }
 
   /** True if the client advertised support for `flag` (or it was rehydrated from a prior hello). */
@@ -75,12 +84,49 @@ export class Session {
 
   /** Send a top-level envelope as a JSON text frame. */
   send(envelope: unknown): void {
-    this.socket.send(JSON.stringify(envelope));
+    this.sendText(JSON.stringify(envelope));
+  }
+
+  /**
+   * Send text that is already serialised, so a broadcast stringifies its envelope once for every
+   * recipient. Nothing is sent to a session whose queue passed {@link MAX_SEND_QUEUE_BYTES}.
+   */
+  sendText(text: string): void {
+    if (this.queueIsFull()) return;
+    this.socket.send(text);
   }
 
   /** Send raw bytes as a binary frame (terminal/file streams). */
   sendBinary(bytes: Uint8Array): void {
+    if (this.queueIsFull()) return;
     this.socket.send(bytes);
+  }
+
+  /**
+   * The one place a client that does not read is cut off: before a send, a socket whose queue is
+   * above {@link MAX_SEND_QUEUE_BYTES} is closed with 1013 and terminated (the close frame sits
+   * behind the backlog, so the peer sees an abnormal close and reconnects), and the session sends
+   * nothing more. Every send path (broadcast, per-session push, terminal output, file download)
+   * goes through `send`, `sendText` or `sendBinary`, so all of them are covered.
+   */
+  private queueIsFull(): boolean {
+    if (this.overflowed) return true;
+    const queued = this.bufferedAmount;
+    if (queued === undefined || queued <= MAX_SEND_QUEUE_BYTES) return false;
+    this.overflowed = true;
+    this.logger?.warn(
+      {
+        clientId: this.clientId,
+        clientType: this.clientType,
+        sessionId: this.id,
+        via: this.transport,
+        queuedBytes: queued,
+      },
+      "ws client is not reading: send queue full, closing the connection",
+    );
+    this.socket.close(1013, "send queue full");
+    this.socket.terminate();
+    return true;
   }
 
   /**

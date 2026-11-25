@@ -138,3 +138,10 @@ for an older daemon must change:
 - `rpc_error.json` only had its `description` refreshed: `code` is an **open string** (today
   `unknown_message_type`, `handler_error` and `shutting_down`), so a client must treat a code it
   does not know as a generic failure. No leaf changed.
+
+## Additive — 2026-11-25, `too_many_requests` (formatVersion stays 2)
+
+`rpc_error.json` only had its `description` refreshed: `code` gains the value `too_many_requests`
+(a session may have 64 requests in flight; the 65th is refused and nothing ran). `code` is an open
+string, so a client that already treats a code it does not know as a generic failure needs no
+change. No leaf changed, no migration.

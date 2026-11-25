@@ -297,7 +297,11 @@ All communication rides a **single WebSocket connection** per client.
   (`mobile`/`browser`/`cli`/`mcp`), `protocolVersion`, optional `capabilities`, `platform` and `agentStreams`
   (`"all"` default, or `"none"` to receive no `agent_stream` frames).
 - `status` (Server→Client) — `server_info` payload sent right after a successful hello.
-- `ping` / `pong` — **JSON** liveness (not RFC 6455 ping, which browsers/RN can't send).
+- `ping` / `pong` — **JSON** liveness (not RFC 6455 ping, which browsers/RN can't send). Separately,
+  the daemon sends an RFC 6455 ping to every direct socket every 30 s and closes one that showed no
+  life (a pong or any frame) for two intervals; browsers, `ws` and tungstenite answer by themselves.
+  A client that stops reading is cut off too: a session whose send queue passes 16 MiB is closed
+  (1013, "send queue full") and terminated, and the client reconnects.
 - `session` — the envelope wrapping every RPC request/response/broadcast (`{ type: "session",
   message }`).
 - `rpc_error` — a correlated error response (carries the originating `requestId`).

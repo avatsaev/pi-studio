@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { Logger } from "../logging/logger.js";
 import type {
   ProjectRecord,
   ProjectRegistry,
@@ -71,13 +72,16 @@ export function deriveProjectKey(info: { remote?: string | null; rootPath: strin
 }
 
 export class WorkspaceRegistryService {
-  constructor(private readonly home: string) {}
+  constructor(
+    private readonly home: string,
+    private readonly logger: Logger,
+  ) {}
 
   async listProjects(): Promise<ProjectRegistry> {
-    return loadProjects(this.home);
+    return loadProjects(this.home, this.logger);
   }
   async listWorkspaces(): Promise<WorkspaceRegistry> {
-    return loadWorkspaces(this.home);
+    return loadWorkspaces(this.home, this.logger);
   }
   async listActiveProjects(): Promise<ProjectRecord[]> {
     return (await this.listProjects()).filter((p) => !p.archivedAt);

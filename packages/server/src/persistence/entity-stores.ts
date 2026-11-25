@@ -2,8 +2,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { z } from "zod";
-
+import type { Logger } from "../logging/logger.js";
 import { atomicWriteJson, loadStore } from "./atomic-store.js";
 import {
   type AgentRecord,
@@ -37,15 +36,6 @@ export function sanitizeCwd(cwd: string): string {
   return `${prefix}${body}`;
 }
 
-/** Generic loader returning the parsed entity or `null` when the file is missing/corrupt. */
-async function loadEntityOrNull<S extends z.ZodTypeAny>(
-  path: string,
-  schema: S,
-): Promise<z.infer<S> | null> {
-  if (!existsSync(path)) return null;
-  return loadStore(path, schema.nullable(), null);
-}
-
 // ---------------------------------------------------------------------------
 // Agent records  →  agents/{sanitized-cwd}/{id}.json
 // ---------------------------------------------------------------------------
@@ -66,8 +56,9 @@ export async function loadAgent(
   home: string,
   cwd: string,
   id: string,
+  logger: Logger,
 ): Promise<AgentRecord | null> {
-  return loadEntityOrNull(agentFilePath(home, cwd, id), agentRecordSchema);
+  return loadStore(agentFilePath(home, cwd, id), agentRecordSchema.nullable(), null, logger);
 }
 
 /** Delete an agent's persisted record file. Returns true if it existed. */
@@ -79,7 +70,7 @@ export async function deleteAgent(home: string, cwd: string, id: string): Promis
 }
 
 /** Load every persisted agent record across all `agents/{sanitized-cwd}/` directories. */
-export async function loadAllAgents(home: string): Promise<AgentRecord[]> {
+export async function loadAllAgents(home: string, logger: Logger): Promise<AgentRecord[]> {
   const base = join(home, "agents");
   if (!existsSync(base)) return [];
   const records: AgentRecord[] = [];
@@ -88,7 +79,7 @@ export async function loadAllAgents(home: string): Promise<AgentRecord[]> {
     if (!statSync(dir).isDirectory()) continue;
     for (const file of readdirSync(dir)) {
       if (!file.endsWith(".json")) continue;
-      const record = await loadEntityOrNull(join(dir, file), agentRecordSchema);
+      const record = await loadStore(join(dir, file), agentRecordSchema.nullable(), null, logger);
       if (record) records.push(record);
     }
   }
@@ -107,16 +98,16 @@ export function workspacesPath(home: string): string {
   return join(home, "projects", "workspaces.json");
 }
 
-export async function loadProjects(home: string): Promise<ProjectRegistry> {
-  return loadStore(projectsPath(home), projectRegistrySchema, []);
+export async function loadProjects(home: string, logger: Logger): Promise<ProjectRegistry> {
+  return loadStore(projectsPath(home), projectRegistrySchema, [], logger);
 }
 
 export async function saveProjects(home: string, projects: ProjectRegistry): Promise<void> {
   await atomicWriteJson(projectsPath(home), projects, projectRegistrySchema);
 }
 
-export async function loadWorkspaces(home: string): Promise<WorkspaceRegistry> {
-  return loadStore(workspacesPath(home), workspaceRegistrySchema, []);
+export async function loadWorkspaces(home: string, logger: Logger): Promise<WorkspaceRegistry> {
+  return loadStore(workspacesPath(home), workspaceRegistrySchema, [], logger);
 }
 
 export async function saveWorkspaces(home: string, workspaces: WorkspaceRegistry): Promise<void> {

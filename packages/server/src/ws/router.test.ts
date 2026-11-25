@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { MAX_INFLIGHT_REQUESTS } from "./limits.js";
 import { HandlerRegistry, routeTextFrame } from "./router.js";
 import type { Session } from "./session.js";
 
@@ -268,5 +269,122 @@ describe("rpc logging", () => {
       registry,
     );
     expect(s.sent).toHaveLength(1);
+  });
+});
+
+const frame = (type: string, requestId?: string): string =>
+  JSON.stringify({ type: "session", message: { type, ...(requestId ? { requestId } : {}) } });
+
+const slowDone = (requestId: string): unknown => ({
+  type: "session",
+  message: { type: "slow_done", requestId },
+});
+
+/** A registry whose `slow` handler stays running until `finish()`. */
+function slowRegistry(): {
+  registry: HandlerRegistry;
+  running: () => number;
+  finish: () => void;
+} {
+  const release: Array<() => void> = [];
+  const registry = new HandlerRegistry().register("slow", () => {
+    const { promise, resolve } = Promise.withResolvers<{ type: string }>();
+    release.push(() => resolve({ type: "slow_done" }));
+    return promise;
+  });
+  return {
+    registry,
+    running: () => release.length,
+    finish: () => {
+      for (const resolve of release) resolve();
+    },
+  };
+}
+
+describe("requests in flight", () => {
+  it("refuses the 65th concurrent request with too_many_requests; the first 64 complete", async () => {
+    const { registry, running, finish } = slowRegistry();
+    const s = fakeSession();
+    const all: Array<Promise<void>> = [];
+    for (let i = 0; i < MAX_INFLIGHT_REQUESTS; i++) {
+      all.push(routeTextFrame(s, frame("slow", `r${i}`), registry));
+    }
+    expect(running()).toBe(64);
+    await routeTextFrame(s, frame("slow", "r64"), registry);
+    expect(s.sent).toEqual([
+      {
+        type: "session",
+        message: {
+          type: "rpc_error",
+          requestId: "r64",
+          code: "too_many_requests",
+          message: expect.any(String),
+        },
+      },
+    ]);
+    expect(running()).toBe(64);
+
+    finish();
+    await Promise.all(all);
+    expect(s.sent).toHaveLength(65);
+    expect(s.sent.slice(1)).toEqual(
+      expect.arrayContaining(Array.from({ length: 64 }, (_, i) => slowDone(`r${i}`))),
+    );
+  });
+
+  it("accepts a request again once a slot is free, also after a handler failed", async () => {
+    const { registry, finish } = slowRegistry();
+    registry.register("boom", () => {
+      throw new Error("kaboom");
+    });
+    const s = fakeSession();
+    const all: Array<Promise<void>> = [];
+    for (let i = 0; i < MAX_INFLIGHT_REQUESTS - 1; i++) {
+      all.push(routeTextFrame(s, frame("slow", `r${i}`), registry));
+    }
+    // The 64th slot is taken and given back by a handler that throws, over and over.
+    for (let i = 0; i < 5; i++) await routeTextFrame(s, frame("boom", `b${i}`), registry);
+    expect(s.sent).toEqual(
+      Array.from({ length: 5 }, (_, i) => ({
+        type: "session",
+        message: {
+          type: "rpc_error",
+          requestId: `b${i}`,
+          code: "handler_error",
+          message: "kaboom",
+        },
+      })),
+    );
+    finish();
+    await Promise.all(all);
+  });
+
+  it("counts each session on its own", async () => {
+    const { registry, running, finish } = slowRegistry();
+    const busy = fakeSession();
+    const other = fakeSession();
+    const all: Array<Promise<void>> = [];
+    for (let i = 0; i < MAX_INFLIGHT_REQUESTS; i++) {
+      all.push(routeTextFrame(busy, frame("slow", `r${i}`), registry));
+    }
+    all.push(routeTextFrame(other, frame("slow", "o1"), registry));
+    expect(running()).toBe(65);
+    expect(other.sent).toEqual([]);
+    finish();
+    await Promise.all(all);
+    expect(other.sent).toEqual([slowDone("o1")]);
+  });
+
+  it("drops a refused message that expects no reply, without an error", async () => {
+    const { registry, finish } = slowRegistry();
+    const s = fakeSession();
+    const all: Array<Promise<void>> = [];
+    for (let i = 0; i < MAX_INFLIGHT_REQUESTS; i++) {
+      all.push(routeTextFrame(s, frame("slow", `r${i}`), registry));
+    }
+    await routeTextFrame(s, frame("slow"), registry);
+    expect(s.sent).toEqual([]);
+    finish();
+    await Promise.all(all);
   });
 });

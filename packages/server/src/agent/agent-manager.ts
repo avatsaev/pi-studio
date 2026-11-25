@@ -2,7 +2,6 @@ import type { AgentStatus } from "@av-pi-studio/protocol";
 
 import {
   deleteAgent as deleteAgentFromDisk,
-  loadAllAgents as loadAllAgentsFromDisk,
   saveAgent as saveAgentToDisk,
 } from "../persistence/entity-stores.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
@@ -99,7 +98,8 @@ export function canTransition(from: AgentStatus, to: AgentStatus): boolean {
 export interface AgentManagerDeps {
   home: string;
   saveAgent?: (record: AgentRecord) => Promise<void>;
-  loadAllAgents?: () => Promise<AgentRecord[]>;
+  /** Where recovery reads the persisted records from; the daemon passes the disk loader with its logger. */
+  loadAllAgents: () => Promise<AgentRecord[]>;
   /** Delete a persisted agent record file by (cwd, id). Injectable for tests. */
   deleteAgent?: (cwd: string, id: string) => Promise<boolean>;
   /** Session-attach hook (features/extension-ui-rpc.md § New/changed files) — invoked at the end of
@@ -138,7 +138,7 @@ export class AgentManager {
 
   constructor(private readonly deps: AgentManagerDeps) {
     this.save = deps.saveAgent ?? ((record) => saveAgentToDisk(deps.home, record));
-    this.loadAll = deps.loadAllAgents ?? (() => loadAllAgentsFromDisk(deps.home));
+    this.loadAll = deps.loadAllAgents;
     this.delete = deps.deleteAgent ?? ((cwd, id) => deleteAgentFromDisk(deps.home, cwd, id));
     this.now = deps.now ?? (() => new Date().toISOString());
   }

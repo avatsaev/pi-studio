@@ -431,7 +431,10 @@ All communication uses a **single WebSocket connection** per client.
   - `hello` (Client→Server, first frame, handshake)
   - `status` (Server→Client, `server_info` payload after hello — carries `serverId`, feature flags,
     and `homeDir`, the daemon host's own home directory)
-  - `ping` / `pong` (JSON liveness, NOT RFC 6455 ping — browser/RN cannot access protocol ping)
+  - `ping` / `pong` (JSON liveness, NOT RFC 6455 ping — browser/RN cannot access protocol ping). The
+    daemon itself sends RFC 6455 pings every 30 s on direct sockets and terminates one that showed
+    no life for two intervals; browsers, `ws` and tungstenite answer them, so a client needs no code
+    for it.
   - `session` (envelope wrapping all RPC request/response/broadcast messages)
   - `rpc_error` (correlated error response)
 - **Binary frames** carry terminal and file-transfer data with a 2-byte header `[opcode][slot]`.
@@ -453,7 +456,12 @@ All communication uses a **single WebSocket connection** per client.
   inline-handled slash command has no `turn_*` rows and its `agent_update idle` is the end signal. No
   feature flag and no compatibility path. The four fixtures under
   `packages/protocol/fixtures/external-clients/` pin it (additive; dated `CHANGELOG.md` entry, which
-  also records the behaviour change).
+  also records the behaviour change). Clients follow the end of a turn, not the answer: the SDK's
+  `agent(id).send` resolves at acceptance and `agent(id).waitForIdle()` waits for the settle; the CLI's
+  `agent run`/`send`/`wait` print the id at once, then wait (`--no-wait`, `--timeout`, one-line
+  `--json`; non-zero when the turn failed); the workbench takes a turn's end only from
+  `agent_update`, and sets no long request timeout. Seen live against a real Pi (sprint 152
+  task 005): a 45 s tool call, a dropped socket mid-turn, a stale second tab refused with `busy`.
 - **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough
   fallback rather than a `messages.ts` discriminated-union entry — `checkout_status_subscribe`/
   `_unsubscribe` + `checkout_status_update` (git status, per-session `send()`, not broadcast) and

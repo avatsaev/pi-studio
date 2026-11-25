@@ -148,9 +148,11 @@ src/
     relay-connection.ts           openRelayConnection — one relay data socket per client connection
                                    (protocol 2): dials, sends relay_daemon_attach, waits for
                                    relay_paired, runs createDaemonChannel; RelayConnection (text,
-                                   binary, bufferedAmount, isOpen, close(code), onClose once).
+                                   binary, bufferedAmount, isOpen, close(code), terminate(), onReady once the key
+                                   exchange is done, onClose once).
     relay-sessions.ts             attachRelaySession — one Session per RelayConnection: first text
-                                   record must be a valid hello (else close 1008, same reasons as
+                                   record must be a valid hello within HELLO_TIMEOUT_MS of the key
+                                   exchange (else close 1008, same reasons as
                                    ws-server.ts), capability store by clientId, status/server_info
                                    reply, socket facade (bufferedAmount/isOpen/close), later records
                                    to the injected router; conn close → deps.onSessionClose (the
@@ -362,14 +364,22 @@ src/
     process-probe.ts              Real-process probes for tests: `isAlive` (zombies count as dead), `readPid`, `killQuietly`, `commandOf`, `descendantsOf`.
 
   ws/
-    ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions.
-                                   `stopAccepting()` answers later upgrades `503`; `close()` closes
-                                   every socket with 1001 and terminates any still open after
-                                   `SOCKET_CLOSE_GRACE_MS` (1 s).
-    session.ts                    Session — per-connection state, send(), capability checks; read-only
+    ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions;
+                                   `maxPayload` MAX_FRAME_BYTES, hello timeout (1008), liveness
+                                   pings (`liveness.ts`).
+                                   `stopAccepting()` answers later upgrades `503`; `close()` stops
+                                   the pings, closes every socket with 1001 and terminates any still
+                                   open after `SOCKET_CLOSE_GRACE_MS` (1 s).
+    limits.ts                     HELLO_TIMEOUT_MS (10 s), PING_INTERVAL_MS (30 s), MAX_FRAME_BYTES
+                                   (32 MiB), MAX_INFLIGHT_REQUESTS (64), MAX_SEND_QUEUE_BYTES (16 MiB).
+    liveness.ts                   watchLiveness — the protocol-ping sweep of the direct sockets;
+                                   terminates one that showed no life since the previous ping.
+    session.ts                    Session — per-connection state, send()/sendText()/sendBinary() behind the
+                                   MAX_SEND_QUEUE_BYTES cut-off, capability checks; read-only
                                    connection metadata `connectedAt`, `appVersion` (hello), `remoteAddress`
                                    (direct only), `transport` (`"direct"|"relay"`) — never persisted.
-    router.ts                     HandlerRegistry + frame router (dispatch session messages);
+    router.ts                     HandlerRegistry + frame router (dispatch session messages; at most
+                                   MAX_INFLIGHT_REQUESTS running per session);
                                    `registry.stopAccepting()` makes every later request an
                                    `rpc_error` `shutting_down`.
     session-subscriptions.ts      SessionSubscriptions — per-session subscription registry,
@@ -395,8 +405,10 @@ src/
 
   persistence/
     entity-schemas.ts             Zod schemas for all persisted entities (passthrough, optional).
-    entity-stores.ts              load*/save* functions — JSON file I/O per entity type.
-    atomic-store.ts               AtomicStore — write-to-tmp-then-rename for crash safety.
+    entity-stores.ts              load*/save* functions — JSON file I/O per entity type; every loader
+                                   takes the daemon `Logger` (a damaged file is set aside and logged).
+    atomic-store.ts               atomicWriteJson (temp, fsync, rename; one write per path at a time),
+                                   loadStore (damaged file set aside), quarantineFile.
     index.ts
 
   extensions/                     Preinstalled-extensions sync (features/preinstalled-extensions.md).
@@ -762,21 +774,92 @@ src/
 
 1. Validates `Host` header via `hostCheck` (DNS-rebinding protection).
 2. Checks password via `PasswordAuth` (bcrypt or WS subprotocol bearer token).
-3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket.
+3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket (1008), and so
+   does a socket with no valid `hello` after `HELLO_TIMEOUT_MS` (10 s, `deps.helloTimeoutMs` in
+   tests; the timer starts at connect and is cleared by the hello). The relay path has the same
+   rule (`deps.helloTimeoutMs`), counted from `RelayConnection.onReady` — dialling and pairing have
+   their own limits in `relay-connection.ts`.
 4. Emits `status`/`server_info` after accepting the hello — including `homeDir: os.homedir()`, the
    daemon host's home directory, which every remote client (browser, relay peer, possibly on another
    OS) needs to expand a `~` path against the right machine. The relay handshake path
    (`buildServerInfo` in `daemon/bootstrap.ts`, sent by `relay-sessions.ts`) reports the same value; keep the two in sync.
 5. Calls `deps.onSession(session)` once handshake completes.
-6. Routes subsequent frames to `deps.onMessage(session, frame)`.
-7. Shutdown: `handle.stopAccepting()` answers every later upgrade `503` (checked before the Host
-   check); `handle.close()` also stops accepting, closes every raw socket (`wss.clients`, so one that
-   never said `hello` too) with 1001 and terminates any still open after `SOCKET_CLOSE_GRACE_MS`
-   (1 s) — `wss.close()` alone waits for every client, and `ws` gives a half-open one 30 s.
+6. Routes subsequent frames to `deps.onMessage(session, frame)`. The server is created with
+   `maxPayload: MAX_FRAME_BYTES` (32 MiB): a larger message closes that socket with 1009 while it is
+   read and the `error` event `ws` raises is logged, never thrown; other sessions go on. The size
+   follows the largest real client frame: upload chunks are 32 KiB, terminal input a few bytes, a
+   file save at most 5 MiB (`MAX_INLINE_FILE_READ_BYTES`; about six times that once JSON-escaped),
+   a prompt carries its images as base64 (no cap in the UI, a 20 MB picture is 27 MB). The relay
+   (100 MiB) and the desktop proxy (128 MiB) carry more on purpose; this limit is the daemon's. A
+   binary frame reaches `onMessage` as a view of the received buffer, not a copy: every binary
+   decoder (`tryDecodeFileTransferFrame`, `tryDecodeTerminalFrame`) `slice()`s the payload it
+   keeps, so no handler holds the view after it returns (a test overwrites the source buffer after
+   each upload frame and checks the file is byte-exact). A new binary handler must do the same.
+7. Liveness (`liveness.ts`, started with the server, stopped by `close()`): every
+   `PING_INTERVAL_MS` (30 s, `deps.pingIntervalMs` in tests) each open socket is sent a
+   protocol-level ping. A socket that showed no life since the previous ping (a pong, a ping of its
+   own or any message, text or binary) is `terminate()`d, so a peer that vanished without closing
+   is gone within two intervals through the normal close path: the session leaves `sessions` and
+   so `daemon_status`, `onSessionClose` disposes its subscriptions, and the close is logged with
+   code 1006. The timer is `unref`'d. A socket the server has stopped reading
+   (`session.pauseReading()` for upload back-pressure, `ws.isPaused`) cannot show life, so it is
+   neither pinged nor judged while it is paused. Relay sockets are not part of it (their own 90 s
+   silence timer, `RELAY_DEFAULTS.silenceTimeoutMs`) and the JSON `ping`/`pong` messages are
+   unchanged. Clients need no code to answer: browsers and Node `ws` (the SDK's `DaemonClient`) do
+   it themselves, and so does each leg of the desktop proxy (`desktop/crates/net`, tungstenite:
+   reading a ping queues the pong, the next read, write or flush of that leg sends it; the pump
+   polls the daemon leg while the page leg keeps up, so only a page that stops reading for two
+   intervals goes unanswered and is reconnected).
+8. Shutdown: `handle.stopAccepting()` answers every later upgrade `503` (checked before the Host
+   check); `handle.close()` also stops accepting, stops the liveness timer, closes every raw
+   socket (`wss.clients`, so one that never said `hello` too) with 1001 and terminates any still
+   open after `SOCKET_CLOSE_GRACE_MS` (1 s) — `wss.close()` alone waits for every client, and `ws`
+   gives a half-open one 30 s.
+9. Slow clients (`Session.queueIsFull`, one choke point): a send first reads the socket's queue
+   (`bufferedAmount`, a direct socket's or a relay data socket's). Above `MAX_SEND_QUEUE_BYTES`
+   (16 MiB, `limits.ts`) the session is closed with 1013 ("send queue full") and `terminate()`d
+   (the relay facade's `terminate` is `RelayConnection.terminate()`), a warn names the client
+   (`clientId`, `clientType`, `sessionId`, `via`, `queuedBytes`; the sessions get the daemon's
+   logger from `ws-server.ts` and `relay-sessions.ts`), and the session sends nothing more. The
+   close frame sits behind the backlog and `terminate` discards it, so the peer sees an abnormal
+   close (1006): the SDK's `ReconnectionManager` reconnects on any close, and the workbench's
+   `use-session-resync.ts` brings its sessions up to date when the connection opens again. The `ws`
+   socket's `bufferedAmount` reads 0 again once its `close`
+   event has fired. It covers every send path because they all end in `send`/`sendText`/
+   `sendBinary`: `broadcast` (exported by `daemon/bootstrap.ts`, also used by `dev-bootstrap.ts`;
+   it serialises the `session` envelope once and calls `sendText`), per-session pushes and
+   replies, terminal Output frames (`terminal-rpc.ts` subscribers call `sendBinary`) and file
+   download chunks. A download paces itself at 1 MiB (`DOWNLOAD_HIGH_WATER_BYTES`) and never
+   reaches the cap. Not done: pausing a terminal's process while its viewer is slow.
+
+Limit tests: `ws-server.test.ts` ("socket limits": silent socket 1008 at a shortened limit, oversize
+frame 1009 with other sessions untouched, binary bytes intact; "liveness", with only the sweep's
+`setInterval` faked: a client that never pongs is terminated within two intervals and leaves
+`daemon_status`, a client that answers survives six intervals, a message counts as life, a paused
+socket is not judged, `close()` clears the timer), `packages/cli/src/ping-liveness-sdk-e2e.test.ts`
+(the SDK's `DaemonClient` on the Node `ws` transport stays connected across six intervals; it lives
+in `cli` because only `cli` depends on both client and server), `router.test.ts` ("requests in
+flight": the 65th request, per-session counting, a failing handler frees its slot),
+`relay-sessions.test.ts` (hello timeout counted from `onReady`, the 65th request on a relay
+connection, a relay session over the send-queue cap is closed 1013 and terminated),
+`relay-connection.test.ts` (`onReady`, `terminate()` after a `close` drops the queue),
+`files/file-transfer.test.ts` (an upload fed views of a buffer that is overwritten afterwards stays
+byte-exact). Slow clients: `ws/session.test.ts` (the cap, once-only cut-off, the log line, a socket
+with no queue never cut), `daemon/broadcast.test.ts` (one `JSON.stringify` per broadcast whatever
+the number of sessions), `daemon/slow-clients-e2e.test.ts` (real sockets: a client that stops
+reading during a 100 MiB broadcast is cut off while a second one gets every event in order; a 40
+MiB download to a slow reader completes below the cap) and
+`packages/cli/src/slow-client-reconnect-sdk-e2e.test.ts` (`DaemonClient` + `ReconnectionManager`
+reconnect after a 1013 close and after the daemon's own cut-off).
 
 `HandlerRegistry` (`router.ts`):
 - `register(type, handler)` — register a handler for a message type.
 - A handler that throws yields a correlated `rpc_error` back to the sender.
+- A session has at most `MAX_INFLIGHT_REQUESTS` (64) handlers running (a `WeakMap` counter in
+  `router.ts`, direct and relay sessions alike; the slot is freed after the reply and its
+  `afterReply` hooks, or when the handler threw). One more is answered `rpc_error` code
+  `too_many_requests` when it has a `requestId` and dropped when it has none; it is not run. No
+  ordering is imposed. `ping`/`pong` are not counted.
 - `ctx.afterReply(fn)` (handler context, sprint-097): `fn` runs after the router has sent the
   handler's reply (also when that send threw; never when the handler threw; a throwing `fn` is only
   logged). Used by `file_download_request` so its binary stream starts after its answer.
@@ -788,7 +871,7 @@ src/
 
 `Session` (`session.ts`):
 - Wraps one WebSocket connection.
-- `session.send(msg)` — sends a JSON-serialised message.
+- `session.send(msg)` — sends a JSON-serialised message; `session.sendText(text)` sends text that is already serialised (a broadcast stringifies once and hands every session the same text); `session.sendBinary(bytes)`. All three first look at the socket's queue: above `MAX_SEND_QUEUE_BYTES` (16 MiB) the session is cut off (socket `close(1013, "send queue full")` then `terminate()`, a warn log naming the client, nothing more is sent), see "Slow clients" under the socket limits.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
 - `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.agentStreams` (`"all"` | `"none"`, from `hello.agentStreams`, fixed for the connection, set on both the direct and the relay `hello` path; `"none"` receives no `agent_stream` frame — **every** send site of one passes its audience through `agentStreamRecipients(sessions)` in `session.ts` (both branches of `appendStreamEvent` and the two `user_message` sites in `agent-service.ts`, one in `session-operations.ts`'s steer/follow-up); a new `agent_stream` send site must do the same; the event is appended to the timeline regardless; advertised as `agentStreamsMode`; reported on `daemon_status` client entries only when not `"all"`), `session.capabilities`.
 - `session.bufferedAmount` (the socket's unflushed bytes — a direct socket's, or a relay connection's data socket's; `undefined` only for a stand-in socket that cannot say) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
@@ -1139,6 +1222,16 @@ creation" above.
   being silently dropped the way an unmatched `notify` response is. A `command` override pointing
   at a Pi older than 0.99.0 (no `disposition`) would hang an inline command's turn — the daemon
   requires Pi ≥ 1.1.0 (root `AGENTS.md` § Pi dependency posture).
+- **A plain prompt Pi refuses ends as `turn_failed`** (`rpc-transport.ts` `handleLine`,
+  `event-mapper.ts` `case "response"`; found live, sprint-152/task-005): a turn's `prompt` is a
+  `notify`, so it has no id, and Pi refuses it before any run starts (no model, no credential, a
+  compaction running) with a failed `prompt` response and no `agent_start`/`agent_settled`. The
+  transport used to drop that response (no pending id), so the turn never ended: the agent stayed
+  `running` and `stop` did not free it. An id-less failed response now goes to the session as an
+  event (a response with an id nobody waits for is still dropped), and the mapper turns a failed
+  `prompt` response into `turn_failed {error}` (Pi's text), the whole outcome of that turn; the
+  same response for any other command maps to nothing. Tests: `pi-adapter.test.ts` (mapper),
+  `rpc-transport.test.ts` ("a prompt Pi refuses", real child process).
 
 **Pi provider** (`providers/pi/`):
 - Spawns `piCommand(["--mode", "rpc"])` of `runtime/self.ts` (the bundled CLI under `process.execPath`
@@ -1807,6 +1900,12 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   file handles without waiting for the browser to unsubscribe first. Fixes a pre-existing leak:
   `git_checkout_subscribe` never released its `WorkspaceGitService` listener on a dropped
   connection, and this now covers both subscription families.
+- Terminal output streams use the same registry (`TerminalRpcDeps.subscriptions`, key
+  `terminal:<slot>`): `subscribe_terminal_request` adds the manager's unsubscribe fn,
+  `unsubscribe_terminal_request` and a terminal exit (`onTerminalExit`, for every active session)
+  remove the entry, and both daemons' session-close path (`bootstrap.ts` `disposeSession`,
+  `dev-bootstrap.ts` `onSessionClose`) calls `disposeSession`, so a closed socket stops receiving
+  terminal output and leaves no entry behind.
 
 ### File operations (`files/`)
 
@@ -1937,7 +2036,23 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 
 ### Persistence (`persistence/`)
 
-All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
+All stores write with `atomicWriteJson` (temp file in the same directory, fsync, rename) for crash
+safety. Writes to one path run one at a time in call order (a promise chain per resolved path), so
+the last call wins; the data is validated and serialised when called, a failed write rejects only its
+own caller, and a failed write removes its temp file.
+
+**Damaged files** (sprint-155): `loadStore(path, schema, defaults, logger)` returns the defaults,
+silently, for a missing file. A file that is not JSON or fails its schema is renamed first by
+`quarantineFile(path, reason, logger)` to `<name>.corrupt-<UTC timestamp>` (`20261125T143012Z`;
+`-1`, `-2`… is added when that name is taken, so an earlier set-aside file is never replaced), logged
+as one error with the path, the new path and the reason, and only then are the defaults returned, so
+the next save cannot overwrite the damaged bytes. A rename that fails, or a file that cannot be read
+at all (permissions, a directory), **throws**: it is not known to be damaged, and defaults would let
+the next save replace it. `loadStore`'s callers pass their logger: `loadAgent`/`loadAllAgents`/
+`loadProjects`/`loadWorkspaces` take it, `WorkspaceRegistryService(home, logger)` holds it, and
+`bootstrap.ts` passes `loadAllAgents: () => loadAllAgents(home, logger)` to `AgentManager`
+(`loadAllAgents` is a required `AgentManagerDeps` member; no disk default). `OpenProjectService` and
+`WorktreeService` take their `registry` (required) instead of building one.
 
 **Entity file locations** (relative to `$PI_STUDIO_HOME`):
 - `agents/<sanitized-cwd>/<agentId>.json`
@@ -2476,7 +2591,7 @@ messages are fair game.
 - **Terminal snapshot is optional for correctness.** A subscriber that arrives after PTY exit gets
   the last snapshot; no new Output frames will arrive.
 - **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
-  `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
+  `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope`/`broadcast` helpers from `bootstrap.ts`, nothing
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.

@@ -1,7 +1,7 @@
 # Task 003 — One slow client cannot grow the daemon's memory
 
 - **Sprint:** sprints/sprint-154-socket-limits
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (ws session, broadcast, terminal output)
 - **Priority:** P1

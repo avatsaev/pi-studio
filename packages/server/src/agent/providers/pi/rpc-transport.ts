@@ -300,6 +300,11 @@ export function createProcessTransport(
         if (record.success === false)
           p?.reject(new Error(String(record.error ?? "command failed")));
         else p?.resolve(record.data ?? record);
+      } else if (id === undefined && record.success === false) {
+        // A notified command (the turn's `prompt`) carries no id, so Pi's refusal of it (no model,
+        // no credential, a compaction running) matches nothing pending. No terminal event follows
+        // it, so it goes to the session, which ends the turn that is waiting for one.
+        for (const cb of eventCbs) cb(msg);
       }
       return;
     }

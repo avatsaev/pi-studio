@@ -1,7 +1,7 @@
 # Task 005 — Live check of instant replies, and close of M4
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** all packages, docs
 - **Priority:** P1

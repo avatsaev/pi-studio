@@ -1108,7 +1108,8 @@ export type ExtensionPacksSetResponse = z.infer<typeof extensionPacksSetResponse
 //
 // Every response requires `ok`; a domain failure is `{ ok: false, error: "<reason>" }` in the
 // payload, never a chosen `rpc_error` code (`ws/router.ts` emits only transport-level codes:
-// `unknown_message_type`, `handler_error` and `shutting_down`; `code` is an open string).
+// `unknown_message_type`, `handler_error`, `shutting_down` and `too_many_requests`; `code` is an
+// open string).
 // ===========================================================================
 
 export const providerAuthTypeSchema = z.enum(["api_key", "oauth"]);

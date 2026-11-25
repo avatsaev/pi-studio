@@ -1,6 +1,7 @@
 import { pongSchema } from "@av-pi-studio/protocol";
 
 import type { Logger } from "../logging/logger.js";
+import { MAX_INFLIGHT_REQUESTS } from "./limits.js";
 import type { Session } from "./session.js";
 
 /**
@@ -11,7 +12,8 @@ import type { Session } from "./session.js";
  * data path — an RPC timeout is an operation failure and must NOT close the socket); `session`
  * envelopes are dispatched to a registered handler by message `type`. A handler that throws yields
  * an `rpc_error` correlated by `requestId`. Unknown types with a `requestId` get an `rpc_error`;
- * otherwise they are ignored.
+ * otherwise they are ignored. A session runs at most `MAX_INFLIGHT_REQUESTS` handlers at once; one
+ * more request gets `rpc_error` `too_many_requests`.
  */
 
 export interface RpcHandlerContext {
@@ -69,6 +71,10 @@ export class HandlerRegistry {
   }
 }
 
+/** Handlers a session has running now (dispatched, reply not yet sent). Keyed by session so a
+ *  direct socket and a relay session are counted the same way. */
+const inflightBySession = new WeakMap<Session, number>();
+
 function sendRpcError(session: Session, requestId: string, code: string, message: string): void {
   session.send({ type: "session", message: { type: "rpc_error", requestId, code, message } });
 }
@@ -95,6 +101,24 @@ async function dispatchSessionMessage(
     registry.logger?.debug({ type, requestId, clientId: session.clientId }, "rpc: no handler");
     return;
   }
+
+  const inflight = inflightBySession.get(session) ?? 0;
+  if (inflight >= MAX_INFLIGHT_REQUESTS) {
+    registry.logger?.warn(
+      { type, requestId, clientId: session.clientId, inflight },
+      "rpc refused: too many requests in flight",
+    );
+    if (requestId) {
+      sendRpcError(
+        session,
+        requestId,
+        "too_many_requests",
+        `more than ${MAX_INFLIGHT_REQUESTS} requests are already in flight`,
+      );
+    }
+    return;
+  }
+  inflightBySession.set(session, inflight + 1);
 
   const startedAt = Date.now();
   try {
@@ -148,6 +172,10 @@ async function dispatchSessionMessage(
     if (requestId) {
       sendRpcError(session, requestId, "handler_error", (error as Error)?.message ?? String(error));
     }
+  } finally {
+    const left = (inflightBySession.get(session) ?? 1) - 1;
+    if (left > 0) inflightBySession.set(session, left);
+    else inflightBySession.delete(session);
   }
 }
 

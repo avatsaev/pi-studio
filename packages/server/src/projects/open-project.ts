@@ -5,7 +5,7 @@ import type { ProjectRecord, WorkspaceRecord } from "../persistence/entity-schem
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { detectGit, type GitRunner } from "./git-detect.js";
-import { type WorkspaceKind, WorkspaceRegistryService } from "./workspace-registry.js";
+import type { WorkspaceKind, WorkspaceRegistryService } from "./workspace-registry.js";
 
 /**
  * Open-project flow + workspace RPCs (features/projects-workspaces.md § RPCs/operations,
@@ -21,17 +21,16 @@ export interface OpenProjectResult {
 }
 
 export interface OpenProjectDeps {
-  home: string;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   gitRunner?: GitRunner;
-  registry?: WorkspaceRegistryService;
+  registry: WorkspaceRegistryService;
 }
 
 export class OpenProjectService {
   private readonly registry: WorkspaceRegistryService;
 
   constructor(private readonly deps: OpenProjectDeps) {
-    this.registry = deps.registry ?? new WorkspaceRegistryService(deps.home);
+    this.registry = deps.registry;
   }
 
   registerHandlers(registry: HandlerRegistry, getActiveSessions: () => Iterable<Session>): void {

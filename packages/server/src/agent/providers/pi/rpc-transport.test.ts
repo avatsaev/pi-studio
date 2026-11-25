@@ -1,3 +1,4 @@
+import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PiAgentClient } from "./agent.js";
@@ -174,5 +175,35 @@ describe("PiAgentClient — top-level process", () => {
 
     expect(state.pid).toBeDefined();
     expect(alive(state.pid as number)).toBe(false);
+  });
+});
+
+describe("PiAgentClient — a prompt Pi refuses", () => {
+  /**
+   * Pi's rpc mode answers every request, and refuses a turn's `prompt` (a notify, so it carries no
+   * id) with a failed response and no event at all: `src/modes/rpc/rpc-mode.js` `case "prompt"`.
+   */
+  const REFUSING_PI =
+    "require('readline').createInterface({ input: process.stdin }).on('line', (line) => {" +
+    "  const command = JSON.parse(line);" +
+    "  const reply = command.id !== undefined" +
+    "    ? { type: 'response', id: command.id, command: command.type, success: true, data: {} }" +
+    "    : { type: 'response', command: command.type, success: false, error: 'No model selected' };" +
+    "  process.stdout.write(JSON.stringify(reply) + '\\n');" +
+    "});";
+
+  it("ends the turn as turn_failed with Pi's reason instead of leaving it running", async () => {
+    const client = new PiAgentClient({
+      command: [process.execPath, "-e", REFUSING_PI],
+      binaryResolver: () => true,
+      transportFactory: (spawnArgs) => track(createProcessTransport(spawnArgs)),
+    });
+    const session = await client.createSession({ provider: "pi", cwd: "." });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await session.run("hello");
+
+    expect(events).toEqual([{ kind: "turn_failed", error: "No model selected" }]);
   });
 });

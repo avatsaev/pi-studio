@@ -1,7 +1,7 @@
 # Task 002 — The daemon notices a dead connection
 
 - **Sprint:** sprints/sprint-154-socket-limits
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (ws server)
 - **Priority:** P1

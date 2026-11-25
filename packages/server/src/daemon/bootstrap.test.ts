@@ -347,7 +347,7 @@ describe("production daemon bootstrap", () => {
     expect(entry?.model).toBe("mock-model-x");
 
     // It persisted to disk under the temp home.
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     expect(onDisk.some((a) => a.id === agentId)).toBe(true);
 
     client.close();
@@ -522,7 +522,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
 
@@ -542,7 +542,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBeUndefined();
 
@@ -562,7 +562,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(FILE_LINK_INSTRUCTIONS);
 
@@ -586,7 +586,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
     expect(record?.config?.systemPrompt).toBe(expected);
@@ -608,7 +608,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(MERMAID_DIAGRAM_INSTRUCTIONS);
 
@@ -633,7 +633,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}\n\n${MERMAID_DIAGRAM_INSTRUCTIONS}`;
     expect(record?.config?.systemPrompt).toBe(expected);
@@ -662,7 +662,7 @@ describe("production daemon bootstrap", () => {
     const agents = list.agents as Array<{ agentId: string }>;
     expect(agents.some((a) => a.agentId === agentId)).toBe(false);
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     expect(onDisk.some((a) => a.id === agentId)).toBe(false);
 
     client.close();
@@ -710,7 +710,7 @@ describe("production daemon bootstrap", () => {
     const agents = list.agents as Array<{ agentId: string }>;
     expect(agents.some((a) => a.agentId === agentId)).toBe(false); // excluded from the active list
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record).toBeDefined(); // the record itself is still on disk
     expect(record?.archivedAt).toBeTruthy();

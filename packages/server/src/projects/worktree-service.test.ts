@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { silentLogger } from "../logging/logger.js";
 import { WorkspaceRegistryService } from "./workspace-registry.js";
 import {
   AUTO_ARCHIVE_LABEL,
@@ -19,6 +20,7 @@ import {
 let home: string;
 let repo: string;
 let worktreeRoot: string;
+let registry: WorkspaceRegistryService;
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -28,6 +30,7 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "pi-studio-wt-home-"));
   repo = await mkdtemp(join(tmpdir(), "pi-studio-wt-repo-"));
   worktreeRoot = join(home, "worktrees");
+  registry = new WorkspaceRegistryService(home, silentLogger());
   git(repo, "init", "-q", "-b", "main");
   git(repo, "config", "user.email", "t@example.com");
   git(repo, "config", "user.name", "T");
@@ -63,6 +66,7 @@ describe("WorktreeService.createWorktree", () => {
     const setupCalls: Array<{ command: string; env: Record<string, string> }> = [];
     const svc = new WorktreeService({
       home,
+      registry,
       worktreeRoot,
       broadcast: () => {},
       readWorktreeLifecycle: async () => ({ setup: ["echo setup"], teardown: ["echo teardown"] }),
@@ -90,7 +94,7 @@ describe("WorktreeService.createWorktree", () => {
   });
 
   it("honors worktrees.root override for the worktree path", async () => {
-    const svc = new WorktreeService({ home, worktreeRoot, broadcast: () => {} });
+    const svc = new WorktreeService({ home, registry, worktreeRoot, broadcast: () => {} });
     const descriptor = await svc.createWorktree({
       projectRoot: repo,
       projectId: "p",
@@ -106,6 +110,7 @@ describe("WorktreeService.archiveWorktree", () => {
     let teardownRan = false;
     const svc = new WorktreeService({
       home,
+      registry,
       worktreeRoot,
       broadcast: () => {},
       readWorktreeLifecycle: async () => ({ setup: [], teardown: ["echo bye"] }),
@@ -132,8 +137,7 @@ describe("WorktreeService.archiveWorktree", () => {
     expect(archivedAgents.toSorted()).toEqual(["a1", "a2"]);
     expect(existsSync(descriptor.path)).toBe(false);
 
-    const reg = new WorkspaceRegistryService(home);
-    expect(await reg.listActiveWorkspaces()).toHaveLength(0);
+    expect(await registry.listActiveWorkspaces()).toHaveLength(0);
   });
 });
 
@@ -143,6 +147,7 @@ describe("auto-archive coupling", () => {
     let agents: AgentLike[] = [];
     const svc = new WorktreeService({
       home,
+      registry,
       worktreeRoot,
       broadcast: () => {},
       listAgents: () => agents,
@@ -167,8 +172,7 @@ describe("auto-archive coupling", () => {
     const didArchive = await svc.maybeAutoArchiveOnTerminalTurn(agent);
     expect(didArchive).toBe(true);
     expect(archived).toContain("agent-1"); // agent inside the worktree archived via cascade
-    const reg = new WorkspaceRegistryService(home);
-    expect(await reg.listActiveWorkspaces()).toHaveLength(0); // worktree archived
+    expect(await registry.listActiveWorkspaces()).toHaveLength(0); // worktree archived
 
     // An agent without the labels does not auto-archive.
     expect(await svc.maybeAutoArchiveOnTerminalTurn({ id: "x", cwd: repo, labels: {} })).toBe(

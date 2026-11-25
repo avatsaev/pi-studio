@@ -1,7 +1,7 @@
 # Task 004 — Terminal subscriptions end with their session
 
 - **Sprint:** sprints/sprint-154-socket-limits
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (terminal RPC)
 - **Priority:** P2

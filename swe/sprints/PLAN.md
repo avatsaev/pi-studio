@@ -3918,6 +3918,8 @@ t001 and t002 in parallel; t003; t004.
 
 t001; then t002 beside t003 and t004; t005.
 
+**Done 2026-11-25** (all five tasks). Live-checked on a real Pi through the `litellm.anthropic` gateway, in the CLI and in headless Chromium (two tabs, a TCP proxy to kill and hold sockets): see the task-005 summary. The live check found and fixed a hang (a refused plain prompt left the agent `running`). Not checked: relay or remote direct connections, the Stop button, other browsers, a plain prompt an extension handles with `input`.
+
 ### sprint-153-bounded-shutdown
 > **What it ships.** Stop, restart and update always finish in a bounded time and leave nothing behind.
 

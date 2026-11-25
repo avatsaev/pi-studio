@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { silentLogger } from "../logging/logger.js";
 import {
   deriveProjectKey,
   normalizePath,
@@ -51,7 +52,7 @@ describe("workspace kind normalization", () => {
 
 describe("WorkspaceRegistryService — projects", () => {
   it("creates a git project with a remote-based projectKey", async () => {
-    const svc = new WorkspaceRegistryService(home);
+    const svc = new WorkspaceRegistryService(home, silentLogger());
     const project = await svc.resolveOrCreateProject({
       rootPath: "/work/repo",
       remote: "git@github.com:acme/widgets.git",
@@ -63,7 +64,7 @@ describe("WorkspaceRegistryService — projects", () => {
   });
 
   it("two registrations of the same normalized rootPath resolve to one project", async () => {
-    const svc = new WorkspaceRegistryService(home);
+    const svc = new WorkspaceRegistryService(home, silentLogger());
     const a = await svc.resolveOrCreateProject({ rootPath: "/work/repo", kind: "git" });
     const b = await svc.resolveOrCreateProject({ rootPath: "/work/repo/", kind: "git" });
     expect(b.projectId).toBe(a.projectId);
@@ -73,7 +74,7 @@ describe("WorkspaceRegistryService — projects", () => {
 
 describe("WorkspaceRegistryService — workspaces", () => {
   it("reuses an existing active workspace for the same cwd", async () => {
-    const svc = new WorkspaceRegistryService(home);
+    const svc = new WorkspaceRegistryService(home, silentLogger());
     const project = await svc.resolveOrCreateProject({ rootPath: "/w/repo", kind: "git" });
     const first = await svc.resolveOrCreateWorkspace({
       projectId: project.projectId,
@@ -91,7 +92,7 @@ describe("WorkspaceRegistryService — workspaces", () => {
   });
 
   it("archiving a workspace sets archivedAt and removes it from active lists", async () => {
-    const svc = new WorkspaceRegistryService(home);
+    const svc = new WorkspaceRegistryService(home, silentLogger());
     const project = await svc.resolveOrCreateProject({ rootPath: "/w/r", kind: "non_git" });
     const { workspace } = await svc.resolveOrCreateWorkspace({
       projectId: project.projectId,

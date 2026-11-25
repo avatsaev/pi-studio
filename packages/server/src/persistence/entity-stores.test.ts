@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { silentLogger } from "../logging/logger.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
 import { ensureDirectoryLayout } from "./atomic-store.js";
 import type { AgentRecord } from "./entity-schemas.js";
 import {
@@ -63,7 +65,7 @@ describe("agent store", () => {
     const path = agentFilePath(home, agent.cwd, agent.id);
     expect(path).toContain(join("agents", "home-user-project", `${agent.id}.json`));
     expect(existsSync(path)).toBe(true);
-    const loaded = await loadAgent(home, agent.cwd, agent.id);
+    const loaded = await loadAgent(home, agent.cwd, agent.id, silentLogger());
     expect(loaded).toEqual(agent);
   });
 
@@ -75,7 +77,7 @@ describe("agent store", () => {
     expect(onDisk).not.toHaveProperty("timeline");
 
     await writeFile(path, JSON.stringify({ ...onDisk, timeline: [] }), "utf8");
-    const loaded = await loadAgent(home, agent.cwd, agent.id);
+    const loaded = await loadAgent(home, agent.cwd, agent.id, silentLogger());
     expect(loaded?.id).toBe(agent.id);
   });
 
@@ -86,13 +88,27 @@ describe("agent store", () => {
     const onDisk = JSON.parse(await readFile(path, "utf8"));
     onDisk.futureField = { added: "later" };
     await writeFile(path, JSON.stringify(onDisk), "utf8");
-    const loaded = await loadAgent(home, agent.cwd, agent.id);
+    const loaded = await loadAgent(home, agent.cwd, agent.id, silentLogger());
     expect((loaded as Record<string, unknown>).futureField).toEqual({ added: "later" });
   });
 
   it("returns null for a missing agent", async () => {
     const home = await tempHome();
-    expect(await loadAgent(home, "/nope", randomUUID())).toBeNull();
+    expect(await loadAgent(home, "/nope", randomUUID(), silentLogger())).toBeNull();
+  });
+
+  it("sets a damaged record aside, logs it, and loads as null", async () => {
+    const home = await tempHome();
+    const path = agentFilePath(home, agent.cwd, agent.id);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "{ torn", "utf8");
+    const { logger, lines } = recordingLogger();
+
+    expect(await loadAgent(home, agent.cwd, agent.id, logger)).toBeNull();
+
+    expect(existsSync(path)).toBe(false);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ level: "error", obj: { path } });
   });
 });
 
@@ -123,15 +139,15 @@ describe("project + workspace registries", () => {
       },
     ]);
 
-    const projects = await loadProjects(home);
-    const workspaces = await loadWorkspaces(home);
+    const projects = await loadProjects(home, silentLogger());
+    const workspaces = await loadWorkspaces(home, silentLogger());
     expect(projects[0]?.archivedAt).toBeNull();
     expect(workspaces[0]?.archivedAt).toBe("2026-06-11T13:00:00.000Z");
   });
 
   it("default to empty arrays when missing", async () => {
     const home = await tempHome();
-    expect(await loadProjects(home)).toEqual([]);
-    expect(await loadWorkspaces(home)).toEqual([]);
+    expect(await loadProjects(home, silentLogger())).toEqual([]);
+    expect(await loadWorkspaces(home, silentLogger())).toEqual([]);
   });
 });

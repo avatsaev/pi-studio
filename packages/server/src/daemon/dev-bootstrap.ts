@@ -16,6 +16,7 @@ import { closeHttpServer, createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeBinaryFrame, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
@@ -43,7 +44,7 @@ import { TerminalManager } from "../terminal/terminal-manager.js";
 import { makeTerminalBinaryHandler, registerTerminalHandlers } from "../terminal/terminal-rpc.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { SERVER_VERSION } from "../version.js";
-import { wrapSessionEnvelope } from "./bootstrap.js";
+import { broadcast, wrapSessionEnvelope } from "./bootstrap.js";
 import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
 import {
   DEV_UPDATE_STEP_MS,
@@ -99,17 +100,6 @@ export interface DevBootstrapHandle {
 /** Vite dev origins: web development keeps working; every other `Origin` is refused. */
 const DEV_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 
-/** Broadcast helper — see `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale. */
-function broadcast(sessions: Iterable<Session>, message: unknown): void {
-  const envelope = wrapSessionEnvelope(message);
-  for (const s of sessions) {
-    try {
-      s.send(envelope);
-    } catch {
-      /* ignore send errors on dead sockets */
-    }
-  }
-}
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // The dev daemon has no auth at all, so it never accepts a bind beyond this machine.
   if (!isLoopbackHost(opts.host)) {
@@ -413,12 +403,14 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   // ── Terminals: manager + control RPCs + binary stream (same wiring as production) ──────────
   const terminalManager = new TerminalManager({ logger });
+  const terminalSubscriptions = new SessionSubscriptions();
   registerTerminalHandlers(
     registry,
     {
       manager: terminalManager,
       broadcast,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
+      subscriptions: terminalSubscriptions,
     },
     getActiveSessions,
   );
@@ -503,6 +495,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       sendUpdateStatus(session);
     },
     onSessionClose: (session) => {
+      terminalSubscriptions.disposeSession(session);
       daemonStatusService.disposeSession(session);
       daemonLogsService.disposeSession(session);
       fileTransfer.disposeSession(session);

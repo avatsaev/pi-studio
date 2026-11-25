@@ -1,8 +1,9 @@
 import { tryDecodeTerminalFrame } from "@av-pi-studio/protocol";
 
 import { readProjectConfig } from "../config/project-config.js";
-import type { Session } from "../ws/session.js";
 import type { BinaryHandler, HandlerRegistry } from "../ws/router.js";
+import type { Session } from "../ws/session.js";
+import type { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import type { RestoreMode, TerminalManager } from "./terminal-manager.js";
 
 /**
@@ -15,7 +16,12 @@ export interface TerminalRpcDeps {
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   /** Resolve a project root → `pi-studio.json` path (for StartWorkspaceScriptRequest). */
   projectConfigPath: (cwd: string) => string;
+  /** Owns each session's per-slot stream unsubscriber; the daemon's `disposeSession` releases them. */
+  subscriptions: SessionSubscriptions;
 }
+
+/** `SessionSubscriptions` key for one terminal slot's output stream. */
+const terminalKey = (slot: number): string => `terminal:${slot}`;
 
 export function registerTerminalHandlers(
   registry: HandlerRegistry,
@@ -23,14 +29,16 @@ export function registerTerminalHandlers(
   getActiveSessions: () => Iterable<Session>,
 ): void {
   const { manager } = deps;
-  // Per (session, slot) stream unsubscribers.
-  const streamUnsubs = new Map<string, () => void>();
-  const key = (session: Session, slot: number) => `${session.id}:${slot}`;
   // A terminal exit — self-exit (`exit`, a crash) or `kill()` — always broadcasts the same
   // `terminals_update` signal, unconditionally to every active session. This is the ONLY exit
   // broadcast: `kill_terminal_request` below relies on it rather than sending its own, since
   // `manager.kill()` invokes this listener synchronously and a second broadcast would duplicate it.
-  manager.onTerminalExit(() => {
+  // The same listener forgets every session's stream entry for the slot (the manager has already
+  // dropped its sinks), so a reused slot number never inherits a stale subscription.
+  manager.onTerminalExit((slot) => {
+    for (const session of getActiveSessions()) {
+      deps.subscriptions.remove(session, terminalKey(slot));
+    }
     deps.broadcast(getActiveSessions(), { type: "terminals_update", terminals: manager.list() });
   });
 
@@ -82,7 +90,7 @@ export function registerTerminalHandlers(
     const restoreMode: RestoreMode =
       clientReflowable && requestedMode === "reflowable" ? "reflowable" : "basic";
 
-    streamUnsubs.get(key(session, slot))?.(); // replace existing subscription
+    deps.subscriptions.remove(session, terminalKey(slot)); // replace existing subscription
     try {
       // Resize BEFORE subscribing, using the grid the attaching client sent (if any).
       //
@@ -112,7 +120,7 @@ export function registerTerminalHandlers(
         Number(ctx.message.rows),
       );
       const unsub = manager.subscribe(slot, (frame) => session.sendBinary(frame), { restoreMode });
-      streamUnsubs.set(key(session, slot), unsub);
+      deps.subscriptions.add(session, terminalKey(slot), unsub);
       // Echo the PTY's real size so the client can seed its belief instead of guessing. Without
       // this a reattaching client cannot know what it is attaching to, and has to send a blind
       // reconcile that is either redundant or, worse, indistinguishable from a stale claim.
@@ -131,8 +139,7 @@ export function registerTerminalHandlers(
 
   registry.register("unsubscribe_terminal_request", (ctx) => {
     const slot = Number(ctx.message.slot);
-    streamUnsubs.get(key(ctx.session, slot))?.();
-    streamUnsubs.delete(key(ctx.session, slot));
+    deps.subscriptions.remove(ctx.session, terminalKey(slot));
     return { type: "unsubscribe_terminal_response", slot, ok: true };
   });
 

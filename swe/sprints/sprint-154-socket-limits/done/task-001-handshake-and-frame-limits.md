@@ -1,7 +1,7 @@
 # Task 001 — A time limit for `hello`, a frame size limit, and a cap on requests in flight
 
 - **Sprint:** sprints/sprint-154-socket-limits
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (ws server, router, relay sessions)
 - **Priority:** P1

@@ -505,7 +505,7 @@ describe("production daemon shutdown", () => {
       port: booted.port,
       cwd: booted.home,
       close: () => booted.handle.close(),
-      agentCount: async () => (await loadAllAgents(booted.home)).length,
+      agentCount: async () => (await loadAllAgents(booted.home, silentLogger())).length,
     });
   }, 15000);
 

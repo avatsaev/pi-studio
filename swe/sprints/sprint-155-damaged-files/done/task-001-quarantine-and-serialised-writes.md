@@ -1,7 +1,7 @@
 # Task 001 — Set a damaged file aside, and write one path at a time
 
 - **Sprint:** sprints/sprint-155-damaged-files
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (persistence)
 - **Priority:** P1

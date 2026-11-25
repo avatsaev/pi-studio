@@ -275,6 +275,27 @@ export function wrapSessionEnvelope(
 }
 
 /**
+ * Send `message` (wrapped by {@link wrapSessionEnvelope}) to every session in `sessions`. The
+ * envelope is serialised once, whatever the number of recipients; a session whose socket is dead
+ * is skipped, and one whose send queue is full is cut off by `Session` itself.
+ */
+export function broadcast(sessions: Iterable<Session>, message: unknown): void {
+  let text: string;
+  try {
+    text = JSON.stringify(wrapSessionEnvelope(message));
+  } catch {
+    return; // not serialisable: no session could take it
+  }
+  for (const s of sessions) {
+    try {
+      s.sendText(text);
+    } catch {
+      /* ignore dead sockets */
+    }
+  }
+}
+
+/**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
  * `close()` for graceful shutdown.
  */
@@ -327,19 +348,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const resolveClient = (provider: string): AgentClient =>
     resolveProviderClient(provider, config, { logger });
 
-  // ── Broadcast helper ─────────────────────────────────────────────────────────
-  // See `wrapSessionEnvelope` above for the full rationale.
-  const broadcast = (sessions: Iterable<Session>, message: unknown) => {
-    const envelope = wrapSessionEnvelope(message);
-    for (const s of sessions) {
-      try {
-        s.send(envelope);
-      } catch {
-        /* ignore dead sockets */
-      }
-    }
-  };
-
   const relaySessions = new Set<Session>();
   const relayCapabilityStore = createInMemoryCapabilityStore();
   const sessionsHolder: { sessions: Iterable<Session> } = { sessions: [] };
@@ -377,7 +385,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const manager = new AgentManager({
     home,
     saveAgent: (record) => saveAgent(home, record),
-    loadAllAgents: () => loadAllAgents(home),
+    loadAllAgents: () => loadAllAgents(home, logger),
     // `onSessionAttached` is a single slot: compose every bridge that watches a new session.
     onSessionAttached: (agentId, session) => {
       agentUiService.attach(agentId, session);
@@ -582,8 +590,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
 
   // ── Projects / workspaces (real disk registry) ────────────────────────────────
-  const workspaceRegistry = new WorkspaceRegistryService(home);
-  const openProject = new OpenProjectService({ home, broadcast, registry: workspaceRegistry });
+  const workspaceRegistry = new WorkspaceRegistryService(home, logger);
+  const openProject = new OpenProjectService({ broadcast, registry: workspaceRegistry });
   openProject.registerHandlers(registry, getActiveSessions);
 
   const statusOf = (cwd: string): "running" | "error" | "idle" => {
@@ -771,6 +779,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       manager: terminalManager,
       broadcast,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
+      subscriptions,
     },
     getActiveSessions,
   );

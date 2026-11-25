@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { decodeTerminalFrame, encodeTerminalFrame } from "@av-pi-studio/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HandlerRegistry, type RpcHandler } from "../ws/router.js";
 import { Session } from "../ws/session.js";
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import type { PtyBackend, PtyProcess, PtySpawnOptions } from "./pty-backend.js";
 import { TerminalManager } from "./terminal-manager.js";
 import { makeTerminalBinaryHandler, registerTerminalHandlers } from "./terminal-rpc.js";
@@ -95,10 +96,12 @@ function setup(opts: { projectConfigPath?: (cwd: string) => string } = {}): {
   broadcasts: unknown[];
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   sessions: Session[];
+  subscriptions: SessionSubscriptions;
 } {
   const backend = new FakeBackend();
   const manager = new TerminalManager({ backend, coalesceMs: 1 });
   const registry = new HandlerRegistry();
+  const subscriptions = new SessionSubscriptions();
   const broadcasts: unknown[] = [];
   const sessions: Session[] = [];
   const broadcast = (_s: Iterable<Session>, m: unknown) => broadcasts.push(m);
@@ -108,10 +111,11 @@ function setup(opts: { projectConfigPath?: (cwd: string) => string } = {}): {
       manager,
       broadcast,
       projectConfigPath: opts.projectConfigPath ?? ((cwd) => join(cwd, "pi-studio.json")),
+      subscriptions,
     },
     () => sessions,
   );
-  return { registry, manager, backend, broadcasts, broadcast, sessions };
+  return { registry, manager, backend, broadcasts, broadcast, sessions, subscriptions };
 }
 
 async function call(
@@ -216,6 +220,76 @@ describe("terminal lifecycle RPCs", () => {
     expect(res!.ok).toBe(true);
     expect(binary).toHaveLength(1);
     expect(decodeTerminalFrame(binary[0]!).opcode).toBe("Snapshot");
+  });
+
+  it("session disposal ends the terminal subscription: no further output, no entry left", async () => {
+    const { registry, backend, subscriptions } = setup();
+    const { session, binary } = makeSession("sub");
+    const created = await call(registry, session, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+    });
+    const slot = createdSlot(created);
+    await call(registry, session, { type: "subscribe_terminal_request", slot });
+    expect(subscriptions.keysOf(session)).toHaveLength(1);
+    binary.length = 0;
+
+    subscriptions.disposeSession(session);
+    vi.useFakeTimers();
+    try {
+      backend.ptys[0]!.emit("after close");
+      vi.advanceTimersByTime(5);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(binary).toHaveLength(0);
+    expect(subscriptions.keysOf(session)).toEqual([]);
+  });
+
+  it("unsubscribe_terminal_request removes the entry and stops output", async () => {
+    const { registry, backend, subscriptions } = setup();
+    const { session, binary } = makeSession("sub");
+    const created = await call(registry, session, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+    });
+    const slot = createdSlot(created);
+    await call(registry, session, { type: "subscribe_terminal_request", slot });
+    await call(registry, session, { type: "unsubscribe_terminal_request", slot });
+    binary.length = 0;
+
+    vi.useFakeTimers();
+    try {
+      backend.ptys[0]!.emit("ignored");
+      vi.advanceTimersByTime(5);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(binary).toHaveLength(0);
+    expect(subscriptions.keysOf(session)).toEqual([]);
+  });
+
+  it("a terminal that exits clears the entries of every session", async () => {
+    const { registry, backend, subscriptions, sessions } = setup();
+    const a = makeSession("a").session;
+    const b = makeSession("b").session;
+    sessions.push(a, b);
+    const created = await call(registry, a, {
+      type: "create_terminal_request",
+      workspaceId: "ws1",
+    });
+    const slot = createdSlot(created);
+    await call(registry, a, { type: "subscribe_terminal_request", slot });
+    await call(registry, b, { type: "subscribe_terminal_request", slot });
+    expect(subscriptions.keysOf(a)).toHaveLength(1);
+    expect(subscriptions.keysOf(b)).toHaveLength(1);
+
+    backend.ptys[0]!.simulateExit(0);
+
+    expect(subscriptions.keysOf(a)).toEqual([]);
+    expect(subscriptions.keysOf(b)).toEqual([]);
   });
 
   // Regression (sprint-052): the Snapshot is a raw byte ring, so it reproduces the wrapping and

@@ -62,8 +62,12 @@ export interface RelayConnection {
   close(code?: number, reason?: string): void;
   /** Stop reading the data socket (the client's own frames); the relay and TCP slow the sender. */
   pause(): void;
+  /** Destroy the data socket at once, dropping whatever it still has queued. */
+  terminate(): void;
   /** Read the data socket again after {@link RelayConnection.pause}. */
   resume(): void;
+  /** Fires once, when the key exchange is done and the connection is open (at once if it is). */
+  onReady(handler: () => void): void;
   onText(handler: (text: string) => void): void;
   onBinary(handler: (bytes: Uint8Array) => void): void;
   /** Fires once, with the code the socket closed with. */
@@ -142,6 +146,7 @@ export function openRelayConnection(options: OpenRelayConnectionOptions): RelayC
 
   const textHandlers: Array<(text: string) => void> = [];
   const binaryHandlers: Array<(bytes: Uint8Array) => void> = [];
+  const readyHandlers: Array<() => void> = [];
   const closeHandlers: Array<(code: number, reason: string) => void> = [];
 
   let channel: Channel | null = null;
@@ -205,6 +210,7 @@ export function openRelayConnection(options: OpenRelayConnectionOptions): RelayC
         onReady: () => {
           clearTimeout(setupTimer);
           ready = true;
+          for (const h of readyHandlers.splice(0)) h();
         },
         onClose: (code, reason) => finish(code ?? 1006, reason ?? ""),
         // Channel errors carry a fixed phrase, never payload.
@@ -278,7 +284,12 @@ export function openRelayConnection(options: OpenRelayConnectionOptions): RelayC
       finish(code, reason);
     },
     pause: () => socket.pause(),
+    terminate: () => socket.terminate(),
     resume: () => socket.resume(),
+    onReady: (handler) => {
+      if (ready) handler();
+      else if (!closedWith) readyHandlers.push(handler);
+    },
     onText: (handler) => {
       textHandlers.push(handler);
     },

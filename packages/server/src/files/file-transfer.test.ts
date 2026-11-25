@@ -772,6 +772,32 @@ describe("FileTransferService upload", () => {
     expect(await readFile(target, "utf8")).toBe("hello upload");
   });
 
+  it("stays byte-exact when each frame is a view of a buffer that is overwritten after the call", async () => {
+    // The socket hands frames over as views of the buffer it received; nothing may keep that view.
+    const rig = await openUpload(dir, "view.bin", { ack: true });
+    const handler = rig.svc.binaryHandler();
+    const payload = Uint8Array.from({ length: 70_000 }, (_, i) => (i * 7) % 256);
+    const shared = new Uint8Array(payload.length + 64);
+    const deliver = (frame: FileTransferFrame): void => {
+      const bytes = encodeFileTransferFrame(frame);
+      shared.set(bytes, 16);
+      handler(rig.session, shared.subarray(16, 16 + bytes.length));
+      shared.fill(0xee);
+    };
+    deliver({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    for (let offset = 0; offset < payload.length; offset += 32 * 1024) {
+      deliver({
+        opcode: "Chunk",
+        stream: rig.stream,
+        data: payload.subarray(offset, offset + 32 * 1024),
+      });
+    }
+    deliver({ opcode: "End", stream: rig.stream, ok: true });
+    await waitUntil(() => completes(rig.text).length > 0);
+
+    expect([...(await readFile(rig.target))]).toEqual([...payload]);
+  });
+
   it("recycles upload stream ids once a transfer ends", async () => {
     // Uploads are tracked by stream id, and the id space is one byte — the 256th upload on a
     // long-lived daemon used to be handed 256 and break the client's own frame encoding.

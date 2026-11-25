@@ -354,7 +354,7 @@ the contract. **A fixture's shape is the contract for clients outside this repo*
   Layer B also proves the answer precedes the turn's first `agent_stream` frame and the turn ends in
   one `agent_update`. The `CHANGELOG.md` entry records the behaviour change that is breaking for a
   client that waited on the answer. `rpc_error`'s `code` is an open string (`unknown_message_type`,
-  `handler_error`, `shutting_down` today).
+  `handler_error`, `shutting_down`, `too_many_requests` today).
 - Binary frames (sprint-096, `since` 0.0.118): ten fixtures (`file_transfer.{begin,begin.download,chunk,end,error}`,
   `terminal.{output,input,resize,snapshot,restore}`; `begin.download` is the 0.0.119 `Begin` with
   `totalBytes`/`mtimeMs`/`offset`/`length`, a second fixture for the `Begin` opcode) in the **`binary/` subdirectory** with their own
