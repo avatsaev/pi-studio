@@ -5,6 +5,27 @@ in its README) and `scripts/binary-update-check/` (the single binary in a Node-l
 there). Spec: `swe/features/self-update.md` § Acceptance criteria and § TODO(verify).
 Each run is dated; the newest is first.
 
+## 2026-11-25 — update check on connect (sprint 156 task 004, live in task 005)
+
+Built `dist` of a worktree of `da95c870`, throwaway `PI_STUDIO_HOME` / `HOME` in `/tmp`, daemon on 127.0.0.1:47446, source install
+(`installKind: source`, so an offer reads `cannot_update(source)` with the version), auto-check **on**. The release channel was a
+local HTTP stand-in for npm's registry (`npm_config_registry`, `npm_config_fetch_retries=0`, so one `npm view` is one request) that
+answered 503 until told to serve `9.9.9`; the "SSH-style" path was a Node TCP relay (127.0.0.1:47445 → 47446), a plain forward like
+`ssh -L`. The binary channel (`PI_STUDIO_DAEMON_UPDATE_URL`) was not run: the code path past `lookupLatest` is shared, only the
+probe differs (unit-tested).
+
+| Time (UTC) | Event | Registry requests |
+|---|---|---|
+| 14:20:59 | daemon starts; its start-up automatic check gets 503 | 1 (503); the daemon logs one `info` line, `update: check found no release` (`by: automatic`, `failure: offline`); no client sees it (state `idle`) |
+| 14:21:14, 14:21:19 | client A direct, client B through the relay connect (15 and 20 s after the attempt) | none (inside the ten minutes); both read `idle` |
+| 14:21:24 | channel switched to serve `9.9.9` | none: nothing asks |
+| 14:31:11.29 | client C connects through the relay, 10 min 12 s after the last attempt | **1** (200) at +90 ms: C gets a `daemon_update_status` push at +111 ms with `cannot_update`, `reason: source`, `version: 9.9.9`, `checkedAt` set |
+| 14:31:17, 14:31:23 | client D (relay) and client E (direct) connect | none; both are told `9.9.9` by the stored result at hello |
+
+Three requests in 12 minutes in all. The first connect after the window needed no timer and no client action beyond the
+connection; a client on the forwarded socket sees the same as a direct one. The log has no line for the successful check (only a
+failed automatic check leaves one).
+
 ## 2026-11-25 — ordered, bounded shutdown under load; both recipes re-run
 
 Sprint 153 task 006. Built `dist` of the working tree at `c6f04ddb` (daemon, CLI), throwaway

@@ -1,7 +1,7 @@
 # Task 005 — Live check of damaged files and the small fixes, and close of M5
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** all packages, desktop, docs
 - **Priority:** P1

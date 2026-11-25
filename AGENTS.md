@@ -796,9 +796,11 @@ bin/                  The single binary's own folders (only where the binary was
                        `versions/<x.y.z>/pi-studio` one folder per installed version, `current` a symbolic link to the one in use
                        (switched by rename; the app and the optional `~/.local/bin/pi-studio` link run through it), `tmp/` downloads and unpacking
 logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
-server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
+server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set; an empty or
+                       unreadable file is set aside as `server-id.corrupt-<timestamp>`, logged, and a new id is written
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
-                       replace via `pi-studio daemon rotate-key` (revokes all pairing links)
+                       replace via `pi-studio daemon rotate-key` (revokes all pairing links); a damaged file is set aside as
+                       `daemon-keypair.json.corrupt-<timestamp>`, logged, and a new pair is written 0600 (pairings are lost)
 extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
                        lastSync (features/preinstalled-extensions.md § State file)
 viewer-settings.json Daemon-backed per-viewer kill switch + opaque config for the viewer plugin
@@ -809,14 +811,17 @@ pending-uploads.json  Temporary files of the uploads in progress (`.pistudio-upl
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
-    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows
+    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows; a damaged record is set
+                       aside as `<agentId>.json.corrupt-<timestamp>`; an unreadable entry (dangling symlink) is logged and skipped
 projects/
   projects.json       Project registry (a record that fails its schema is dropped; the rest are kept, the original set aside as `.corrupt-<timestamp>`)
   workspaces.json     Workspace registry (same rule)
 ```
 
 All entity files use `.passthrough()` schemas and optional fields — unknown/future fields are
-tolerated without a migration framework.
+tolerated without a migration framework. A damaged entity, identity or settings file above (registries, agent records,
+`server-id`, `daemon-keypair.json`, `viewer-settings.json`) is set aside as `<name>.corrupt-<timestamp>` (never overwritten
+by the next save) and replaced by defaults; `config.json` is never set aside or rewritten, it stops the start (`config_unreadable`).
 
 ---
 

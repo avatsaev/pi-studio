@@ -3934,6 +3934,8 @@ t001; then t002 beside t003 and t004; t005.
 
 t001 beside t002; then t003 and t004 in sequence, with t005 beside them; t006.
 
+**Done 2026-11-25** (all six tasks). Live-checked on throwaway daemons: stop with a running agent, a terminal, a login flow and an upload ends in time and removes the PID file; both update recipes in `scripts/daemon-update-check/` passed; a SIGHUP-ignoring terminal process no longer survives (the kill now signals the shell after finding its children). See the task-006 summary.
+
 ### sprint-154-socket-limits
 > **What it ships.** An accurate connected-clients list, steady memory, and no connection that can slow the others.
 
@@ -3946,6 +3948,8 @@ t001 beside t002; then t003 and t004 in sequence, with t005 beside them; t006.
 | task-005 | Live check of connections | test | task-004 | improvement 6 |
 
 Sequential (one set of files).
+
+**Done 2026-11-25** (all five tasks). Live-checked on a real Pi, in headless Chromium and with throwaway Rust examples over the desktop crates and a local relay: a frozen client is gone after 51–56 s, one that stops reading is cut at 16 MiB queued in about 1 s while a second client receives every event; frames over 32 MiB close 1009; a WebSocket with no `hello` closes after 10 s. The check found that a bare TCP connection lived 66 s, so the HTTP server's header timeout is now 10 s. See the task-005 summary.
 
 ### sprint-155-damaged-files
 > **What it ships.** A damaged file is set aside and reported; a damaged configuration stops the daemon instead of running unprotected.
@@ -3960,6 +3964,8 @@ Sequential (one set of files).
 
 t001; then t002 beside t003; then t004 beside t005.
 
+**Done 2026-11-25** (all five tasks). A damaged registry, agent record, viewer-settings, key-pair or `server-id` file is set aside as `<name>.corrupt-<UTC>` and reported (the update skip file is now written atomically); a damaged `config.json` stops the daemon (`config_unreadable`, also in `--json`) and no command overwrites it; the desktop Daemons screen says why a daemon did not start. Live results are in the sprint-156 task-005 summary.
+
 ### sprint-156-small-fixes-and-close-m5
 > **What it ships.** The three folded fixes, and M5 closed.
 
@@ -3972,6 +3978,8 @@ t001; then t002 beside t003; then t004 beside t005.
 | task-005 | Live check of damaged files and the small fixes, and close of M5 | test | task-001, task-003, task-004, sprint-155/task-002, sprint-155/task-005 | improvements 5, 6, 8 |
 
 t001, t002 and t003 in parallel; t004 after t002 (both edit `daemon/bootstrap.ts`); t005.
+
+**Done 2026-11-25** (all five tasks). Live-checked on throwaway daemons and a worktree of the committed code: a truncated `config.json` refuses start, restart and set-password (`--json`: one `config_unreadable` line); a registry with one bad record keeps the rest; a damaged key pair is replaced at 0600; symlink delete, `/` and `~` refusal, FIFO and `/dev/zero` reads, and token redaction behave as designed; the update check on connect made a request 90 ms after a connect that came more than 10 minutes after the last attempt, through a TCP relay standing in for SSH; the compiled binary's terminal kill and stop leave nothing behind. See the task-005 summary.
 
 ## Coverage check
 
