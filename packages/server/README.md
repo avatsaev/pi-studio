@@ -111,7 +111,7 @@ By default the daemon:
 - uses the **`pi`** provider
 
 It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown that closes every
-live agent session (each limited to 5 s; a `pi` child is killed with its process tree), kills the
+live agent session (each limited to 7 s; a `pi` child is killed with its process tree), kills the
 terminals, closes the HTTP/WS servers and removes `pi-studio.pid`.
 
 ### Verify it's up

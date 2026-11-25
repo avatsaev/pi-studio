@@ -227,6 +227,10 @@ export interface AgentSession {
 
   describePersistence(): PersistenceHandle | null;
   interrupt(): Promise<void>;
+  /**
+   * Ends the runtime. A turn still running ends first as `turn_canceled` (never `turn_failed`), so
+   * its `run()` resolves; subscribers and `onExit` listeners are dropped afterwards.
+   */
   close(): Promise<void>;
 
   // Optional capabilities.

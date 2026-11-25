@@ -12,6 +12,7 @@ import {
   PARENT_AGENT_ID_LABEL,
 } from "./agent-manager.js";
 import type { AgentSession } from "./provider-contract.js";
+import { PI_KILL_GRACE_MS } from "./providers/pi/rpc-transport.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
 
@@ -314,7 +315,7 @@ describe("closeAll (daemon shutdown)", () => {
       vi.useRealTimers();
     });
 
-    it("holds closeAll for the default 5 s limit and no longer", async () => {
+    it("holds closeAll for the default limit and no longer", async () => {
       vi.useFakeTimers();
       const warn = vi.fn<CloseWarn>();
       const { mgr } = makeManager({ logger: { warn } as never });
@@ -338,9 +339,10 @@ describe("closeAll (daemon shutdown)", () => {
       await vi.advanceTimersByTimeAsync(1);
       await done;
       expect(settled).toBe(true);
-      expect(AGENT_CLOSE_TIMEOUT_MS).toBe(5000);
+      // Longer than the transport's SIGKILL grace: a Pi that ignores SIGTERM is killed first.
+      expect(AGENT_CLOSE_TIMEOUT_MS).toBeGreaterThan(PI_KILL_GRACE_MS);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]![0].err).toContain("timed out after 5000 ms");
+      expect(warn.mock.calls[0]![0].err).toContain(`timed out after ${AGENT_CLOSE_TIMEOUT_MS} ms`);
       expect(vi.getTimerCount()).toBe(0);
     });
   });

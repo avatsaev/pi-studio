@@ -123,7 +123,7 @@ src/
                                    projects/git/worktrees/GitHub, terminals, files,
                                    provider auth, optional outbound relay).
                                    `close()` is memoized (a second call returns the first's
-                                   promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
+                                   promise): agent sessions (`manager.closeAll()`, 7 s each), PTYs,
                                    file watchers, status/log services, relay, sockets, http server,
                                    then `pi-studio.pid` is removed only when it still holds this
                                    process's PID. shutdown.test.ts covers it.
@@ -157,8 +157,10 @@ src/
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast;
                                    closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS) closes every live
-                                   session at shutdown (see Agent subsystem).
+                                   session at shutdown (see Agent subsystem); spawnOnce(id, fn)
+                                   memoizes one in-flight spawn per agent.
     agent-service.ts              AgentService — RPC handler wiring for agent operations;
+                                   ensureSession / spawnOrResumeSession — the one spawn path;
                                    resetTimeline(agentId, rows) (sprint-071/task-002) —
                                    unconditionally replaces an agent's in-memory timeline (unlike
                                    seedTimeline, which no-ops once a store exists) — the entry
@@ -718,6 +720,21 @@ src/
   (`managed.session = null`, status `error`, `warn` "agent session ended on its own; detached");
   the next prompt resumes it. `archiveAgent`, `deleteAgent` and `closeAll` close silently: no
   `onExit`, no `turn_failed`.
+- **One Pi process per agent** (sprint-149 task 004). `spawnOrResumeSession` goes through
+  `AgentManager.spawnOnce(id, fn)`, a memoized in-flight promise per agent: a caller that arrives
+  while a spawn runs awaits it (send, list commands, fork messages, fork, clone, compact,
+  resume). `ensureSession(deps, agentId)` (`agent-service.ts`) is the one "attached session or
+  spawn" entry point every one of those callers uses; `handleCreate`'s eager path spawns through
+  `spawnOnce` too. `attachSession` closes the session it replaces (`handleResume` deliberately
+  forces a fresh process; the old one is closed, a failure is logged). A spawn that fails after
+  the process started closes it: `resumeSession` on a failed `switch_session`, and
+  `spawnSession` on a failed model/thinking replay or when the agent was archived or deleted
+  meanwhile. **Archive and delete mid-turn**: both interrupt a `running` turn first
+  (`interruptRunningTurn`), then close the session; `close()` ends a running turn as
+  `turn_canceled`, so `run()` and the send RPC resolve. `archiveAgent` has already set status
+  `closed`, `deleteAgent` removes the agent from memory before it closes the session, so
+  `runTurn` finds a closed or missing agent and returns (`info` "turn ended: agent closed")
+  without a status write, a rethrow or an error log. Tests: `agent/one-process-per-agent.test.ts`.
 - **One turn, compaction or session operation at a time per agent** (sprint-149 task 003):
   `runExclusive(id, kind, fn)` holds an in-memory claim (`turn` | `compaction` | `session`) while
   `fn` runs and throws `busy: agent <id> is running | is compacting | is changing its session` for
@@ -734,15 +751,16 @@ src/
   failed. `SessionOperationsService.handleUpdate` merges title, labels and config into the record
   after its awaits (it re-reads the record), so a concurrent model or thinking-level change is not
   written back over. Tests: `agent/one-turn-at-a-time.test.ts`, `agent-manager.test.ts`.
-- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
+- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* PI_KILL_GRACE_MS + 2 s */)` is the daemon-shutdown seam: every live
   session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
   that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
   shutdown") and never holds the others back. Each agent's `session` is cleared first, so a second
   call is a no-op. Records are untouched (no status write, no broadcast): an agent resumes its
   provider session at the next prompt, as after any restart. The manager holds no pid: the
   process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM, then
-  SIGKILLs after its 5 s grace, and resolves once the process has exited); the limit only bounds a
-  provider whose `close()` hangs. Called by
+  SIGKILLs after its `PI_KILL_GRACE_MS` grace, and resolves once the process has exited); the limit
+  is that grace plus a 2 s margin, so a Pi that ignores SIGTERM is SIGKILLed before the manager
+  gives up, and it only bounds a provider whose `close()` hangs. Called by
   `startDaemon().close()` and `startDevDaemon().close()`.
 - On startup, `recover()` rehydrates every persisted record with no live session attached, and
   normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
@@ -964,7 +982,7 @@ creation" above.
   set disjoint from the built-in slash commands above (Pi's own structured RPCs are never returned
   by `get_commands`). Wired as `agent_list_commands_request`/`_response` by
   `slash-command-operations.ts`'s `handleListCommands`; unlike every other handler in that file it
-  lazily spawns/resumes (`spawnOrResumeSession`, same as `AgentService.handleSendPrompt`) instead
+  lazily spawns/resumes (`ensureSession`, same as `AgentService.handleSendPrompt`) instead
   of requiring an already-live `managed.session` — the web-client's `/` picker must work on a
   never-sent "New chat" draft, which otherwise has no process yet. `AgentCommandDefinition` carries
   `name` (required), optional `id`/`label`/`description`/`source`
@@ -1030,7 +1048,9 @@ creation" above.
   waits for — and between turns it emits nothing (no turn to fail). It then calls the `onExit`
   listeners. `run()` on an already dead session ends at once with `turn_failed` and writes no
   `prompt` (Pi exits at start-up when an extension fails to load; stderr names it).
-  `close()` (archive, delete, shutdown) sets `closed`, drops the listeners and never reports.
+  `close()` (archive, delete, shutdown) sets `closed`, drops the listeners and never reports; a
+  turn still running ends as `turn_canceled` first (never `turn_failed`), so `run()` resolves, and
+  a slash prompt's pending ack rejected by the close is not a failure. The mock does the same.
 - **`AgentSession.onExit?(cb)`** (`provider-contract.ts`) is the dead-session signal: called once
   with the reason when the runtime ends without `close()`; a session already dead reports at once.
   Pi implements it; the mock implements it with a `crash(reason)` test hook (turn in progress →

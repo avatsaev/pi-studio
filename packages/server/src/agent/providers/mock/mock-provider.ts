@@ -632,6 +632,12 @@ export class MockAgentSession implements AgentSession {
   }
 
   close(): Promise<void> {
+    // A turn still running ends as `turn_canceled`, so a `run()` waiting on it resolves.
+    if (this.activeTurn) {
+      const turnId = this.activeTurn;
+      this.activeTurn = null;
+      this.emit({ kind: "turn_canceled", turnId });
+    }
     this.closed = true;
     if (this.completionTimer) clearTimeout(this.completionTimer);
     this.completionTimer = null;

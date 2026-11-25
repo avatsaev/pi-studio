@@ -140,19 +140,52 @@ export function ensureTimelineSeeded(
 }
 
 /**
- * Ensure `agentId` has a live provider session: resume from a persisted handle, or — for a
- * deferred draft that was never spawned (`record.persistence` absent; see `AgentService.handleCreate`
- * step 2) — spawn it for the first time. Either way, replay the record's pinned model
+ * Ensure `agentId` has a live provider session: the attached one, or a fresh one from
+ * `spawnOrResumeSession`. The one entry point for every caller that needs a process but did not
+ * start one itself (send, list commands, fork, clone, compact).
+ */
+export function ensureSession(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    logger?: Logger;
+  },
+  agentId: string,
+): Promise<AgentSession> {
+  const managed = deps.manager.get(agentId);
+  if (!managed) return Promise.reject(new Error(`unknown agent: ${agentId}`));
+  return managed.session ? Promise.resolve(managed.session) : spawnOrResumeSession(deps, agentId);
+}
+
+/**
+ * Spawn `agentId`'s provider session: resume from a persisted handle, or — for a deferred draft
+ * that was never spawned (`record.persistence` absent; see `AgentService.handleCreate` step 2) —
+ * spawn it for the first time. Either way, replay the record's pinned model
  * (`config.model`/`config.modelProvider`, written when a draft materializes — see
  * `slash-command-operations.ts` `persistModel` and the web-client's `ensureMaterialized`) via
  * `setProviderModel`, since neither `createSession` nor `resumeSession` consult
  * `AgentSessionConfig.model` — Pi resolves its own default at spawn regardless
  * (`providers/pi/agent.ts` `discoverState`'s doc comment). Attaches the session and persists its
  * handle either way. Always spawns/resumes fresh — callers that want "reuse the live session if
- * there is one" check `managed.session` themselves first (`AgentService.handleSendPrompt` does;
- * `SessionOperationsService.handleResume` intentionally always forces a fresh process).
+ * there is one" use `ensureSession` (`SessionOperationsService.handleResume` intentionally always
+ * forces a fresh process, and `AgentManager.attachSession` closes the one it replaces).
+ *
+ * One spawn per agent at a time (`AgentManager.spawnOnce`): a caller that arrives while one is in
+ * flight gets that spawn's session. A failure after the process started closes it.
  */
-export async function spawnOrResumeSession(
+export function spawnOrResumeSession(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    logger?: Logger;
+  },
+  agentId: string,
+): Promise<AgentSession> {
+  if (!deps.manager.get(agentId)) return Promise.reject(new Error(`unknown agent: ${agentId}`));
+  return deps.manager.spawnOnce(agentId, () => spawnSession(deps, agentId));
+}
+
+async function spawnSession(
   deps: {
     manager: AgentManager;
     resolveClient: (provider: string) => AgentClient;
@@ -182,19 +215,29 @@ export async function spawnOrResumeSession(
         { cwd },
       );
 
-  if (!handle) {
-    const modelId = record.config?.model;
-    const modelProvider = record.config?.modelProvider;
-    if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
-    // Replay the pinned thinking level strictly AFTER the model (sprint-070/task-003): Pi
-    // clamps thinking against the model, so a thinking-first replay would be silently
-    // overwritten by the model switch's own clamp. Skipped entirely when the record has no
-    // explicit pick — never clobber Pi's own restored/default level with a synthetic value.
-    // On RESUME the block does not run — Pi restores its own level from the session JSONL,
-    // exactly like the model, and with the clamp write-back (slash-command-operations.ts)
-    // config and JSONL cannot diverge, so the restored value already matches the record.
-    const thinking = record.config?.thinkingOptionId;
-    if (thinking) await session.setThinkingOption?.(thinking);
+  try {
+    if (!handle) {
+      const modelId = record.config?.model;
+      const modelProvider = record.config?.modelProvider;
+      if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
+      // Replay the pinned thinking level strictly AFTER the model (sprint-070/task-003): Pi
+      // clamps thinking against the model, so a thinking-first replay would be silently
+      // overwritten by the model switch's own clamp. Skipped entirely when the record has no
+      // explicit pick — never clobber Pi's own restored/default level with a synthetic value.
+      // On RESUME the block does not run — Pi restores its own level from the session JSONL,
+      // exactly like the model, and with the clamp write-back (slash-command-operations.ts)
+      // config and JSONL cannot diverge, so the restored value already matches the record.
+      const thinking = record.config?.thinkingOptionId;
+      if (thinking) await session.setThinkingOption?.(thinking);
+    }
+    // Archived or deleted while the process started: nothing owns this session any more.
+    const current = deps.manager.get(agentId);
+    if (!current || current.record.archivedAt) {
+      throw new Error(`agent ${agentId} was closed while its session started`);
+    }
+  } catch (error) {
+    await session.close().catch(() => {});
+    throw error;
   }
 
   deps.manager.attachSession(agentId, session);
@@ -303,27 +346,11 @@ export class AgentService {
     // 3. Eager path: spawn now and run the initial prompt. The agent is the turn's until it ends:
     // a send that arrives once `agent_update` has announced the id is refused with `busy`.
     await this.deps.manager.runExclusive(agentId, "turn", async () => {
-      const client = this.deps.resolveClient(provider);
-      let session: AgentSession;
-      try {
-        session = await client.createSession(
-          { provider, cwd, ...effectiveConfig } as Parameters<AgentClient["createSession"]>[0],
-          { cwd },
-        );
-      } catch (error) {
-        this.deps.logger?.error(
-          {
-            agentId,
-            provider,
-            model: config.model,
-            cwd,
-            err: (error as Error)?.message ?? String(error),
-          },
-          "agent provider session failed",
-        );
-        throw error;
-      }
-      this.deps.manager.attachSession(agentId, session);
+      const session = await this.deps.manager.spawnOnce(agentId, async () => {
+        const created = await this.createEagerSession(agentId, provider, cwd, effectiveConfig);
+        this.deps.manager.attachSession(agentId, created);
+        return created;
+      });
       await this.deps.manager.persistSessionHandle(agentId);
       await this.deps.manager.setStatus(agentId, "idle");
       this.deps.logger?.info(
@@ -353,6 +380,37 @@ export class AgentService {
     };
   }
 
+  /** First spawn of a freshly created agent (`handleCreate` step 3); logs a provider failure. */
+  private async createEagerSession(
+    agentId: string,
+    provider: string,
+    cwd: string,
+    config: Record<string, unknown>,
+  ): Promise<AgentSession> {
+    try {
+      return await this.deps
+        .resolveClient(provider)
+        .createSession(
+          { provider, cwd, ...config } as Parameters<AgentClient["createSession"]>[0],
+          {
+            cwd,
+          },
+        );
+    } catch (error) {
+      this.deps.logger?.error(
+        {
+          agentId,
+          provider,
+          model: config.model,
+          cwd,
+          err: (error as Error)?.message ?? String(error),
+        },
+        "agent provider session failed",
+      );
+      throw error;
+    }
+  }
+
   async handleSendPrompt(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -370,7 +428,7 @@ export class AgentService {
       // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
       // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a
       // draft that was never spawned, spawns it for the first time and replays its pinned model.
-      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+      const session = await ensureSession(this.deps, agentId);
 
       await this.runTurn(agentId, session, prompt, getSessions, {
         clientMessageId: msg.clientMessageId as string | undefined,
@@ -474,7 +532,13 @@ export class AgentService {
       unsubscribe();
     }
 
+    // The agent was archived or deleted while the turn ran (the close ended it): nothing is left to
+    // settle, and the rejection `run()` may carry is the close's own doing, not a failure.
     const finalManaged = this.deps.manager.get(agentId);
+    if (!finalManaged || finalManaged.record.lastStatus === "closed") {
+      this.deps.logger?.info({ agentId }, "turn ended: agent closed");
+      return;
+    }
     const lastEvent = timeline.allRows().at(-1)?.event;
     const newStatus =
       runRejected || lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error"

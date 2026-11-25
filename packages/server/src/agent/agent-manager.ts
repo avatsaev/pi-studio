@@ -7,6 +7,7 @@ import {
 } from "../persistence/entity-stores.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
+import { PI_KILL_GRACE_MS } from "./providers/pi/rpc-transport.js";
 import type { AgentSession } from "./provider-contract.js";
 
 /**
@@ -19,8 +20,14 @@ import type { AgentSession } from "./provider-contract.js";
 
 export const PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id";
 
-/** Per-session limit for `closeAll()` at daemon shutdown. */
-export const AGENT_CLOSE_TIMEOUT_MS = 5_000;
+/**
+ * Margin added to the transport's SIGKILL grace in `AGENT_CLOSE_TIMEOUT_MS`: a Pi that ignores
+ * SIGTERM must be SIGKILLed, and its exit seen, before the manager stops waiting for it.
+ */
+const AGENT_CLOSE_MARGIN_MS = 2_000;
+
+/** Per-session limit for `closeAll()` at daemon shutdown: the SIGKILL grace plus a margin. */
+export const AGENT_CLOSE_TIMEOUT_MS = PI_KILL_GRACE_MS + AGENT_CLOSE_MARGIN_MS;
 
 /** A managed agent: its persisted record, optional live session, and derived parent id. */
 export interface ManagedAgent {
@@ -118,6 +125,7 @@ const BUSY_REASON: Record<BusyKind, string> = {
 export class AgentManager {
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly busy = new Map<string, BusyKind>();
+  private readonly spawns = new Map<string, Promise<AgentSession>>();
   private readonly subscribers = new Set<AgentManagerSubscriber>();
   private readonly save: (record: AgentRecord) => Promise<void>;
   private readonly loadAll: () => Promise<AgentRecord[]>;
@@ -182,10 +190,33 @@ export class AgentManager {
     }
   }
 
+  /**
+   * Run `spawn` unless one is already in flight for this agent, in which case every caller awaits
+   * the same promise: an agent never has two Pi processes starting at once. `spawn` is expected to
+   * attach the session it produces before it resolves.
+   */
+  spawnOnce(id: string, spawn: () => Promise<AgentSession>): Promise<AgentSession> {
+    const inFlight = this.spawns.get(id);
+    if (inFlight) return inFlight;
+    const started = spawn().finally(() => this.spawns.delete(id));
+    this.spawns.set(id, started);
+    return started;
+  }
+
+  /** Attach `session` as the agent's live one. A previous live session is closed, never leaked. */
   attachSession(id: string, session: AgentSession): void {
     const managed = this.agents.get(id);
     if (!managed) return;
+    const previous = managed.session;
     managed.session = session;
+    if (previous && previous !== session) {
+      previous.close().catch((err: unknown) => {
+        this.deps.logger?.warn(
+          { agentId: id, err: err instanceof Error ? err.message : String(err) },
+          "agent-manager: closing the replaced agent session failed",
+        );
+      });
+    }
     session.onExit?.((reason) => this.detachDeadSession(id, session, reason));
     if (!this.deps.onSessionAttached) return;
     try {
@@ -290,15 +321,35 @@ export class AgentManager {
   }
 
   /**
+   * A running turn is interrupted before its session is closed, so the provider gets to cancel it
+   * (`turn_canceled`) rather than only losing its process. A failing interrupt is logged and does
+   * not stop the archive or delete: the close that follows ends the turn anyway.
+   */
+  private async interruptRunningTurn(managed: ManagedAgent): Promise<void> {
+    if (managed.record.lastStatus !== "running" || !managed.session) return;
+    try {
+      await managed.session.interrupt();
+    } catch (err) {
+      this.deps.logger?.warn(
+        { agentId: managed.record.id, err: err instanceof Error ? err.message : String(err) },
+        "agent-manager: interrupting the running turn failed",
+      );
+    }
+  }
+
+  /**
    * Archive (soft delete) an agent and recursively cascade to its non-detached children
-   * (architecture/agent-lifecycle.md § Archive). Snapshots the session's persistence handle, sets
-   * `archivedAt`, normalizes `lastStatus` away from running/initializing, notifies subscribers,
-   * closes/kills the runtime, then archives each child whose parent label points at this agent.
+   * (architecture/agent-lifecycle.md § Archive). Interrupts a running turn first, snapshots the
+   * session's persistence handle, sets `archivedAt`, normalizes `lastStatus` away from
+   * running/initializing, notifies subscribers, closes/kills the runtime (which ends the turn, so
+   * its `run()` and RPC settle), then archives each child whose parent label points at this agent.
    * Detached agents (no parent label) are never cascade-archived. Idempotent.
    */
   async archiveAgent(id: string): Promise<void> {
     const managed = this.agents.get(id);
     if (!managed || managed.record.archivedAt) return;
+
+    await this.interruptRunningTurn(managed);
 
     // Snapshot the live session's persistence handle so the record can resume later.
     let persistence = managed.record.persistence;
@@ -344,22 +395,33 @@ export class AgentManager {
   }
 
   /**
-   * Hard-delete an agent: closes/kills any live runtime, removes its persisted record file from
-   * disk, drops it from memory, and recursively cascades to its non-detached children — same
-   * cascade rule as `archiveAgent`. Unlike archive, there is no trace left to resume from. Returns
-   * true if the agent existed (false = already gone, still idempotent/no-op).
+   * Hard-delete an agent: interrupts a running turn, closes/kills any live runtime, removes its
+   * persisted record file from disk, drops it from memory, and recursively cascades to its
+   * non-detached children — same cascade rule as `archiveAgent`. Unlike archive, there is no trace
+   * left to resume from. The agent leaves memory BEFORE its session closes, so a turn that ends
+   * because of the close finds no agent and writes nothing back. Returns true if the agent existed
+   * (false = already gone, still idempotent/no-op).
    */
   async deleteAgent(id: string): Promise<boolean> {
     const managed = this.agents.get(id);
     if (!managed) return false;
 
-    if (managed.session) {
-      await managed.session.close();
-      managed.session = null;
+    await this.interruptRunningTurn(managed);
+    const session = managed.session;
+    managed.session = null;
+    this.agents.delete(id);
+    if (session) {
+      try {
+        await session.close();
+      } catch (err) {
+        this.deps.logger?.warn(
+          { agentId: id, err: err instanceof Error ? err.message : String(err) },
+          "agent-manager: closing the deleted agent's session failed",
+        );
+      }
     }
 
     await this.delete(managed.record.cwd, id);
-    this.agents.delete(id);
     this.broadcastDeleted(id);
 
     // Cascade to non-detached children (those whose parent label == this id) — snapshot first,

@@ -4,9 +4,9 @@ import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
 import {
   appendStreamEvent,
+  ensureSession,
   ensureTimelineSeeded,
   resetTimeline,
-  spawnOrResumeSession,
 } from "./agent-service.js";
 import type {
   AgentClient,
@@ -173,8 +173,7 @@ export class SlashCommandOperationsService {
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
   ): Promise<unknown> {
-    const session =
-      this.deps.manager.get(agentId)?.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    const session = await ensureSession(this.deps, agentId);
     if (!session.compact) throw unsupported(agentId, "compact");
     const customInstructions =
       typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
@@ -297,7 +296,7 @@ export class SlashCommandOperationsService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
     return this.deps.manager.runExclusive(agentId, "session", async () => {
-      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+      const session = await ensureSession(this.deps, agentId);
       if (!session.fork) throw unsupported(agentId, "fork");
       const payload = await session.fork(entryId);
       if (!payload.cancelled) {
@@ -331,7 +330,7 @@ export class SlashCommandOperationsService {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    const session = await ensureSession(this.deps, agentId);
     if (!session.getForkMessages) throw unsupported(agentId, "get_fork_messages");
     const messages = await session.getForkMessages();
     return { type: "agent_fork_messages_response", payload: { messages } };
@@ -348,7 +347,7 @@ export class SlashCommandOperationsService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
     return this.deps.manager.runExclusive(agentId, "session", async () => {
-      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+      const session = await ensureSession(this.deps, agentId);
       if (!session.clone) throw unsupported(agentId, "clone");
       const payload = await session.clone();
       if (!payload.cancelled) {
@@ -568,7 +567,7 @@ export class SlashCommandOperationsService {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    const session = await ensureSession(this.deps, agentId);
     if (!session.listCommands) throw unsupported(agentId, "get_commands");
     const commands = await session.listCommands();
     return { type: "agent_list_commands_response", payload: { commands } };

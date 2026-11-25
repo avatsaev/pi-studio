@@ -1168,7 +1168,8 @@ describe("a dead Pi process ends the turn with its error (live check, P16)", () 
     spawns[0]!.die(message);
 
     expect(reasons).toEqual([]);
-    expect(events).toEqual([{ kind: "turn_started" }]); // nothing after the close
+    // The close ends the running turn as canceled; the exit that follows adds nothing.
+    expect(events).toEqual([{ kind: "turn_started" }, { kind: "turn_canceled" }]);
   });
 });
 

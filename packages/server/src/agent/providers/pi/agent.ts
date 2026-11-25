@@ -403,6 +403,10 @@ class PiAgentSession implements AgentSession {
       })) as { disposition?: string } | undefined;
       if (terminated || ack?.disposition === "handled") return;
       await terminal;
+    } catch (err) {
+      // `close()` ended the turn (`turn_canceled`) and rejected the pending ack: not a failure.
+      if (this.closed) return;
+      throw err;
     } finally {
       unsub();
     }
@@ -634,10 +638,15 @@ class PiAgentSession implements AgentSession {
     }));
   }
 
+  /**
+   * Ends the process. A turn still running ends as `turn_canceled`, so its `run()` resolves
+   * instead of waiting for a terminal event that can no longer come; this is not a crash, so no
+   * `turn_failed` and no `onExit`.
+   */
   close(): Promise<void> {
-    // A requested exit is not a crash: no `turn_failed`, no `onExit`.
     this.closed = true;
     this.exitListeners.clear();
+    if (this.turnRunning) this.emit({ kind: "turn_canceled" });
     this.partialOutput.cancelAll();
     this.subscribers.clear();
     return this.transport.close();
@@ -734,10 +743,16 @@ export class PiAgentClient implements AgentClient {
       config: { provider: this.provider, cwd, ...overrides },
       sessionFile,
     });
-    if (sessionFile) await session.switchSession(sessionFile);
-    // Learn the resumed process's current model (sprint-042 — a fresh `pi --mode rpc` process has
-    // no local model state until asked; see `discoverState`'s doc comment).
-    await session.discoverState();
+    try {
+      if (sessionFile) await session.switchSession(sessionFile);
+      // Learn the resumed process's current model (sprint-042 — a fresh `pi --mode rpc` process has
+      // no local model state until asked; see `discoverState`'s doc comment).
+      await session.discoverState();
+    } catch (err) {
+      // A process whose handshake failed belongs to nobody: close it before the error escapes.
+      await session.close().catch(() => {});
+      throw err;
+    }
     return session;
   }
 
