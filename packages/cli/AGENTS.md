@@ -152,7 +152,7 @@ Default action (no subcommand):
 | `inspect <agentId>`                          | `inspect_agent_request`             | Print agent record                                                                                       |
 | `archive <agentId>`                          | `archive_agent`                     | Soft-delete                                                                                              |
 | `delete <agentId>`                           | `delete_agent`                      | Hard delete                                                                                              |
-| `update <agentId>`                           | `update_agent`                      | Update model/mode/features/title/labels                                                                  |
+| `update <agentId>`                           | `update_agent`                      | Update model/features/title/labels                                                                       |
 | `reload <agentId>`                           | `resume_agent`                      | Resume/reload a closed session                                                                           |
 | `import <sessionRef>`                        | `import_agent_session`              | Import a provider-native session by its handle                                                           |
 | `session <agentId>`                          | `agent_session_stats_request`       | Session stats (tokens/cost/context usage) — `/session`                                                   |

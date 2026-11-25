@@ -15,7 +15,6 @@ import type {
   AgentCompactResult,
   AgentCycleModelResult,
   AgentForkMessage,
-  AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
   AgentSessionStats,
@@ -46,10 +45,10 @@ import { toAgentTodos, todoDetailsFromFrame } from "./todos.js";
 import { createToolOutputCoalescer } from "./tool-output-coalescer.js";
 
 /**
- * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·modes·features /
+ * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·features /
  * § Import & resume). Spawns `pi --mode rpc` (or a configured `command`), maps RPC events to
  * `AgentStreamEvent`s, passes Pi-Studio system prompts via `--append-system-prompt` (preserving Pi's
- * default prompt), and discovers models/modes via top-level RPC calls (never a scratch session).
+ * default prompt), and discovers models via top-level RPC calls (never a scratch session).
  */
 
 /** The arguments that start Pi's RPC mode, after the command `piCommand` builds. */
@@ -58,7 +57,6 @@ const PI_RPC_ARGS = ["--mode", "rpc"] as const;
 export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
-  supportsDynamicModes: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
@@ -189,8 +187,6 @@ class PiAgentSession implements AgentSession {
   private readonly partialOutput = createToolOutputCoalescer({
     deliver: (event) => this.fanOut(event),
   });
-  private modes: AgentModeDefinition[] = [];
-  private mode: string | null;
   private model: string | undefined;
   private sessionFile?: string;
   private thinkingLevel?: string;
@@ -202,7 +198,6 @@ class PiAgentSession implements AgentSession {
     opts: { provider: string; config: AgentSessionConfig; sessionFile?: string },
   ) {
     this.provider = opts.provider;
-    this.mode = opts.config.modeId ?? null;
     this.sessionFile = opts.sessionFile;
     transport.onEvent((raw) => {
       const rec = raw as Record<string, unknown>;
@@ -247,10 +242,6 @@ class PiAgentSession implements AgentSession {
 
   private fanOut(event: AgentStreamEvent): void {
     for (const cb of this.subscribers) cb(event);
-  }
-
-  setDiscoveredModes(modes: AgentModeDefinition[]): void {
-    this.modes = modes;
   }
 
   /**
@@ -400,25 +391,9 @@ class PiAgentSession implements AgentSession {
     return {
       provider: this.provider,
       sessionId: this.id,
-      modeId: this.mode ?? undefined,
       model: this.model,
       thinkingLevel: this.thinkingLevel,
     };
-  }
-
-  getAvailableModes(): AgentModeDefinition[] {
-    return this.modes;
-  }
-
-  getCurrentMode(): string | null {
-    return this.mode;
-  }
-
-  async setMode(id: string): Promise<void> {
-    // Pi RPC has no `set_mode` command (modes are a Pi-Studio concept layered over the provider).
-    // Track it locally; model/thinking changes go through setModel/setThinkingOption.
-    this.mode = id;
-    return Promise.resolve();
   }
 
   onUiRequest(cb: (req: ProviderUiRequest) => void): Unsubscribe {
@@ -757,11 +732,6 @@ export class PiAgentClient implements AgentClient {
   }): Promise<AgentModelDefinition[]> {
     if (opts?.session?.listModels) return opts.session.listModels();
     return toModelDefinitions(await this.topLevel("get_available_models", opts?.cwd));
-  }
-
-  /** Pi RPC has no `list_modes`; modes come from the provider manifest, not the process. */
-  listModes(): Promise<AgentModeDefinition[]> {
-    return Promise.resolve([]);
   }
 
   /**

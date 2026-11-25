@@ -75,7 +75,7 @@ describe("mock provider", () => {
     expect(kinds).not.toContain("turn_completed");
   });
 
-  it("reports availability, models, modes, runtime info and a persistence handle", async () => {
+  it("reports availability, models, runtime info and a persistence handle", async () => {
     const client = new MockAgentClient();
     expect(client.isAvailable()).toBe(true);
     expect(await client.listModels()).toEqual([
@@ -88,7 +88,6 @@ describe("mock provider", () => {
     ]);
     const session = await client.createSession({ provider: "mock", cwd: "/tmp", model: "m1" });
     expect(session.getRuntimeInfo().model).toBe("m1");
-    expect(session.getAvailableModes().length).toBeGreaterThan(0);
     expect(session.describePersistence()?.provider).toBe("mock");
   });
 

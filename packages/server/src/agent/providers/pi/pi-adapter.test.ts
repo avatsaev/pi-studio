@@ -911,9 +911,7 @@ describe("PiAgentClient", () => {
   it("discovers models via get_available_models, not a scratch prompt", async () => {
     const { client, spawns } = clientWithFake();
     const models = await client.listModels();
-    const modes = await client.listModes();
     expect(models.map((m) => m.id)).toEqual(["pi-sonnet", "pi-limited", "pi-plain"]);
-    expect(modes).toEqual([]); // pi has no list_modes RPC
     for (const t of spawns) {
       expect(t.notifies).not.toContain("prompt");
     }

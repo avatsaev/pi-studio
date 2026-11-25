@@ -158,14 +158,13 @@ export const agentAttachmentsSchema = z
   .passthrough();
 
 /**
- * `AgentSessionConfig` — provider/mode/model and run options for an agent. `provider`/`modeId`/
+ * `AgentSessionConfig` — provider/model and run options for an agent. `provider`/
  * `model`/`thinkingOptionId` are dynamic strings (discovered at runtime per agent-providers.md),
  * not fixed enums, so they are not narrowed here.
  */
 export const agentSessionConfigSchema = z.object({
   provider: z.string(),
   cwd: z.string(),
-  modeId: z.string().optional(),
   model: z.string().optional(),
   /** The model's own underlying LLM provider (e.g. `"anthropic"`), pinned alongside `model` when
    * a deferred draft materializes (either the resolved default or an explicit `/model` pick) —

@@ -46,7 +46,6 @@ export type AgentFeature = z.infer<typeof agentFeatureSchema>;
 export const serializableConfigSchema = z
   .object({
     title: z.string().nullable().optional(),
-    modeId: z.string().optional(),
     model: z.string().optional(),
     /** The picked model's own LLM provider — see `agentSessionConfigSchema`'s field of the same
      * name (`@av-pi-studio/protocol`) for why this must travel with `model`. */
@@ -64,7 +63,6 @@ export const runtimeInfoSchema = z
     sessionId: z.string().optional(),
     model: z.string().optional(),
     thinkingOptionId: z.string().optional(),
-    modeId: z.string().optional(),
     extra: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();

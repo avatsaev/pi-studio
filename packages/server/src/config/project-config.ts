@@ -7,10 +7,10 @@ import { z } from "zod";
 
 /**
  * Per-project `pi-studio.json` config — architecture/config.md § Per-project config,
- * features/worktrees.md § Lifecycle config, features/service-proxy.md § Triggering.
+ * features/worktrees.md § Lifecycle config.
  *
  * Holds worktree lifecycle commands (`setup`/`teardown`) and named `scripts` (a `type:"service"`
- * script is proxied). A stale-write revision model guards concurrent edits.
+ * script is a long-running service). A stale-write revision model guards concurrent edits.
  */
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ const worktreeConfigSchema = z
   .transform((w) => ({ setup: toCommandList(w.setup), teardown: toCommandList(w.teardown) }));
 
 /**
- * A named script entry. `command` is required; `type:"service"` flags it for the service proxy.
+ * A named script entry. `command` is required; `type:"service"` marks a long-running service script.
  * Extra fields are tolerated (full script-entry schema is TODO(verify)).
  */
 export const scriptEntrySchema = z
@@ -41,11 +41,6 @@ export const scriptEntrySchema = z
   })
   .passthrough();
 export type ScriptEntry = z.infer<typeof scriptEntrySchema>;
-
-/** True when a script should be registered with the service proxy. */
-export function isServiceScript(entry: ScriptEntry): boolean {
-  return entry.type === "service";
-}
 
 export const piStudioConfigSchema = z.object({
   worktree: worktreeConfigSchema.default({}),

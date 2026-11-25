@@ -1,7 +1,7 @@
 # Task 004 — Drop agent modes (`plan` / `default` / `full-access`)
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (agent), packages/protocol, packages/client, packages/cli
 - **Priority:** P2

@@ -2,7 +2,7 @@
  * Production daemon bootstrap — the REAL daemon: loads `PI_STUDIO_HOME/config.json`, resolves the
  * real provider (`pi` spawns `pi --mode rpc`), persists agents to disk, and registers the full RPC
  * surface (agents/sessions/timeline, projects/workspaces/open-project, git status/diff/
- * ops + GitHub PR + worktrees, file explorer + transfer, service proxy, terminals + binary frames,
+ * ops + GitHub PR + worktrees, file explorer + transfer, terminals + binary frames,
  * schedules/chat/loops, providers). Mirrors `dev-bootstrap.ts` but is production-grade.
  *
  * See: architecture/daemon-bootstrap.md, config.md, persistence.md, auth-security.md.
@@ -75,8 +75,6 @@ import { WorktreeService } from "../projects/worktree-service.js";
 
 import { TerminalManager } from "../terminal/terminal-manager.js";
 import { registerTerminalHandlers, makeTerminalBinaryHandler } from "../terminal/terminal-rpc.js";
-
-import { ServiceProxy, resolveServiceProxyConfig } from "../proxy/service-proxy.js";
 
 import { isBinary } from "../runtime/self.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
@@ -767,9 +765,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     }
   });
 
-  // ── Service proxy (workspace scripts) ─────────────────────────────────────────
-  const serviceProxy = new ServiceProxy(resolveServiceProxyConfig(config.daemon.serviceProxy));
-
   // ── Terminals: manager + control RPCs + binary stream ─────────────────────────
   const terminalManager = new TerminalManager({ logger });
   registerTerminalHandlers(
@@ -814,9 +809,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // ── HTTP + WS wiring ─────────────────────────────────────────────────────────
   const httpServer = createHttpServer({
     hostnames,
-    allowedOrigins: config.daemon.cors.allowedOrigins,
-    authenticate: (req) => auth.authenticateHttp(req),
-    onRequest: (req, res) => serviceProxy.handleRequest(req, res),
   });
 
   /** `server_info.features`: every `SERVER_FEATURES` key (incl. `daemonUpdate`), direct and relay. */

@@ -39,7 +39,6 @@ Request fields:
 |-------|------|-------|
 | `provider` | string | provider id |
 | `cwd` | string | working directory |
-| `modeId` | string? | provider mode (plan/default/full-access/...) |
 | `model` | string? | model id |
 | `thinkingOptionId` | string? | reasoning level |
 | `featureValues` | Record<string,unknown>? | provider feature overrides |
@@ -129,7 +128,7 @@ function run(agent, prompt):
   correlate by exact text.
 
 ### Draft metadata
-- Model/mode/command/feature lookups prefer top-level provider APIs (`listModels`, `listModes`,
+- Model/command/feature lookups prefer top-level provider APIs (`listModels`,
   `listCommands`, `listFeatures`) over creating a scratch session.
 
 ## Data & Persistence

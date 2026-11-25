@@ -182,7 +182,6 @@ export function registerTerminalHandlers(
       service: isService,
     });
     deps.broadcast(getActiveSessions(), { type: "terminals_update", terminals: manager.list() });
-    // Service scripts are handed to the service proxy (task-003) by the caller via `entry.service`.
     return {
       type: "start_workspace_script_response",
       ok: true,

@@ -68,15 +68,6 @@ class ScriptedSession implements AgentSession {
   getRuntimeInfo() {
     return { provider: "mock" };
   }
-  getAvailableModes() {
-    return [];
-  }
-  getCurrentMode() {
-    return null;
-  }
-  setMode(): Promise<void> {
-    return Promise.resolve();
-  }
   describePersistence() {
     return null;
   }

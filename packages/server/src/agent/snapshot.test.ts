@@ -5,7 +5,6 @@ import { ProviderSnapshotManager, type ProviderSnapshotData } from "./provider-s
 const READY: ProviderSnapshotData = {
   available: true,
   models: [{ id: "m" }],
-  modes: [{ id: "default" }],
 };
 
 function manager(probe = vi.fn(() => Promise.resolve(READY))): {
@@ -38,7 +37,7 @@ describe("cold → warm caching", () => {
   it("marks unavailable when not available and error when the probe throws", async () => {
     const probe = vi
       .fn<(cwd: string) => Promise<ProviderSnapshotData>>()
-      .mockResolvedValueOnce({ available: false, models: [], modes: [] })
+      .mockResolvedValueOnce({ available: false, models: [] })
       .mockRejectedValueOnce(new Error("spawn failed"));
     const { mgr } = manager(probe);
     expect((await mgr.get("/a")).status).toBe("unavailable");

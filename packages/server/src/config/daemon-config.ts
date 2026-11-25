@@ -90,7 +90,6 @@ export const persistedConfigSchema = z
         appendSystemPrompt: z.string().default(""),
         /** Developer switch: browser `Origin`s the direct WS port accepts (exact match). Default: none. */
         devAllowedOrigins: z.array(z.string()).default([]),
-        cors: z.object({ allowedOrigins: z.array(z.string()).default([]) }).default({}),
         relay: z
           .object({
             enabled: z.boolean().default(false),
@@ -103,13 +102,6 @@ export const persistedConfigSchema = z
         /** Overrides the bundled Pi CLI's own config dir (PI_CODING_AGENT_DIR/…SESSION_DIR). */
         piHome: z.string().optional(),
         auth: z.object({ password: z.string().optional() }).default({}),
-        serviceProxy: z
-          .object({
-            listen: z.string().optional(),
-            publicBaseUrl: z.string().optional(),
-            enabled: z.boolean().optional(),
-          })
-          .default({}),
         /** Preinstalled-extensions sync (features/preinstalled-extensions.md § Daemon config). */
         extensions: z
           .object({
@@ -268,16 +260,6 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
   }
 
   if (env.PI_STUDIO_APP_BASE_URL) next.app.baseUrl = env.PI_STUDIO_APP_BASE_URL;
-
-  if (env.PI_STUDIO_SERVICE_PROXY_LISTEN) {
-    next.daemon.serviceProxy.listen = env.PI_STUDIO_SERVICE_PROXY_LISTEN;
-  }
-  if (env.PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL) {
-    next.daemon.serviceProxy.publicBaseUrl = env.PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL;
-  }
-  if (env.PI_STUDIO_SERVICE_PROXY_ENABLED !== undefined) {
-    next.daemon.serviceProxy.enabled = envBool(env.PI_STUDIO_SERVICE_PROXY_ENABLED);
-  }
 
   if (env.PI_STUDIO_EXTENSIONS_AUTOSYNC !== undefined) {
     const v = env.PI_STUDIO_EXTENSIONS_AUTOSYNC.trim().toLowerCase();

@@ -79,18 +79,6 @@ class RetryAgentSession implements AgentSession {
     return { provider: this.provider, sessionId: this.id, model: "mock" };
   }
 
-  getAvailableModes() {
-    return [];
-  }
-
-  getCurrentMode(): string | null {
-    return null;
-  }
-
-  setMode(): Promise<void> {
-    return Promise.resolve();
-  }
-
   describePersistence() {
     return null;
   }

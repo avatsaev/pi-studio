@@ -154,10 +154,9 @@ export class SessionOperationsService {
       ...(msg.config as Record<string, unknown> | undefined),
     };
 
-    // Apply mode/model/thinking to the live session (if attached).
+    // Apply model/thinking to the live session (if attached).
     let effectiveThinking: string | undefined;
     if (managed.session) {
-      if (typeof msg.modeId === "string") await managed.session.setMode(msg.modeId);
       if (typeof msg.model === "string") await managed.session.setModel?.(msg.model);
       if (typeof msg.thinkingOptionId === "string") {
         // Same apply-then-effective semantics as `agent_set_thinking_request`

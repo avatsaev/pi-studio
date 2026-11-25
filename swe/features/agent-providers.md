@@ -26,24 +26,24 @@ in-process `mock` provider exists purely for tests and load testing.
 - `resumeSession(handle, overrides?, launchContext?) → AgentSession`
 - `listModels(opts) → AgentModelDefinition[]`
 - `isAvailable() → boolean`  (checks the `pi` binary is on `$PATH`)
-- optional: `listModes`, `listImportableSessions`, `importSession`, `getDiagnostic`
+- optional: `listImportableSessions`, `importSession`, `getDiagnostic`
 
 ### `AgentSession` (abridged contract)
 - `provider`, `id`, `capabilities`, `features?`
 - `run(prompt, opts?)`, `startTurn(prompt, opts?) → { turnId }`
 - `subscribe(cb) → unsubscribe`, `streamHistory() → AsyncGenerator<AgentStreamEvent>`
-- `getRuntimeInfo()`, `getAvailableModes()`, `getCurrentMode()`, `setMode(id)`
+- `getRuntimeInfo()`
 - `getPendingPermissions()`, `respondToPermission(requestId, response)`
 - `describePersistence() → PersistenceHandle | null`, `interrupt()`, `close()`
 - optional: `listCommands`, `setModel`, `setThinkingOption`, `setFeature`, `tryHandleOutOfBand`
 
 ### Capability flags (`AgentCapabilityFlags`)
-`supportsStreaming`, `supportsSessionPersistence`, `supportsDynamicModes`, `supportsMcpServers`,
+`supportsStreaming`, `supportsSessionPersistence`, `supportsMcpServers`,
 `supportsReasoningStream`, `supportsToolInvocations`.
 
 ### Registration surface
 1. Provider class in `agent/providers/pi/agent.ts` implementing `AgentClient`/`AgentSession`.
-2. Manifest entry in `provider-manifest.ts` (modes with `icon`/`colorTier`, provider definition).
+2. Manifest entry in `provider-manifest.ts` (provider definition).
 3. Factory in `provider-registry.ts` (`PROVIDER_CLIENT_FACTORIES`), invoked with
    `(logger, runtimeSettings, options)`.
 4. App icon registered in `provider-icons.ts` (fallback `Bot`).
@@ -95,9 +95,9 @@ isAvailable(): `pi` binary resolvable on $PATH
   question permissions and answered with `extension_ui_response`. See
   [tool-permissions.md](tool-permissions.md) for the combined/chained-dialog semantics.
 
-### Models, modes, features
-- Discovered dynamically at runtime via Pi RPC; manifest entries are UI scaffolding (icons, color
-  tiers) only. Draft metadata lookups prefer `listModels`/`listModes`/`listCommands`/`listFeatures`
+### Models, features
+- Discovered dynamically at runtime via Pi RPC; manifest entries are UI scaffolding (labels,
+  capability flags) only. Draft metadata lookups prefer `listModels`/`listCommands`/`listFeatures`
   over creating a scratch session (scratch sessions can appear as empty native sessions in Pi's
   import/history UIs).
 

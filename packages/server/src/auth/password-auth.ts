@@ -6,10 +6,9 @@ import bcrypt from "bcryptjs";
  * Optional shared-secret password auth (architecture/auth-security.md § Password auth, § Behavior).
  *
  * The password is sourced from `daemon.auth.password` (config) or `PI_STUDIO_PASSWORD` (env) and is
- * **stored bcrypt-hashed**. When configured, every HTTP request needs `Authorization: Bearer
- * <password>` and every WS upgrade needs subprotocol `pi-studio.bearer.<password>` (browsers cannot
- * set custom WS headers). `GET /api/health` and CORS preflight are exempt (handled by the HTTP
- * pipeline before `authenticate` runs).
+ * **stored bcrypt-hashed**. When configured, every WS upgrade needs subprotocol
+ * `pi-studio.bearer.<password>` (browsers cannot set custom WS headers). The HTTP server serves only
+ * the unauthenticated `GET /api/health`.
  *
  * The daemon never stores or transmits provider API keys — there is nothing here to persist beyond
  * the password hash.
@@ -35,13 +34,6 @@ export function resolvePasswordHash(opts: {
   return isBcryptHash(raw) ? raw : bcrypt.hashSync(raw, 10);
 }
 
-/** Extract a bearer token from an `Authorization: Bearer <token>` header. */
-export function bearerFromAuthHeader(header: string | undefined): string | undefined {
-  if (!header) return undefined;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? (match[1] as string).trim() : undefined;
-}
-
 /**
  * Extract the password from a `Sec-WebSocket-Protocol` header carrying
  * `pi-studio.bearer.<password>` (the header is a comma-separated list of offered subprotocols).
@@ -62,8 +54,6 @@ export interface PasswordAuth {
   readonly enabled: boolean;
   /** Verify a presented plaintext token against the stored hash. */
   verify(token: string | undefined): boolean;
-  /** Authenticate an HTTP request via the Authorization bearer header. */
-  authenticateHttp(req: Pick<IncomingMessage, "headers">): boolean;
   /** Authenticate a WS upgrade via the `pi-studio.bearer.<password>` subprotocol. */
   authenticateUpgrade(req: Pick<IncomingMessage, "headers">): boolean;
 }
@@ -81,10 +71,6 @@ export function createPasswordAuth(passwordHash: string | undefined): PasswordAu
   return {
     enabled,
     verify,
-    authenticateHttp(req): boolean {
-      if (!enabled) return true;
-      return verify(bearerFromAuthHeader(req.headers.authorization));
-    },
     authenticateUpgrade(req): boolean {
       if (!enabled) return true;
       const header = req.headers["sec-websocket-protocol"];

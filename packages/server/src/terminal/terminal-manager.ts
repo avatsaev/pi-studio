@@ -48,7 +48,7 @@ export interface TerminalRuntimeEntry {
   rows: number;
   /** `true` once the PTY has exited. */
   closed: boolean;
-  /** Marks a service-script-backed terminal (handed to the service proxy elsewhere). */
+  /** Marks a service-script-backed terminal. */
   service?: boolean;
 }
 

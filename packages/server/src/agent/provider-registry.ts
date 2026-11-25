@@ -101,7 +101,7 @@ export function resolveProviderClient(
 
 /**
  * Holds visible provider metadata (manifest + config overrides). Replacing metadata updates
- * label/description/enabled/default-mode only — it must **never** spawn the Pi process.
+ * label/description/enabled only — it must **never** spawn the Pi process.
  */
 export class ProviderRegistry {
   private metadata: Record<string, ProviderDefinition>;
@@ -130,7 +130,6 @@ export class ProviderRegistry {
         label: override.label ?? base?.label ?? id,
         description: override.description ?? base?.description,
         capabilities,
-        modes: base?.modes ?? [],
       };
     }
   }

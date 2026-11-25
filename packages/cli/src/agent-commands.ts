@@ -744,31 +744,19 @@ export function registerAgentCommands(
   // update
   agent
     .command("update <agentId>")
-    .description("update agent config (model/mode/thinking/title)")
+    .description("update agent config (model/thinking/title)")
     .option("--model <model>", "set the model")
-    .option("--mode <modeId>", "set the mode")
     .option("--thinking <id>", "set the thinking option")
     .option("--title <title>", "set the title")
     .action((agentId: string, o: Record<string, string>) => {
       const patch: Record<string, unknown> = {};
       if (o.model) patch.model = o.model;
-      if (o.mode) patch.modeId = o.mode;
       if (o.thinking) patch.thinkingOptionId = o.thinking;
       if (o.title) patch.title = o.title;
       return withDaemon(ctx, g(), (client) => updateAgent(client, ctx, agentId, patch, g())).then(
         setExit,
       );
     });
-
-  // mode (shortcut for update --mode)
-  agent
-    .command("mode <agentId> <modeId>")
-    .description("set the agent mode")
-    .action((agentId: string, modeId: string) =>
-      withDaemon(ctx, g(), (client) => updateAgent(client, ctx, agentId, { modeId }, g())).then(
-        setExit,
-      ),
-    );
 
   // Slash-command operations (sprint-037): CLI equivalents of Pi built-in slash commands that
   // have a real Pi RPC equivalent. See packages/server/AGENTS.md's Agent subsystem section.

@@ -12,7 +12,6 @@ import type {
   AgentClient,
   AgentCommandDefinition,
   AgentCompactResult,
-  AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
   AgentTodoList,
@@ -60,7 +59,6 @@ import { getUiScriptHelpText, parseUiScript, type UiScriptStep } from "./ui-scri
 export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
-  supportsDynamicModes: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
@@ -81,10 +79,6 @@ const mockTodosByHandle = new Map<string, AgentTodoList>();
  *  real `agent_timeline_reset` broadcast path is reachable without a Pi session file. */
 export const MOCK_REBIND_ENTRY_ID = "mock-rebind";
 
-const MOCK_MODES: AgentModeDefinition[] = [
-  { id: "default", label: "Default" },
-  { id: "plan", label: "Plan" },
-];
 /** Static thinking-level list for the mock provider (sprint-070/task-001) — small enough to
  * exercise clamping in the dev daemon without mirroring Pi's full 7-level ladder. */
 const MOCK_THINKING_LEVELS = ["off", "low", "medium", "high"];
@@ -114,7 +108,6 @@ export class MockAgentSession implements AgentSession {
   private readonly compactDelayMs: number;
   private activeTurn: string | null = null;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
-  private mode = "default";
   private closed = false;
   private thinkingLevel = "off";
 
@@ -428,22 +421,8 @@ export class MockAgentSession implements AgentSession {
       sessionId: this.id,
       model: this.config.model ?? "mock-model",
       thinkingLevel: this.thinkingLevel,
-      modeId: this.mode,
       extra: { cwd: this.config.cwd },
     };
-  }
-
-  getAvailableModes(): AgentModeDefinition[] {
-    return MOCK_MODES;
-  }
-
-  getCurrentMode(): string | null {
-    return this.mode;
-  }
-
-  setMode(id: string): Promise<void> {
-    this.mode = id;
-    return Promise.resolve();
   }
 
   /** Sprint-070/task-001: store the level clamped to the mock's static list, mirroring Pi's
@@ -684,10 +663,6 @@ export class MockAgentClient implements AgentClient {
         thinkingLevels: [...MOCK_THINKING_LEVELS],
       },
     ]);
-  }
-
-  listModes(): Promise<AgentModeDefinition[]> {
-    return Promise.resolve(MOCK_MODES);
   }
 
   resolveDefaultModel(): Promise<{

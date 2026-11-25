@@ -1,8 +1,8 @@
 # `@av-pi-studio/server` — AGENTS.md
 
 The Pi-Studio **daemon**. Manages agent processes, PTY terminals, git worktrees, projects,
-file transfer, and a service proxy.
-Exposes a WebSocket JSON+binary API and an HTTP health/download endpoint.
+and file transfer.
+Exposes a WebSocket JSON+binary API and an HTTP health endpoint.
 
 ---
 
@@ -120,7 +120,7 @@ src/
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
-                                   projects/git/worktrees/GitHub, terminals, files, service proxy,
+                                   projects/git/worktrees/GitHub, terminals, files,
                                    provider auth, optional outbound relay).
                                    `close()` is memoized (a second call returns the first's
                                    promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
@@ -211,7 +211,7 @@ src/
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
                                    re-exports pi-home.ts's resolvePiAgentDir for its existing
                                    import surface (provider-registry.test.ts's path-parity tests).
-    provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
+    provider-snapshot.ts          ProviderSnapshot — cached models per provider.
     session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
@@ -315,7 +315,7 @@ src/
     index.ts
 
   http/
-    http-server.ts                HTTP server: /api/health, Host-allowlist, CORS, optional bearer auth, and an `onRequest` delegate (wired to the service proxy).
+    http-server.ts                HTTP server: `/api/health` and the Host allowlist; everything else is 404.
     host-allowlist.ts             Host header validation (prevents DNS rebinding).
     index.ts
 
@@ -657,12 +657,6 @@ src/
                                     `redactSource`, so git credentials never reach a client;
                                     `remove({packageSource})` matches the request on its
                                     redacted form and spawns with the REAL settings entry.
-
-  proxy/
-    service-proxy.ts              ServiceProxy — HTTP reverse proxy to localhost agent services.
-    service-port-registry.ts      ServicePortRegistry — register/lookup agent service ports.
-    service-hostname.ts           Hostname derivation for service routes.
-    index.ts
 
   logging/
     logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file; optional `tap`).
@@ -1172,7 +1166,7 @@ creation" above.
   Pi persists neither `reason` nor `estimatedTokensAfter`, and nothing for failed/cancelled ones.
   The mock provider's `compact()` emits `started`, waits `compactDelayMs` (default 1.5 s, a
   `MockSessionOptions` field) and emits `completed` with 168k → 14k.
-- Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
+- Discovers models via the top-level `get_available_models` RPC (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's
   own `.pi` config dir. `provider-registry.ts#buildPiClient` derives
@@ -2135,11 +2129,10 @@ kill switch every future viewer plugin reads. Invariants:
 
 ### HTTP server (`http/`)
 
-- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from Host + auth checks; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
-- Host-header allowlist (403 on mismatch) → CORS headers (`daemon.cors.allowedOrigins`) → optional
-  bearer auth → delegates to an injected `onRequest` handler else 404. The daemon wires `onRequest`
-  to the service proxy (`proxy/service-proxy.ts`) only — there is no HTTP file-download route;
-  file downloads happen over the WebSocket via binary frames (`files/file-transfer.ts`), not HTTP.
+- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from the Host check; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
+- Host-header allowlist (403 on mismatch), then 404 for everything else — the HTTP server has no
+  CORS, no bearer auth and no application routes. File downloads happen over the WebSocket via
+  binary frames (`files/file-transfer.ts`), not HTTP.
 - `HostAllowlist` rejects requests with disallowed `Host` headers (DNS-rebinding protection)
 
 ### Auth (`auth/`)
@@ -2207,8 +2200,6 @@ messages are fair game.
   terminal output.
 - **Terminal snapshot is optional for correctness.** A subscriber that arrives after PTY exit gets
   the last snapshot; no new Output frames will arrive.
-- **Service proxy auth bypass is intentional.** The service proxy route is not gated by daemon
-  password auth (per spec). Do not add auth there.
 - **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
   `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider,

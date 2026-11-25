@@ -1,4 +1,4 @@
-import type { AgentModeDefinition, AgentModelDefinition } from "./provider-contract.js";
+import type { AgentModelDefinition } from "./provider-contract.js";
 
 /**
  * Per-cwd provider snapshot cache (features/agent-providers.md § Provider snapshot refresh contract).
@@ -15,7 +15,6 @@ export type SnapshotStatus = "cold" | "loading" | "ready" | "error" | "unavailab
 export interface ProviderSnapshotData {
   available: boolean;
   models: AgentModelDefinition[];
-  modes: AgentModeDefinition[];
 }
 
 export interface ProviderSnapshot {

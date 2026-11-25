@@ -111,7 +111,6 @@ describe("create_agent_request", () => {
   const fullConfig = {
     provider: "pi",
     cwd: "/work/repo",
-    modeId: "default",
     model: "claude",
     thinkingOptionId: "medium",
     featureValues: { webSearch: true },

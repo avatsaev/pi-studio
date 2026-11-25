@@ -1,5 +1,7 @@
 # MCP Server — Clean Room Scope
 
+> **Status: retired (2026-11-25).** `agent/mcp-server.ts` was never reachable and is dropped; see [daemon-audit-handoff.md](../../docs/daemon-audit-handoff.md) § Decisions → Approved drops.
+
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [agent-sessions.md](agent-sessions.md), [tool-permissions.md](tool-permissions.md) (retired),
 > [schedules-heartbeats.md](schedules-heartbeats.md), [terminals.md](terminals.md),

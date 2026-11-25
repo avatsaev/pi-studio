@@ -400,7 +400,6 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into dialing the outbound relay (env equivalent of `daemon.relay.enabled`) |
 | `PI_STUDIO_RELAY_ENDPOINT` / `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Override `config.json`'s `daemon.relay.endpoint`/`publicEndpoint` (opt-in outbound relay) |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
-| `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 |`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
 |`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
@@ -753,7 +752,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 ## Persistence layout (`$PI_STUDIO_HOME/`)
 
 ```
-config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
+config.json           Daemon config (password hash, provider overrides, relay, …) — written 0600
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
 update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)

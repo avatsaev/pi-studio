@@ -53,12 +53,6 @@ export interface AgentModelDefinition {
   thinkingLevels?: string[];
 }
 
-export interface AgentModeDefinition {
-  id: string;
-  label?: string;
-  description?: string;
-}
-
 /**
  * Provider-neutral shape for a discoverable session command (sprint-040: command discovery, e.g.
  * Pi `get_commands`). `id`/`label`/`description` predate discovery and stay put for backward
@@ -132,7 +126,6 @@ export interface ProviderRuntimeInfo {
    * actually running with after Pi's own clamping, re-read from Pi `get_state` after every
    * set/model-switch. Distinct from `thinkingOptionId` (the requested/pinned option id). */
   thinkingLevel?: string;
-  modeId?: string;
   extra?: Record<string, unknown>;
 }
 
@@ -232,9 +225,6 @@ export interface AgentSession {
   streamHistory(): AsyncGenerator<AgentStreamEvent>;
 
   getRuntimeInfo(): ProviderRuntimeInfo;
-  getAvailableModes(): AgentModeDefinition[];
-  getCurrentMode(): string | null;
-  setMode(id: string): Promise<void>;
 
   describePersistence(): PersistenceHandle | null;
   interrupt(): Promise<void>;
@@ -332,7 +322,6 @@ export interface AgentClient {
   isAvailable(): Promise<boolean> | boolean;
 
   // Optional capabilities.
-  listModes?(opts?: { cwd?: string }): Promise<AgentModeDefinition[]>;
   listImportableSessions?(opts?: { cwd?: string }): Promise<ImportableSessionRow[]>;
   importSession?(args: ImportSessionArgs): Promise<ImportSessionResult>;
   getDiagnostic?(): Promise<unknown>;

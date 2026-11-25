@@ -37,11 +37,9 @@ function fakeDeps(): { deps: ProviderClientDeps; spawns: PiTransportSpawnArgs[] 
 }
 
 describe("manifest", () => {
-  it("exposes pi modes with colorTier + icon", () => {
-    const pi = PROVIDER_MANIFEST.pi;
-    expect(pi.id).toBe("pi");
-    expect(pi.modes.find((m) => m.id === "full-access")?.colorTier).toBe("dangerous");
-    expect(pi.modes.find((m) => m.id === "plan")?.icon).toBe("Compass");
+  it("exposes the pi and mock providers", () => {
+    expect(PROVIDER_MANIFEST.pi.id).toBe("pi");
+    expect(PROVIDER_MANIFEST.mock.id).toBe("mock");
   });
 });
 

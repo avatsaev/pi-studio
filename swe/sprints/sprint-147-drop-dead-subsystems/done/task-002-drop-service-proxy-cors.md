@@ -1,7 +1,7 @@
 # Task 002 — Drop the service proxy, CORS and the HTTP password check
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (proxy, http, auth, config, bootstrap)
 - **Priority:** P2
