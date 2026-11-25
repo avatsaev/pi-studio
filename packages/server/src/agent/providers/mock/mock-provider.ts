@@ -61,7 +61,6 @@ export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
   supportsDynamicModes: true,
-  supportsMcpServers: false,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,

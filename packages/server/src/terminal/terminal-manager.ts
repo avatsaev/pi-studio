@@ -120,7 +120,7 @@ interface ManagedTerminal {
   subscribers: Set<TerminalFrameSink>;
   /** Rolling bounded ring used as the transient screen snapshot (raw bytes; clients replay it). */
   screen: SnapshotRing;
-  /** Headless terminal grid used for screen-accurate text capture (CLI/MCP). */
+  /** Headless terminal grid used for screen-accurate text capture (CLI). */
   screenModel: ScreenBuffer;
   /** Pending coalesced output. */
   pending: Uint8Array[];
@@ -317,7 +317,7 @@ export class TerminalManager {
     return true;
   }
 
-  /** One-shot current screen text (for CLI/MCP capture). Does not subscribe. Screen-accurate. */
+  /** One-shot current screen text (for CLI capture). Does not subscribe. Screen-accurate. */
   capture(slot: number): string | null {
     const managed = this.terminals.get(slot);
     if (!managed) return null;

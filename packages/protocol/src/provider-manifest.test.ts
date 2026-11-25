@@ -12,7 +12,6 @@ const flags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
   supportsDynamicModes: true,
-  supportsMcpServers: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
 };

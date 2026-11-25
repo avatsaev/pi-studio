@@ -11,7 +11,7 @@ import { createHostChecker, type HostnamesSetting } from "./host-allowlist.js";
  *  2. Host-header allowlist (403 on mismatch).
  *  3. CORS headers (`daemon.cors.allowedOrigins`).
  *  4. Optional bearer auth (wired in task-003).
- *  5. Delegate to `onRequest` (mcp/file routes, later sprints) else 404.
+ *  5. Delegate to `onRequest` (file routes, later sprints) else 404.
  */
 
 export const HEALTH_PATH = "/api/health";

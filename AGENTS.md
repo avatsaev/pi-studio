@@ -9,7 +9,7 @@
 
 Pi-Studio is a **self-hosted, local-first system** for running and controlling the **Pi** AI coding
 agent. A long-lived **daemon** process runs on a developer's machine, manages agent processes,
-PTY terminals, git worktrees, projects, chat rooms, schedules, and loops, and exposes a
+PTY terminals, git worktrees, and projects, and exposes a
 **WebSocket JSON+binary API**. Clients — a CLI and web browser UI today, native mobile/desktop
 apps in later sprints — connect to the daemon to observe and drive agents.
 
@@ -23,7 +23,7 @@ Your code never leaves your machine.
 packages/
   protocol/    Wire schemas (Zod), binary frame codecs, capability flags — zero runtime deps except zod.
   client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
-  server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
+  server/      The daemon: agents, terminals, git, projects, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
                It is also released as one compiled binary (`pi-studio`: CLI, daemon, Pi and the `skills` CLI, no Node
                needed; `npm run build:binary`, `npm run test:binary`; `swe/architecture/single-binary-daemon.md`).
@@ -429,7 +429,7 @@ All communication uses a **single WebSocket connection** per client.
 - **Binary frames** carry terminal and file-transfer data with a 2-byte header `[opcode][slot]`.
 - All schemas are **append-only**: new optional fields only, types never narrowed, fields never removed.
 - RPC names are overwhelmingly **flat snake_case** (`create_agent_request`, `list_agents_request`,
-  `chat_create_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
+  `create_terminal_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
   not a "legacy" fallback. A small minority use a dotted `domain.provider.operation.direction` form
   (`agent.rewind.request`,
   `checkout.github.set_auto_merge.request`); where a dotted name exists, the flat form is usually
@@ -775,12 +775,6 @@ logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
     <agentId>.json    Agent record (status, config, timeline seq, labels, …)
-chat/
-  rooms.json          Chat rooms + messages
-loops/
-  loops.json           All loop records (single queued-write file, NOT one file per loop)
-schedules/
-  <scheduleId>.json   Schedule records
 projects/
   projects.json       Project registry
   workspaces.json     Workspace registry
@@ -822,7 +816,7 @@ tolerated without a migration framework.
 - `swe/architecture/` — deep dives (websocket-protocol, persistence, agent-lifecycle,
   client-app-runtime, daemon-bootstrap, relay-e2ee, relay-protocol, …)
 - `swe/features/` — feature-level specs (agent-sessions, terminals, cli, projects-
-  workspaces, git-checkout, chat-rooms, loops, schedules, file-explorer-transfer, …)
+  workspaces, git-checkout, file-explorer-transfer, …)
 
 ---
 

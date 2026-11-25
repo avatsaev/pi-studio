@@ -32,7 +32,6 @@ describe("defaults", () => {
     expect(cfg.version).toBe(1);
     expect(cfg.daemon.listen).toBe("127.0.0.1:6767");
     expect(cfg.daemon.hostnames).toEqual(["localhost", "*.localhost"]);
-    expect(cfg.daemon.mcp).toEqual({ enabled: true, injectIntoAgents: true });
     expect(cfg.daemon.relay.enabled).toBe(false);
     expect(cfg.log.level).toBe("info");
     expect(cfg.agents.providers).toEqual({});

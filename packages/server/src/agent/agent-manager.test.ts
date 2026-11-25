@@ -130,12 +130,10 @@ describe("literal status", () => {
 });
 
 describe("recover", () => {
-  it("reloads persisted agents without auto-resuming runtimes and runs the loop hook", async () => {
+  it("reloads persisted agents without auto-resuming runtimes", async () => {
     const persisted = [record({ lastStatus: "idle" }), record({ lastStatus: "closed" })];
-    const onRecoverLoops = vi.fn();
     const { mgr } = makeManager({
       loadAllAgents: () => Promise.resolve(persisted),
-      onRecoverLoops,
     });
 
     const count = await mgr.recover();
@@ -145,7 +143,6 @@ describe("recover", () => {
       expect(managed?.session).toBeNull(); // runtime not resumed
       expect(managed?.record.lastStatus).toBe(r.lastStatus); // already-resting status preserved as-is
     }
-    expect(onRecoverLoops).toHaveBeenCalledOnce();
   });
 
   it("normalizes a 'running'/'initializing' record left by a mid-turn crash back to 'idle', and persists it", async () => {

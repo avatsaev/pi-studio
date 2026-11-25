@@ -1,8 +1,8 @@
 # `@av-pi-studio/server`
 
 The **Pi-Studio daemon** — the long-lived server process that runs on a developer's machine and is
-the heart of Pi-Studio. It supervises AI-agent processes, PTY terminals, git worktrees, projects,
-chat rooms, schedules, and loops, and exposes a single **WebSocket JSON+binary API** (plus a small
+the heart of Pi-Studio. It supervises AI-agent processes, PTY terminals, git worktrees, and projects,
+and exposes a single **WebSocket JSON+binary API** (plus a small
 HTTP surface) that every client — the CLI, the web UI, and future native apps — connects to.
 
 Your code never leaves your machine: the daemon runs locally, talks to the `pi` agent locally, and
@@ -39,8 +39,6 @@ A single daemon process owns all runtime state and mediates every operation:
   with screen-buffer snapshots so late subscribers see the current screen.
 - **Projects & git** — opens projects, tracks workspaces, runs git status/branch/diff/commit,
   manages worktrees, and integrates with the GitHub API for PRs/issues.
-- **Orchestration** — chat rooms with `@mentions`, cron/interval **schedules** that fire agent
-  prompts, and iterative worker+verifier **loops**.
 - **Files** — directory listing, text/binary file preview, and chunked file download by path (byte ranges, resume with `ifUnchanged`, cancel).
 - **Service proxy** — an HTTP reverse proxy that routes to localhost services started by agents.
 
@@ -162,7 +160,7 @@ binaries need glibc 2.17 or newer; `git` must be on the machine for `skills add 
 
 `src/daemon/dev-main.ts` is a development entry that wires only a **minimal handler subset**
 (`dev-bootstrap.ts`: agent list/archive/delete, workspaces/projects listing, providers, file
-read/diff, schedule listing — no terminals, git ops, worktrees, chat, loops, or relay), the mock
+read/diff — no terminals, git ops, worktrees, or relay), the mock
 provider, and in-memory state, and binds `127.0.0.1:6767` (override with `PI_STUDIO_LISTEN`; non-loopback logs a no-auth warning) with developer-friendly defaults. From the root:
 
 ```bash
@@ -170,7 +168,7 @@ npm run dev:daemon
 ```
 
 > `bootstrap.ts` (production) registers the **full** RPC surface — agents, terminals, git/worktrees/
-> GitHub, files, service proxy, schedules/chat/loops, rewind, optional outbound relay — with the
+> GitHub, files, service proxy, rewind, optional outbound relay — with the
 > real provider and disk persistence. `dev-bootstrap.ts` stays intentionally minimal for fast local
 > iteration and **must never grow to duplicate that surface**; `bootstrap.ts` must never import
 > `dev-bootstrap.ts` (the reverse — `dev-bootstrap.ts` importing one shared helper,
@@ -249,7 +247,6 @@ defaults and `.passthrough()` tolerance for unknown/future keys. Notable section
     "listen": "127.0.0.1:6767",
     "hostnames": ["localhost", "*.localhost"],
     "auth": { "password": "$2b$…bcrypt-hash…" },
-    "mcp": { "enabled": true, "injectIntoAgents": true },
     "appendSystemPrompt": "",
     "cors": { "allowedOrigins": [] },
     "serviceProxy": { "enabled": false },
@@ -392,9 +389,6 @@ logs/update-restart.log            The update restart helper's own log
 agents/
   <sanitized-cwd>/
     <agentId>.json               Agent record (status, config, timeline seq, labels, …)
-chat/rooms.json                  Chat rooms + messages
-loops/loops.json                 ALL loop records (single queued-write file, NOT one file per loop)
-schedules/<scheduleId>.json      Schedule records
 projects/projects.json           Project registry
 projects/workspaces.json         Workspace registry
 ```
@@ -413,7 +407,6 @@ src/
     dev-main.ts         Dev entry: wires dev-bootstrap.ts (all features, LAN bind).
     bootstrap.ts        Production handler wiring (full RPC surface, real provider, disk state).
     dev-bootstrap.ts    Dev handler wiring (local testing only).
-    orchestration-rpc.ts
 
   agent/                Agent lifecycle, provider registry, timeline.
     agent-manager.ts    Single source of truth for agent state + FSM + persistence + broadcast.
@@ -431,7 +424,6 @@ src/
   persistence/          Zod entity schemas, JSON stores, AtomicStore.
   terminal/             TerminalManager (PTY lifecycle, slot mux, snapshot, binary broadcast).
   projects/             Workspaces, projects, git ops, worktrees, GitHub, reconciliation.
-  orchestration/        ChatService, ScheduleService, LoopService, cron.
   files/                File explorer + chunked download/upload transfer.
   proxy/                ServiceProxy + port registry for agent-started services.
   logging/              Pino logger factory.
@@ -446,8 +438,7 @@ config) goes through `updateRecord(id, patch)`, which persists but leaves broadc
 call site. Archiving soft-deletes (sets `archivedAt`). On startup, persisted records are
 rehydrated with no live session re-attached; any record still stuck at `running`/`initializing`
 (daemon killed mid-turn) is reconciled back to `idle` since neither status is valid without a
-session — `interrupt_agent` applies the same reconciliation as a second line of defense. `running`
-loops are recovered as `stopped` with an interruption log entry.
+session — `interrupt_agent` applies the same reconciliation as a second line of defense.
 
 For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package and the specs under
 [`swe/`](../../swe/).

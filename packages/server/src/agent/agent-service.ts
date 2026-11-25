@@ -287,8 +287,8 @@ export class AgentService {
     // survives a reload/reconnect, but costing nothing (no process, no Pi-owned JSONL session
     // file) until the first real send actually needs one. That first send (`handleSendPrompt`) or
     // an explicit `resume_agent` (`session-operations.ts`) spawns it via `spawnOrResumeSession`,
-    // which also replays any pinned model. Every other caller of this RPC (CLI `run`, the MCP
-    // `create_agent` tool, scheduled/loop agents) always passes `initialPrompt`, so this branch is
+    // which also replays any pinned model. Every other caller of this RPC (CLI `run`, scheduled/loop
+    // agents) always passes `initialPrompt`, so this branch is
     // new behavior only for the web-client's deferred-draft path, never a regression for them.
     if (!initialPrompt) {
       await this.deps.manager.setStatus(agentId, "idle");

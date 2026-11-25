@@ -49,7 +49,6 @@ describe("fetch_agent_timeline_request — restart hydration fallback", () => {
         supportsStreaming: true,
         supportsSessionPersistence: true,
         supportsDynamicModes: true,
-        supportsMcpServers: true,
         supportsReasoningStream: true,
         supportsToolInvocations: true,
       },

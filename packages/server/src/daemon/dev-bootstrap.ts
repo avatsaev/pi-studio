@@ -482,12 +482,6 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     }
   });
 
-  registry.register("schedule_list_request", (ctx) => ({
-    type: "schedule_list_response",
-    requestId: ctx.requestId ?? "",
-    schedules: [],
-  }));
-
   // ── HTTP + WS wiring ─────────────────────────────────────────────────────────
   const hostnames = opts.hostnames ?? true;
   const httpServer = createHttpServer({ hostnames });

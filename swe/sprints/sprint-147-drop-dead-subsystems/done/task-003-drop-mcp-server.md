@@ -1,7 +1,7 @@
 # Task 003 — Drop the unreachable MCP server
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (agent, config), packages/protocol (provider manifest)
 - **Priority:** P2

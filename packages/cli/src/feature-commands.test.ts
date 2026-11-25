@@ -1,10 +1,16 @@
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import type { DaemonClient, Transport } from "@av-pi-studio/client";
 
 import { type CliContext, connectOptionsFrom } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
-import { FEATURE_RPC, featureRpc, runOpenProject } from "./feature-commands.js";
+import {
+  FEATURE_RPC,
+  featureRpc,
+  registerFeatureCommands,
+  runOpenProject,
+} from "./feature-commands.js";
 
 interface FakeOptions {
   responses?: Record<string, unknown>;
@@ -83,18 +89,6 @@ async function harness(options: FakeOptions = {}): Promise<{
 }
 
 describe("feature commands — one round-trip per group", () => {
-  it("chat ls renders a rooms table", async () => {
-    const { ctx, out, requests } = await harness({
-      responses: { [FEATURE_RPC.chatList]: { rooms: [{ roomId: "r1", name: "general" }] } },
-    });
-    const code = await featureRpc(ctx, {}, FEATURE_RPC.chatList, {}, (p) =>
-      JSON.stringify((p as { rooms: unknown[] }).rooms),
-    );
-    expect(code).toBe(0);
-    expect(out[0]).toContain("r1");
-    expect(requests[0]!.type).toBe("chat_list_request");
-  });
-
   it("terminal capture sends slot and returns text", async () => {
     const { ctx, out, requests } = await harness({
       responses: { [FEATURE_RPC.terminalCapture]: { text: "screen contents" } },
@@ -105,28 +99,6 @@ describe("feature commands — one round-trip per group", () => {
     expect(code).toBe(0);
     expect(out[0]).toBe("screen contents");
     expect(requests[0]!.msg.slot).toBe(2);
-  });
-
-  it("loop ls maps to loop_list_request", async () => {
-    const { ctx, requests } = await harness({
-      responses: { [FEATURE_RPC.loopList]: { loops: [] } },
-    });
-    await featureRpc(ctx, {}, FEATURE_RPC.loopList, {}, () => "");
-    expect(requests[0]!.type).toBe("loop_list_request");
-  });
-
-  it("schedule create maps to schedule_create_request with cron+prompt", async () => {
-    const { ctx, requests } = await harness({ responses: { [FEATURE_RPC.scheduleCreate]: {} } });
-    await featureRpc(
-      ctx,
-      {},
-      FEATURE_RPC.scheduleCreate,
-      { cron: "0 9 * * *", prompt: "daily" },
-      () => "",
-    );
-    expect(requests[0]!.type).toBe("schedule_create_request");
-    expect(requests[0]!.msg.cron).toBe("0 9 * * *");
-    expect(requests[0]!.msg.prompt).toBe("daily");
   });
 
   it("provider ls maps to list_providers", async () => {
@@ -155,5 +127,16 @@ describe("feature commands — one round-trip per group", () => {
     expect(code).toBe(0);
     expect(requests[0]!.type).toBe("open_project_request");
     expect(requests[0]!.msg.path).toBe("/home/me/proj");
+  });
+});
+
+describe("registerFeatureCommands", () => {
+  it("does not register chat, loop or schedule", async () => {
+    const { ctx } = await harness();
+    const program = new Command();
+    registerFeatureCommands(program, ctx, () => {});
+    const names = program.commands.map((c) => c.name());
+    expect(names).toEqual(expect.arrayContaining(["terminal", "provider", "worktree", "open"]));
+    for (const gone of ["chat", "loop", "schedule"]) expect(names).not.toContain(gone);
   });
 });

@@ -1,7 +1,7 @@
 # Task 001 — Drop chat rooms, loops and schedules
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server, packages/cli, packages/protocol, docs
 - **Priority:** P2

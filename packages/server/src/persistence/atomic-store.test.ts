@@ -8,7 +8,6 @@ import { z } from "zod";
 
 import {
   atomicWriteJson,
-  createQueuedJsonWriter,
   ensureDirectoryLayout,
   loadStore,
   STORE_SUBDIRECTORIES,
@@ -115,23 +114,5 @@ describe("ensureDirectoryLayout", () => {
     for (const sub of STORE_SUBDIRECTORIES) {
       expect(existsSync(join(home, sub))).toBe(true);
     }
-  });
-});
-
-describe("createQueuedJsonWriter", () => {
-  it("serializes concurrent writes in FIFO order, last value wins", async () => {
-    const dir = await makeTempDir();
-    const path = join(dir, "loops.json");
-    const write = createQueuedJsonWriter();
-    const completionOrder: number[] = [];
-
-    const pending = Array.from({ length: 10 }, (_, i) =>
-      write(path, { value: i, label: `n${i}` }, docSchema).then(() => completionOrder.push(i)),
-    );
-    await Promise.all(pending);
-
-    expect(completionOrder).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    const onDisk = JSON.parse(await readFile(path, "utf8"));
-    expect(onDisk.value).toBe(9);
   });
 });

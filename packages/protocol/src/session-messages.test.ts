@@ -122,7 +122,6 @@ describe("create_agent_request", () => {
     webSearch: true,
     extra: { pi: { foo: 1 } },
     systemPrompt: "be nice",
-    mcpServers: {},
   };
 
   it("validates a full AgentSessionConfig", () => {

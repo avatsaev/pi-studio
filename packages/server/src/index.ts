@@ -39,9 +39,6 @@ export * from "./proxy/index.js";
 // File explorer + binary file transfer.
 export * from "./files/index.js";
 
-// Orchestration: chat rooms, schedules/heartbeats, loops.
-export * from "./orchestration/index.js";
-
 // Operational logging (pino + rotating file).
 export * from "./logging/index.js";
 

@@ -57,7 +57,6 @@ describe("mock provider", () => {
     const client = new MockAgentClient();
     expect(client.capabilities).toEqual(MOCK_CAPABILITIES);
     expect(client.capabilities.supportsStreaming).toBe(true);
-    expect(client.capabilities.supportsMcpServers).toBe(false);
     const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
     expect(session.capabilities).toEqual(MOCK_CAPABILITIES);
   });

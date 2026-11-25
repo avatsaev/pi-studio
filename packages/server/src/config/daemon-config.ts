@@ -87,12 +87,6 @@ export const persistedConfigSchema = z
       .object({
         listen: z.string().default("127.0.0.1:6767"),
         hostnames: hostnamesSchema.default(["localhost", "*.localhost"]),
-        mcp: z
-          .object({
-            enabled: z.boolean().default(true),
-            injectIntoAgents: z.boolean().default(true),
-          })
-          .default({}),
         appendSystemPrompt: z.string().default(""),
         /** Developer switch: browser `Origin`s the direct WS port accepts (exact match). Default: none. */
         devAllowedOrigins: z.array(z.string()).default([]),

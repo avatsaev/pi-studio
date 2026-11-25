@@ -44,7 +44,7 @@ import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
 import { AgentTodosService } from "../agent/agent-todos/agent-todos-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
-import { AgentService, getTimeline } from "../agent/agent-service.js";
+import { AgentService } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
 import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
@@ -78,15 +78,7 @@ import { registerTerminalHandlers, makeTerminalBinaryHandler } from "../terminal
 
 import { ServiceProxy, resolveServiceProxyConfig } from "../proxy/service-proxy.js";
 
-import { ScheduleService, type ScheduleExecutor } from "../orchestration/schedule-service.js";
-import { ChatService } from "../orchestration/chat-service.js";
 import { isBinary } from "../runtime/self.js";
-import {
-  LoopService,
-  type LoopExecutor,
-  type WorkerOutcome,
-} from "../orchestration/loop-service.js";
-import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import { updateInstalledExtensions, type InstallSpawn } from "../extensions/sync-executor.js";
@@ -282,16 +274,6 @@ export function wrapSessionEnvelope(
   if (isRecord && (message as Record<string, unknown>).type === "session") return message;
   return { type: "session", message };
 }
-const lastAssistantText = (agentId: string): string | undefined => {
-  const rows = getTimeline(agentId)?.allRows() ?? [];
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const ev = rows[i]!.event as { kind?: string; text?: string };
-    // Skip textless `final` block-close markers (`assistant_message.final`) — they carry no
-    // text and would otherwise mask the real last reply.
-    if (ev.kind === "assistant_message" && ev.text) return ev.text;
-  }
-  return undefined;
-};
 
 /**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
@@ -805,85 +787,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     broadcast,
     getActiveSessions,
   );
-
-  // ── Orchestration: schedules / chat / loops (real, disk-backed) ───────────────
-  const scheduleExecutor: ScheduleExecutor = {
-    async createAndPrompt(agentConfig, prompt) {
-      const res = (await agentService.handleCreate(
-        { config: agentConfig, initialPrompt: prompt, requestId: randomUUID() },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      return { agentId: res?.payload?.agentId ?? "" };
-    },
-    async promptExisting(agentId, prompt) {
-      await agentService.handleSendPrompt({ agentId, prompt }, getActiveSessions);
-      return {};
-    },
-  };
-  const scheduleService = new ScheduleService({ home, executor: scheduleExecutor });
-  const chatService = new ChatService({ home });
-
-  const loopExecutor: LoopExecutor = {
-    async runWorker({ provider, model, modeId, cwd, prompt }) {
-      const res = (await agentService.handleCreate(
-        {
-          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
-          initialPrompt: prompt,
-        },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      const agentId = res?.payload?.agentId ?? "";
-      const rows = getTimeline(agentId)?.allRows() ?? [];
-      const last = rows.at(-1)?.event as { kind?: string } | undefined;
-      const outcome: WorkerOutcome =
-        last?.kind === "turn_failed" || last?.kind === "error"
-          ? "failed"
-          : last?.kind === "turn_canceled"
-            ? "canceled"
-            : "completed";
-      return { agentId, outcome, output: lastAssistantText(agentId) };
-    },
-    runShellCheck(command, cwd) {
-      return new Promise((resolve) => {
-        execFile(
-          "/bin/sh",
-          ["-c", command],
-          { cwd, windowsHide: true },
-          (error, stdout, stderr) => {
-            const exitCode =
-              error && typeof (error as { code?: unknown }).code === "number"
-                ? (error as { code: number }).code
-                : error
-                  ? 1
-                  : 0;
-            resolve({ exitCode, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
-          },
-        );
-      });
-    },
-    async runVerifier({ provider, model, modeId, cwd }, verifyPrompt, workerOutput) {
-      const prompt = `${verifyPrompt}\n\n--- Worker output ---\n${workerOutput ?? "(none)"}`;
-      const res = (await agentService.handleCreate(
-        {
-          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
-          initialPrompt: prompt,
-        },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      const agentId = res?.payload?.agentId ?? "";
-      const text = lastAssistantText(agentId) ?? "";
-      const passed =
-        /\b(pass|passed|success|succeeded|ok|yes)\b/i.test(text) &&
-        !/\b(fail|failed|no)\b/i.test(text);
-      return { passed, reason: text.slice(0, 200), agentId };
-    },
-    async archiveAgent(agentId) {
-      await manager.archiveAgent(agentId);
-    },
-  };
-  const loopService = new LoopService({ home, executor: loopExecutor });
-
-  registerOrchestrationHandlers(registry, { scheduleService, chatService, loopService });
 
   // ── Security: host allowlist + optional password auth ─────────────────────────
   const hostnames = config.daemon.hostnames;

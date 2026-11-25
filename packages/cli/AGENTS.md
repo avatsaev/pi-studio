@@ -84,7 +84,7 @@ src/
   extensions-commands.test.ts
 
   daemon-control.ts      DaemonRuntime — probe/start/stop/waitForDaemon (spawns server process).
-  feature-commands.ts    Feature command group (terminal/chat/schedule/loop/provider/worktree/…).
+  feature-commands.ts    Feature command group (terminal/provider/worktree/…).
   feature-commands.test.ts
 
   relay-commands.ts      `relay` command group (start/stop/status) — self-hosted relay-server lifecycle.
@@ -338,17 +338,13 @@ subcommand (a root option: `pi-studio --pi-home <dir> extensions list --local`).
 
 ### `feature` group (`feature-commands.ts`)
 
-`registerFeatureCommands` registers `chat`, `terminal`, `loop`, `schedule`, `provider`, and
-`worktree` as sibling top-level command groups (no `feature` wrapper), plus a top-level
-`open <path>` command. Each subcommand maps to a canonical RPC name in `FEATURE_RPC`; several are
-flagged `TODO(verify)` in source for wire names not yet confirmed against the real daemon.
+`registerFeatureCommands` registers `terminal`, `provider`, and `worktree` as sibling top-level
+command groups (no `feature` wrapper), plus a top-level `open <path>` command. Each subcommand
+maps to a canonical RPC name in `FEATURE_RPC`, all of which match registered daemon handlers.
 
 | Group         | Commands                                                                                                                                                    | RPC                                                                                                                                                                                                                                             |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chat`        | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>`         | `chat_create_request`, `chat_list_request`, `chat_inspect_request`, `chat_post_request`, `chat_read_request`, `chat_wait_request`, `chat_delete_request`                                                                                        |
 | `terminal`    | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>`                                                            | `list_terminals_request`, `create_terminal_request`, `capture_terminal_request`, `terminal_input`, `kill_terminal_request`                                                                                                                      |
-| `loop`        | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>`                                                                          | `loop_run_request`, `loop_list_request`, `loop_inspect_request`, `loop_logs_request`, `loop_stop_request`                                                                                                                                       |
-| `schedule`    | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` | `schedule_create_request`, `schedule_list_request`, `schedule_inspect_request`, `schedule_update_request`, `schedule_pause_request`, `schedule_resume_request`, `schedule_run_once_request`, `schedule_logs_request`, `schedule_delete_request` |
 | `provider`    | `ls`, `models <providerId>`                                                                                                                                 | `list_providers`, `list_models`                                                                                                                                                                                                                 |
 | `worktree`    | `create <name> [--workspace]`, `ls`, `archive <name>`                                                                                                       | `create_pistudio_worktree_request`, `pistudio_worktree_list_request`, `pistudio_worktree_archive_request`                                                                                                                                       |
 | _(top-level)_ | `open <path>`                                                                                                                                               | `open_project_request` (same path as the bare `pi-studio <path>` default action)                                                                                                                                                                |

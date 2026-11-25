@@ -7,20 +7,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { ensureDirectoryLayout } from "./atomic-store.js";
-import type { AgentRecord, Schedule } from "./entity-schemas.js";
+import type { AgentRecord } from "./entity-schemas.js";
 import {
   agentFilePath,
-  createLoopStore,
   loadAgent,
-  loadLoops,
   loadProjects,
-  loadSchedule,
   loadWorkspaces,
-  loopStorePath,
   sanitizeCwd,
   saveAgent,
   saveProjects,
-  saveSchedule,
   saveWorkspaces,
 } from "./entity-stores.js";
 
@@ -87,75 +82,6 @@ describe("agent store", () => {
   it("returns null for a missing agent", async () => {
     const home = await tempHome();
     expect(await loadAgent(home, "/nope", randomUUID())).toBeNull();
-  });
-});
-
-describe("schedule store", () => {
-  it("round-trips a schedule keyed by 8-hex id", async () => {
-    const home = await tempHome();
-    const schedule: Schedule = {
-      id: "a1b2c3d4",
-      prompt: "daily standup",
-      cadence: { type: "every", everyMs: 86_400_000 },
-      target: { type: "new-agent", config: { provider: "pi", cwd: "/work" } },
-      status: "active",
-      createdAt: NOW,
-      updatedAt: NOW,
-      runs: [],
-    };
-    await saveSchedule(home, schedule);
-    expect(await loadSchedule(home, schedule.id)).toEqual(schedule);
-  });
-});
-
-describe("loop store (queued non-atomic)", () => {
-  it("saves via the queued writer and loads the array", async () => {
-    const home = await tempHome();
-    const store = createLoopStore(home);
-    const loops = [
-      {
-        id: "loop0001",
-        prompt: "iterate",
-        cwd: "/work",
-        provider: "pi",
-        verifyChecks: [],
-        status: "running" as const,
-        createdAt: NOW,
-        iterations: [],
-        logs: [],
-        nextLogSeq: 0,
-      },
-    ];
-    await store.save(loops);
-    expect(existsSync(loopStorePath(home))).toBe(true);
-    const loaded = await loadLoops(home);
-    expect(loaded[0]?.id).toBe("loop0001");
-    expect(loaded[0]?.status).toBe("running");
-  });
-
-  it("serializes concurrent saves in order (last wins)", async () => {
-    const home = await tempHome();
-    const store = createLoopStore(home);
-    const mk = (id: string, status: "running" | "stopped") => [
-      {
-        id,
-        prompt: "p",
-        cwd: "/w",
-        provider: "pi",
-        verifyChecks: [],
-        status,
-        createdAt: NOW,
-        iterations: [],
-        logs: [],
-        nextLogSeq: 0,
-      },
-    ];
-    await Promise.all([
-      store.save(mk("aaaaaaaa", "running")),
-      store.save(mk("bbbbbbbb", "stopped")),
-    ]);
-    const loaded = await loadLoops(home);
-    expect(loaded[0]?.id).toBe("bbbbbbbb");
   });
 });
 

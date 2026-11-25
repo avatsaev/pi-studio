@@ -4,26 +4,17 @@ import { join } from "node:path";
 
 import type { z } from "zod";
 
-import { atomicWriteJson, createQueuedJsonWriter, loadStore } from "./atomic-store.js";
+import { atomicWriteJson, loadStore } from "./atomic-store.js";
 import {
   type AgentRecord,
   agentRecordSchema,
-  type ChatStore,
-  chatStoreSchema,
-  type LoopStore,
-  loopStoreSchema,
   type ProjectRegistry,
   projectRegistrySchema,
-  type Schedule,
-  scheduleSchema,
   type WorkspaceRegistry,
   workspaceRegistrySchema,
 } from "./entity-schemas.js";
 
-/**
- * File-backed accessors for every persisted daemon entity. Single-record stores (agent, schedule)
- * write atomically and load to `null` when absent; the loop store uses the queued non-atomic writer.
- */
+/** File-backed accessors for every persisted daemon entity. Records write atomically and load to `null` when absent. */
 
 /**
  * Derive an agent's on-disk directory key from its `cwd`: strip the filesystem root and replace path
@@ -102,87 +93,6 @@ export async function loadAllAgents(home: string): Promise<AgentRecord[]> {
     }
   }
   return records;
-}
-
-// ---------------------------------------------------------------------------
-// Schedules  →  schedules/{id}.json
-// ---------------------------------------------------------------------------
-
-export function scheduleFilePath(home: string, id: string): string {
-  return join(home, "schedules", `${id}.json`);
-}
-
-export async function saveSchedule(home: string, schedule: Schedule): Promise<void> {
-  await atomicWriteJson(scheduleFilePath(home, schedule.id), schedule, scheduleSchema);
-}
-
-export async function loadSchedule(home: string, id: string): Promise<Schedule | null> {
-  return loadEntityOrNull(scheduleFilePath(home, id), scheduleSchema);
-}
-
-/** Load every persisted schedule (enumerates `schedules/*.json`). Skips missing/corrupt files. */
-export async function loadAllSchedules(home: string): Promise<Schedule[]> {
-  const dir = join(home, "schedules");
-  if (!existsSync(dir)) return [];
-  const schedules: Schedule[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (!entry.endsWith(".json")) continue;
-    const id = entry.slice(0, -".json".length);
-    const schedule = await loadSchedule(home, id);
-    if (schedule) schedules.push(schedule);
-  }
-  return schedules;
-}
-
-/** Delete a schedule file. Returns true if it existed. */
-export async function deleteSchedule(home: string, id: string): Promise<boolean> {
-  const path = scheduleFilePath(home, id);
-  if (!existsSync(path)) return false;
-  await rm(path, { force: true });
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Loops  →  loops/loops.json   (non-atomic, queued)
-// ---------------------------------------------------------------------------
-
-export function loopStorePath(home: string): string {
-  return join(home, "loops", "loops.json");
-}
-
-export async function loadLoops(home: string): Promise<LoopStore> {
-  return loadStore(loopStorePath(home), loopStoreSchema, []);
-}
-
-/**
- * Open the loop store. Reads load the array; writes go through a single queued non-atomic writer so
- * concurrent saves serialize in order (architecture/persistence.md — loop store is plain + queued).
- */
-export function createLoopStore(home: string): {
-  load: () => Promise<LoopStore>;
-  save: (loops: LoopStore) => Promise<void>;
-} {
-  const write = createQueuedJsonWriter();
-  return {
-    load: () => loadLoops(home),
-    save: (loops: LoopStore) => write(loopStorePath(home), loops, loopStoreSchema),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Chat  →  chat/rooms.json
-// ---------------------------------------------------------------------------
-
-export function chatStorePath(home: string): string {
-  return join(home, "chat", "rooms.json");
-}
-
-export async function loadChat(home: string): Promise<ChatStore> {
-  return loadStore(chatStorePath(home), chatStoreSchema, { rooms: [], messages: [] });
-}
-
-export async function saveChat(home: string, chat: ChatStore): Promise<void> {
-  await atomicWriteJson(chatStorePath(home), chat, chatStoreSchema);
 }
 
 // ---------------------------------------------------------------------------

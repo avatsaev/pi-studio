@@ -93,8 +93,6 @@ export interface AgentManagerDeps {
   loadAllAgents?: () => Promise<AgentRecord[]>;
   /** Delete a persisted agent record file by (cwd, id). Injectable for tests. */
   deleteAgent?: (cwd: string, id: string) => Promise<boolean>;
-  /** Loop service hook: recover `running` loops as `stopped` with an interruption log entry. */
-  onRecoverLoops?: () => Promise<void> | void;
   /** Session-attach hook (features/extension-ui-rpc.md § New/changed files) — invoked at the end of
    *  `attachSession()`, the single choke point every spawn/resume/import path already funnels
    *  through (`agent-service.ts:104`, `:228`). A throwing hook is logged and never prevents the
@@ -380,7 +378,6 @@ export class AgentManager {
       if (reconciled !== record) await this.save(reconciled);
       this.agents.set(reconciled.id, this.wrap(reconciled, null));
     }
-    await this.deps.onRecoverLoops?.();
     return records.length;
   }
 }

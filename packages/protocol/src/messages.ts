@@ -181,7 +181,6 @@ export const agentSessionConfigSchema = z.object({
   webSearch: z.boolean().optional(),
   extra: z.object({ pi: z.unknown().optional() }).passthrough().optional(),
   systemPrompt: z.string().optional(),
-  mcpServers: z.record(z.string(), z.unknown()).optional(),
 });
 export type AgentSessionConfig = z.infer<typeof agentSessionConfigSchema>;
 
@@ -2212,7 +2211,7 @@ export type RpcError = z.infer<typeof rpcErrorSchema>;
 
 /**
  * The discriminated union of session messages defined so far. Later feature sprints extend this
- * union with workspace/git/terminal/chat/schedule/loop families.
+ * union with workspace/git/terminal families.
  */
 export const sessionMessageSchema = z.discriminatedUnion("type", [
   createAgentRequestSchema,

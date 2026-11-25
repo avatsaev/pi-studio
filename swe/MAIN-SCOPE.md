@@ -269,9 +269,9 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/worktrees.md](features/worktrees.md)                           | feature      | Pi-Studio-managed git worktrees, setup/teardown, auto-archive                 |
 | [features/git-checkout.md](features/git-checkout.md)                     | feature      | Git status/diff/branch/commit/push/pull/stash + GitHub PRs                    |
 | [features/terminals.md](features/terminals.md)                           | feature      | Workspace PTY terminals over binary stream protocol                           |
-| [features/chat-rooms.md](features/chat-rooms.md)                         | feature      | Agent↔agent / human↔agent chat with @mentions                                 |
-| [features/schedules-heartbeats.md](features/schedules-heartbeats.md)     | feature      | Cron/interval scheduled agents and heartbeats                                 |
-| [features/loops.md](features/loops.md)                                   | feature      | Iterative agent loops with shell + LLM verifiers                              |
+| [features/chat-rooms.md](features/chat-rooms.md)                         | feature      | **Retired (2026-11-24)** — agent↔agent chat rooms                             |
+| [features/schedules-heartbeats.md](features/schedules-heartbeats.md)     | feature      | **Retired (2026-11-24)** — cron/interval scheduled agents                     |
+| [features/loops.md](features/loops.md)                                   | feature      | **Retired (2026-11-24)** — iterative agent loops                              |
 | [features/mcp-server.md](features/mcp-server.md)                         | feature      | MCP tools exposing the daemon to agents                                       |
 | [features/service-proxy.md](features/service-proxy.md)                   | feature      | HTTP proxy to workspace dev services with generated hostnames                 |
 | [features/file-explorer-transfer.md](features/file-explorer-transfer.md) | feature      | File browser + download/upload binary streams                                 |

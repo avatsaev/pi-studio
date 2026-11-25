@@ -21,7 +21,6 @@ export const agentCapabilityFlagsSchema = z
     supportsStreaming: z.boolean(),
     supportsSessionPersistence: z.boolean(),
     supportsDynamicModes: z.boolean(),
-    supportsMcpServers: z.boolean(),
     supportsReasoningStream: z.boolean(),
     supportsToolInvocations: z.boolean(),
     // Rewind capability flags (features/rewind.md) — additive, optional, old clients ignore.

@@ -1,7 +1,7 @@
 # `@av-pi-studio/server` — AGENTS.md
 
 The Pi-Studio **daemon**. Manages agent processes, PTY terminals, git worktrees, projects,
-chat rooms, schedules, loops, file transfer, and a service proxy.
+file transfer, and a service proxy.
 Exposes a WebSocket JSON+binary API and an HTTP health/download endpoint.
 
 ---
@@ -121,7 +121,7 @@ src/
     loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
-                                   schedules/chat/loops, provider auth, optional outbound relay).
+                                   provider auth, optional outbound relay).
                                    `close()` is memoized (a second call returns the first's
                                    promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
                                    file watchers, status/log services, relay, sockets, http server,
@@ -135,8 +135,6 @@ src/
                                    (`PI_STUDIO_DEV_UPDATE`, see "Daemon update service");
                                    `close()` closes every live agent session, then
                                    kills every PTY.
-    orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
-                                   wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
                                    random?, timers? }) — keeps ONE control socket registered with
                                    protocol 2 (`relay_daemon_register`; 10 s registration answer,
@@ -257,10 +255,6 @@ src/
                                    `createAgentTitleGenerator(paths, configuredCandidates)` — the
                                    one concrete `StructuredGenerationProvider` implementation,
                                    `ModelRuntime`-backed. See "Agent title generation" below.
-    mcp-server.ts                 MCP server bridge — `McpBackend` includes
-                                   `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005,
-                                   see "Extension UI" below); no live `/mcp/agents` HTTP endpoint or
-                                   real backend is wired into either bootstrap (pre-existing gap).
     index.ts
     providers/
       pi/
@@ -438,13 +432,6 @@ src/
                                   ignored directory collapses to one `dir/` entry — `=matching`
                                   would walk node_modules and emit six figures of output).
     reconciliation.ts             Project/workspace reconciliation on startup.
-    index.ts
-
-  orchestration/
-    chat-service.ts               ChatService — rooms, messages, @mentions, cursor-based reads.
-    loop-service.ts               LoopService — iterative worker+verifier agent loops.
-    schedule-service.ts           ScheduleService — cron/interval schedules firing agent prompts.
-    cron.ts                       Cron/interval next-fire-time computation.
     index.ts
 
   files/
@@ -759,7 +746,7 @@ src/
   and `record.persistence` stays unset. Backs the web-client's "New chat" tab materializing into a
   real, restorable draft — surviving reload/reconnect — without paying for a `pi` process or a
   Pi-owned JSONL session file until the user actually sends. Every other caller of this RPC (CLI
-  `run`, the MCP `create_agent` tool, `ScheduleService`, `LoopService`) always passes
+  `run`) always passes
   `initialPrompt`, so eager creation is unaffected. `spawnOrResumeSession` (`agent-service.ts`,
   shared by `AgentService.handleSendPrompt` and `SessionOperationsService.handleResume`) is the
   single place that turns a record into a live session: `resumeSession` from `record.persistence`
@@ -845,7 +832,7 @@ src/
   `undefined` staying `undefined`). `effectiveConfig` (not the raw `config`) is what both the
   persisted `AgentRecord.config` AND the eager-spawn path's `client.createSession(...)` call use, so
   a same-turn immediate spawn and a later `spawnOrResumeSession` replay both see the composed value.
-  No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at hand) →
+  No `wsSession` (every CLI caller — none of them has a `Session` at hand) →
   every flag check returns `false` → `effectiveConfig.systemPrompt === config.systemPrompt`,
   untouched. Task-005 (below) is what makes the composed value survive a daemon restart:
   `spawnOrResumeSession` passes `record.config.systemPrompt` as `overrides.systemPrompt`, and
@@ -1356,7 +1343,7 @@ silently unusable in RPC mode.
     `surfaces` — never the provider's own `requestId`, which Pi only promises unique per-process.
     Two agents whose providers happen to emit the identical internal id stay fully independent.
   - **First-answer-wins.** `respond()` deletes the pending entry the instant it is found, before
-    calling `respondToUi` — a second answer for the same id, from any client or from MCP, always
+    calling `respondToUi` — a second answer for the same id, from any client, always
     sees `not_found`. A fire-and-forget request was never inserted into `pending`, so answering one
     reports the identical `not_found`.
   - **Resolution broadcasts unconditionally**, even when `respondToUi` throws (dead stdin after a
@@ -1382,15 +1369,6 @@ silently unusable in RPC mode.
   `extensions` above. The mock provider (`MockAgentSession.emitUiRequest`) is this family's
   designated test producer, so the dev daemon must be able to drive it end to end with no real `pi`
   process (`packages/server/src/daemon/agent-ui-e2e.test.ts`).
-- **MCP mirror is surface-only, no live endpoint.** `mcp-server.ts`'s `McpBackend` gained
-  `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005) so an orchestrating agent can
-  unblock a child's questionnaire (closing a real deadlock: no MCP path previously existed for a
-  parent to answer a child's extension dialog). `McpServer`/`McpBackend` itself has **no live HTTP
-  endpoint or real backend implementation anywhere in the daemon** — a pre-existing gap from
-  sprint-010 (its own summary flagged "HTTP transport for `/mcp/agents` is a bootstrap step" as an
-  unresumed follow-up), unrelated to and unenlarged by this sprint. The exact delegation a future
-  bootstrap-wiring task must paste into the real `McpBackend` object is written and tested against a
-  live `AgentUiService` in `mcp-server.test.ts`.
 - **Verified against real Pi**, not only fakes (sprint-066/task-006): a live daemon + a real
   `pi --mode rpc` process running `@juicesharp/rpiv-ask-user-question` proved the questionnaire
   completes because a WS client answered it (the auto-cancel POC is gone from the live path),
@@ -1511,7 +1489,7 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
     chunk-list representation could not answer "is this offset mid-sequence?" without flattening.
 - **`ScreenBuffer`** (`screen-buffer.ts`, `@xterm/headless` + `@xterm/addon-serialize`): a live
   headless terminal grid fed every output byte as it arrives. Two consumers: `capture(slot)`'s
-  one-shot screen-accurate text (CLI/MCP), and — as of sprint-053/task-004 — `serialize()`, which
+  one-shot screen-accurate text (CLI), and — as of sprint-053/task-004 — `serialize()`, which
   the reflowable restore tier calls on `subscribe` to build the `Restore` frame's payload. Neither
   path touches the byte ring; the ring stays the basic tier's payload source exclusively.
 - **Size validation is centralized** in `resize`/`createTerminal` via `isValidGrid` (integers,
@@ -1764,36 +1742,12 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - **`GitHubService`**: GitHub API (PRs, issues) via `GITHUB_TOKEN`.
 - **Reconciliation**: on startup, reconciles workspace records with filesystem reality.
 
-### Orchestration (`orchestration/`)
-
-**`ChatService`**:
-- Rooms: unique names (case-insensitive), `purpose` field, soft-delete.
-- Messages: cursor-based reads, `@mention` parsing → `mentionAgentIds`.
-- Wait API: `waitForMessages(roomId, sinceCursor, timeoutMs)` — long-poll for new messages.
-
-**`ScheduleService`**:
-- Cadences: `cron` (crontab expression), `every` (interval in seconds), `once` (absolute datetime).
-- Targets: `new-agent` (create + prompt) or `agent` (heartbeat into an existing agent).
-- Records `ScheduleRun` per firing; respects `maxRuns`, `expiresAt`.
-- Next-fire computation via `cron.ts` (`assertValidCron`, `nextCronTime`, `nextEveryTime`).
-
-**`LoopService`** ("Ralph loops"):
-- Each iteration: run worker agent → run `verifyChecks` shell commands → run optional `verifyPrompt`
-  verifier agent.
-- Iteration succeeds only if ALL checks AND the prompt pass.
-- Loop ends: first success → `succeeded`; `maxIterations`/`maxTimeMs` exceeded → `failed`;
-  explicit stop → `stopped`.
-- On startup, `running` loops are recovered as `stopped` with an interruption log entry.
-
 ### Persistence (`persistence/`)
 
 All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
 
 **Entity file locations** (relative to `$PI_STUDIO_HOME`):
 - `agents/<sanitized-cwd>/<agentId>.json`
-- `chat/rooms.json`
-- `loops/<loopId>.json`
-- `schedules/<scheduleId>.json`
 - `projects.json`
 - `workspaces.json`
 - `viewer-settings.json` (`viewers/` — per-viewer enable/disable state, not managed by
@@ -2257,7 +2211,7 @@ messages are fair game.
   password auth (per spec). Do not add auth there.
 - **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
   `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
-  more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
+  more). `bootstrap.ts` owns the full disk-backed feature surface (real provider,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
 - **A non-loopback bind with no password is refused.** `startDaemon` checks it right after resolving the listen address (before the pid lock or any service): it logs an error naming `PI_STUDIO_PASSWORD` and `daemon.auth.password`, sets `process.exitCode = 1`, calls `onFatalError` with an error whose `code` is `unprotected_bind`, and throws; nothing listens. `startDevDaemon` (no auth) refuses every non-loopback host the same way. There is no warning-and-start path.

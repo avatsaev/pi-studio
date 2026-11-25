@@ -13,12 +13,12 @@ import { mapWithConcurrency } from "../util/concurrency.js";
  *
  * Pi-Studio uses file-based JSON persistence instead of a database. Every document is Zod-validated.
  * Most stores write **atomically** (temp file in the same directory, fsync, rename — atomic on
- * POSIX); the loop store uses a plain, queue-serialized writer. There is no migration framework:
+ * POSIX). There is no migration framework:
  * forward-compat is optional fields + defaults + an inline `normalize` hook on load.
  */
 
 /** The subdirectories created under `$PI_STUDIO_HOME`. */
-export const STORE_SUBDIRECTORIES = ["agents", "schedules", "chat", "projects", "loops"] as const;
+export const STORE_SUBDIRECTORIES = ["agents", "projects"] as const;
 
 /**
  * Atomically write `data` to `path`: validate against `schema`, write `{path}.tmp` in the **same
@@ -89,8 +89,8 @@ export async function loadStore<S extends z.ZodTypeAny>(
 }
 
 /**
- * Create the `$PI_STUDIO_HOME` directory layout (`agents/`, `schedules/`, `chat/`, `projects/`,
- * `loops/`). Idempotent — safe to call on every boot.
+ * Create the `$PI_STUDIO_HOME` directory layout (`agents/`, `projects/`). Idempotent — safe to
+ * call on every boot.
  */
 export async function ensureDirectoryLayout(home: string): Promise<string> {
   await mkdir(home, { recursive: true });
@@ -98,39 +98,4 @@ export async function ensureDirectoryLayout(home: string): Promise<string> {
     mkdir(join(home, sub), { recursive: true }),
   );
   return home;
-}
-
-/**
- * A write function that serializes calls through an in-memory promise queue and writes JSON
- * **non-atomically** (plain write). Used by the loop store (architecture/persistence.md — "Loop
- * store writes are direct (not atomic) and queued"). Concurrent calls are applied in FIFO order.
- */
-export type QueuedWriter = <S extends z.ZodTypeAny>(
-  path: string,
-  data: z.input<S>,
-  schema: S,
-) => Promise<void>;
-
-export function createQueuedJsonWriter(): QueuedWriter {
-  let tail: Promise<unknown> = Promise.resolve();
-
-  return function queuedWrite<S extends z.ZodTypeAny>(
-    path: string,
-    data: z.input<S>,
-    schema: S,
-  ): Promise<void> {
-    const run = tail.then(async () => {
-      const validated = schema.parse(data) as unknown;
-      await mkdir(dirname(path), { recursive: true });
-      const handle = await open(path, "w");
-      try {
-        await handle.writeFile(`${JSON.stringify(validated, null, 2)}\n`, "utf8");
-      } finally {
-        await handle.close();
-      }
-    });
-    // Keep the queue alive even if a write rejects, but surface the error to the caller.
-    tail = run.catch(() => undefined);
-    return run;
-  };
 }

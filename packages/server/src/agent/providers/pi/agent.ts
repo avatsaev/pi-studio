@@ -59,7 +59,6 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
   supportsDynamicModes: true,
-  supportsMcpServers: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
@@ -92,14 +91,10 @@ export interface PiSessionLaunch {
   sessionFile?: string;
 }
 
-/** Build Pi argv, appending (never replacing) the system prompt and optional `--mcp-config`. */
-export function buildPiArgs(
-  base: string[],
-  opts: { appendSystemPrompt?: string; mcpConfigPath?: string },
-): string[] {
+/** Build Pi argv, appending (never replacing) the system prompt. */
+export function buildPiArgs(base: string[], opts: { appendSystemPrompt?: string }): string[] {
   const args = [...base];
   if (opts.appendSystemPrompt) args.push("--append-system-prompt", opts.appendSystemPrompt);
-  if (opts.mcpConfigPath) args.push("--mcp-config", opts.mcpConfigPath);
   return args;
 }
 
