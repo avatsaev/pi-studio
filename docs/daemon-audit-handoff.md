@@ -411,7 +411,7 @@ up, and M8 needs a written design first.
 |---|---|
 | M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
 | M2 Clear the ground | 147, 148 — **done 2026-11-25** (on branch `feat/daemon-audit-m1-m3`, not merged) |
-| M3 Agents that recover | 149 — **done 2026-11-25** (branch `feat/daemon-audit-m1-m3`, not merged); 150 next (150/t002 is an owner gate on the timeline file design) |
+| M3 Agents that recover | 149 — **done 2026-11-25** (branch `feat/daemon-audit-m1-m3`, not merged); 150: task-001 done, task-002 (the timeline file design) written and **waiting for the owner's approval**, 003-005 not started |
 | M4 to M9 | not planned yet |
 
 | # | Milestone | Contains | What the user gets | Size | Needs |

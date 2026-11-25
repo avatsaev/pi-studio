@@ -13,7 +13,7 @@ import type {
   PersistenceHandle,
   RunOptions,
 } from "./provider-contract.js";
-import { AgentTimelineStore } from "./timeline-store.js";
+import { AgentTimelineStore, type TimelineRow } from "./timeline-store.js";
 import { composeSystemPrompt } from "./compose-system-prompt.js";
 import type { AgentTitleGenerator } from "./structured-generation-runtime.js";
 
@@ -60,12 +60,9 @@ export function getTimeline(agentId: string): AgentTimelineStore | undefined {
  * from externally rehydrated rows — see `timeline-rpc.ts`'s fallback to a provider's
  * `hydrateTimeline()`. No-op if a timeline already exists (never overwrites live/streamed rows).
  */
-export function seedTimeline(
-  agentId: string,
-  rows: import("./timeline-store.js").TimelineRow[],
-): void {
+export function seedTimeline(agentId: string, rows: TimelineRow[], now?: () => string): void {
   if (timelinesByAgentId.has(agentId)) return;
-  timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows }));
+  timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows, now }));
 }
 
 /**
@@ -76,17 +73,16 @@ export function seedTimeline(
  * fork to before the first user message). Creates the store if none exists yet so callers never
  * need to special-case a never-spawned session.
  */
-export function resetTimeline(
-  agentId: string,
-  rows: import("./timeline-store.js").TimelineRow[],
-): void {
+export function resetTimeline(agentId: string, rows: TimelineRow[]): void {
   getOrCreateTimeline(agentId).replaceRows(rows);
 }
 
 /**
- * Record `event` on `agentId`'s timeline and broadcast it as an `agent_stream` frame carrying the
- * daemon-owned seq/timestamp. The one append-and-broadcast path for stream events: `runTurn`'s
- * subscription and any operation that subscribes outside a turn (today: compaction) both use it.
+ * Record `event` on `timeline` (`agentId`'s store, from `timelineFor`) and broadcast it as an
+ * `agent_stream` frame carrying the daemon-owned seq/timestamp. The one append-and-broadcast path
+ * for stream events: `runTurn`'s subscription and any operation that subscribes outside a turn
+ * (today: compaction) both use it. Taking the store rather than looking it up means no caller can
+ * append to an unseeded one.
  *
  * Two kinds are EPHEMERAL (live-stream-only, see timeline-streaming.md § Timeline model): a partial
  * `tool_call` (a superseded in-flight output snapshot) and `queue_update` (a snapshot of the
@@ -95,6 +91,7 @@ export function resetTimeline(
  */
 export function appendStreamEvent(
   agentId: string,
+  timeline: AgentTimelineStore,
   event: AgentStreamEvent,
   broadcast: (sessions: Iterable<Session>, message: unknown) => void,
   sessions: Iterable<Session>,
@@ -106,7 +103,7 @@ export function appendStreamEvent(
     });
     return;
   }
-  const row = getOrCreateTimeline(agentId).append(event);
+  const row = timeline.append(event);
   broadcast(agentStreamRecipients(sessions), {
     type: "session",
     message: {
@@ -122,21 +119,40 @@ export function appendStreamEvent(
 /**
  * Seed `agentId`'s in-memory timeline from its provider's durable history when it has none yet (a
  * restarted daemon never has one). No-op when a store exists, or when the record has no persisted
- * handle / the provider has nothing to replay. Anything that is about to append to a timeline
- * outside `runTurn` must call this first: the first append would otherwise create an empty store,
- * and `seedTimeline` never overwrites an existing one, so history would never hydrate.
+ * handle / the provider has nothing to replay. Prefer `timelineFor` for anything that appends:
+ * the first append would otherwise create an empty store, and `seedTimeline` never overwrites an
+ * existing one, so history would never hydrate.
  */
 export function ensureTimelineSeeded(
   agentId: string,
   manager: AgentManager,
   resolveClient: (provider: string) => AgentClient,
+  now?: () => string,
 ): void {
   if (timelinesByAgentId.has(agentId)) return;
   const record = manager.get(agentId)?.record;
   const handle = record?.persistence as PersistenceHandle | undefined;
   if (!record || !handle) return;
   const rows = resolveClient(record.provider).hydrateTimeline?.(handle) ?? [];
-  if (rows.length > 0) seedTimeline(agentId, rows);
+  if (rows.length > 0) seedTimeline(agentId, rows, now);
+}
+
+/**
+ * The one way to get a timeline store to append to: seeds it from the provider's durable history
+ * first (`ensureTimelineSeeded`), then returns the existing or a fresh store. `runTurn` and
+ * compaction append through it, so whichever of send, compact or fetch comes first after a
+ * restart, earlier history is already in the store.
+ */
+export function timelineFor(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    now?: () => string;
+  },
+  agentId: string,
+): AgentTimelineStore {
+  ensureTimelineSeeded(agentId, deps.manager, deps.resolveClient, deps.now);
+  return getOrCreateTimeline(agentId, deps.now);
 }
 
 /**
@@ -445,7 +461,7 @@ export class AgentService {
     getSessions: () => Iterable<Session>,
     opts: RunOptions & { clientMessageId?: string; autoArchive?: boolean } = {},
   ): Promise<void> {
-    const timeline = getOrCreateTimeline(agentId, this.now);
+    const timeline = timelineFor(this.deps, agentId);
     timeline.startEpoch();
 
     await this.deps.manager.setStatus(agentId, "running");
@@ -488,7 +504,7 @@ export class AgentService {
       }
 
       // All other events: append + broadcast.
-      appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
+      appendStreamEvent(agentId, timeline, event, this.deps.broadcast, getSessions());
     });
 
     // If provider never emits a user_message, emit one ourselves.

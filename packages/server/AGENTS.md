@@ -165,7 +165,7 @@ src/
                                    unconditionally replaces an agent's in-memory timeline (unlike
                                    seedTimeline, which no-ops once a store exists) — the entry
                                    point `handleFork`'s post-fork resync installs the hydrated
-                                   forked branch through. appendStreamEvent(agentId, event,
+                                   forked branch through. appendStreamEvent(agentId, timeline, event,
                                    broadcast, sessions) (sprint-074) — the one append-to-timeline +
                                    `agent_stream` broadcast path, used by `runTurn` and by any
                                    operation that subscribes outside a turn (compaction). Ephemeral
@@ -173,8 +173,12 @@ src/
                                    `queue_update` are broadcast with a daemon `timestamp`, no `seq`,
                                    and are never appended to the timeline (so never fetched);
                                    ensureTimelineSeeded(agentId, manager, resolveClient) — seeds a
-                                   store-less agent from `hydrateTimeline` (used by
-                                   `timeline-rpc.ts` and `handleCompact`).
+                                   store-less agent from `hydrateTimeline`;
+                                   timelineFor({manager, resolveClient}, agentId) (sprint-150/task-001)
+                                   — the one way to get a store to append to: seeds first, then
+                                   get-or-create (used by `runTurn` and `handleCompact`;
+                                   `timeline-rpc.ts` seeds via `ensureTimelineSeeded`), so a send
+                                   before any fetch after a restart keeps the history.
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
                                    for markdown image rendering (task-006, sprint-045); bound at
                                    spawn time only (see its own header comment for the accepted
@@ -965,8 +969,8 @@ creation" above.
   until every later step has finished, and also refuses a send meanwhile; (3) resumes a
   process-less record through
   `spawnOrResumeSession` (every record after a daemon restart) instead of failing with
-  `has no live session`; (4) `ensureTimelineSeeded` BEFORE the first append, because the first
-  append would otherwise create an empty store that `seedTimeline` never overwrites; (5) holds a
+  `has no live session`; (4) `timelineFor` BEFORE the first append (seeds history from the provider;
+  an unseeded first append would create an empty store that `seedTimeline` never overwrites); (5) holds a
   subscription for the duration of `compact()` and forwards only `kind === "compaction"` events
   through `appendStreamEvent`; (6) if `compact()` rejects after a `started` event with no terminal
   seen, records and broadcasts a synthetic `failed` with the same `compactionId`. Status is never

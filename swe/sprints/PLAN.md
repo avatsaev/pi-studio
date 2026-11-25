@@ -3876,6 +3876,8 @@ t002 and t003 in parallel after t001; t004; t005.
 
 Sequential; t002 waits for the owner.
 
+**State 2026-11-25:** task-001 done; task-002 (the design, `architecture/agent-timeline-persistence.md`) written and **blocked on the owner's approval**; tasks 003-005 wait for it.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate

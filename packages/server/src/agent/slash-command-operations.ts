@@ -2,12 +2,7 @@ import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
-import {
-  appendStreamEvent,
-  ensureSession,
-  ensureTimelineSeeded,
-  resetTimeline,
-} from "./agent-service.js";
+import { appendStreamEvent, ensureSession, resetTimeline, timelineFor } from "./agent-service.js";
 import type {
   AgentClient,
   AgentCompactResult,
@@ -178,9 +173,7 @@ export class SlashCommandOperationsService {
     const customInstructions =
       typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
 
-    // Before the first append: otherwise the compaction row would create an empty store that
-    // `seedTimeline` (never overwrites) could no longer hydrate history into.
-    ensureTimelineSeeded(agentId, this.deps.manager, this.deps.resolveClient);
+    const timeline = timelineFor(this.deps, agentId);
 
     let openId: string | undefined;
     let terminalSeen = false;
@@ -188,7 +181,7 @@ export class SlashCommandOperationsService {
       if (event.kind !== "compaction") return;
       if (event.phase === "started") openId = event.compactionId;
       else terminalSeen = true;
-      appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
+      appendStreamEvent(agentId, timeline, event, this.deps.broadcast, getSessions());
     });
     let payload: AgentCompactResult;
     try {
@@ -199,6 +192,7 @@ export class SlashCommandOperationsService {
       if (openId !== undefined && !terminalSeen) {
         appendStreamEvent(
           agentId,
+          timeline,
           {
             kind: "compaction",
             compactionId: openId,
