@@ -155,6 +155,7 @@ export class AgentManager {
     const managed = this.agents.get(id);
     if (!managed) return;
     managed.session = session;
+    session.onExit?.((reason) => this.detachDeadSession(id, session, reason));
     if (!this.deps.onSessionAttached) return;
     try {
       this.deps.onSessionAttached(id, session);
@@ -164,6 +165,26 @@ export class AgentManager {
         "agent-manager: onSessionAttached hook failed",
       );
     }
+  }
+
+  /**
+   * The session's runtime ended on its own (`AgentSession.onExit`): detach it and mark the agent
+   * `error`, so the next prompt resumes from the persisted handle instead of writing to a dead
+   * process. A turn in progress has already ended as `turn_failed`, and its `runTurn` settles the
+   * same status. A session that is no longer the attached one (archived, replaced) is ignored.
+   */
+  private detachDeadSession(id: string, session: AgentSession, reason: string): void {
+    const managed = this.agents.get(id);
+    if (!managed || managed.session !== session) return;
+    managed.session = null;
+    this.deps.logger?.warn({ agentId: id, reason }, "agent session ended on its own; detached");
+    if (managed.record.lastStatus === "closed") return;
+    this.setStatus(id, "error").catch((err: unknown) => {
+      this.deps.logger?.warn(
+        { agentId: id, err: err instanceof Error ? err.message : String(err) },
+        "agent-manager: marking a dead session's agent as error failed",
+      );
+    });
   }
 
   /**

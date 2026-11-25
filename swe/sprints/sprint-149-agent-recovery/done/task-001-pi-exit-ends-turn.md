@@ -1,7 +1,7 @@
 # Task 001 — A Pi process that ends, for any reason, ends its turn and is replaced on the next message
 
 - **Sprint:** sprints/sprint-149-agent-recovery
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (agent: Pi provider, manager, service)
 - **Priority:** P1

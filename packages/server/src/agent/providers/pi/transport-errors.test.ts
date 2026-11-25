@@ -82,6 +82,36 @@ describe("createProcessTransport — spawn failure handling", () => {
     await transport.close();
   });
 
+  it("fails the transport when the process is killed by a signal (code null), nothing in flight", async () => {
+    const transport = createProcessTransport({
+      args: [process.execPath, "-e", "process.kill(process.pid, 'SIGKILL');"],
+      cwd: ".",
+      env: {},
+    });
+    const event = await new Promise<Record<string, unknown>>((resolve) => {
+      transport.onEvent((e) => resolve(e as Record<string, unknown>));
+    });
+    expect(event.type).toBe("error");
+    expect(String(event.error)).toContain("code null, SIGKILL");
+    await expect(transport.request("get_state")).rejects.toThrow(/SIGKILL/);
+    await transport.close();
+  });
+
+  it("fails the transport on an exit 0 nobody asked for", async () => {
+    const transport = createProcessTransport({
+      args: [process.execPath, "-e", "process.exit(0);"],
+      cwd: ".",
+      env: {},
+    });
+    const event = await new Promise<Record<string, unknown>>((resolve) => {
+      transport.onEvent((e) => resolve(e as Record<string, unknown>));
+    });
+    expect(event.type).toBe("error");
+    expect(String(event.error)).toContain("code 0");
+    await expect(transport.request("get_state")).rejects.toThrow(/code 0/);
+    await transport.close();
+  });
+
   it("does not treat the exit that close() asked for as a failure", async () => {
     let exitLogged!: () => void;
     const exited = new Promise<void>((resolve) => {

@@ -1,7 +1,7 @@
 # Task 002 — Requests to Pi time out, and a closed Pi is really stopped
 
 - **Sprint:** sprints/sprint-149-agent-recovery
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** bugfix
 - **Area:** packages/server (agent: Pi provider)
 - **Priority:** P1

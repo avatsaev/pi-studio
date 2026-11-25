@@ -1087,7 +1087,7 @@ describe("a dead Pi process ends the turn with its error (live check, P16)", () 
     session.subscribe((e) => events.push(e));
     await session.run("hello");
 
-    expect(events).toEqual([{ kind: "error", message }]);
+    expect(events).toEqual([{ kind: "turn_failed", error: message }]);
     expect(spawns[0]!.notifies).not.toContain("prompt");
   });
 
@@ -1108,8 +1108,67 @@ describe("a dead Pi process ends the turn with its error (live check, P16)", () 
 
     spawns[0]!.die(message);
     await vi.waitFor(() => expect(ended).toBe(true));
-    expect(events.at(-1)).toEqual({ kind: "error", message });
-    expect(events.map((e) => e.kind)).toEqual(["turn_started", "error", "error"]);
+    expect(events.at(-1)).toEqual({ kind: "turn_failed", error: message });
+    expect(events.map((e) => e.kind)).toEqual(["turn_started", "error", "turn_failed"]);
+  });
+
+  it("reports the death once to onExit: after the turn's turn_failed during a turn", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const order: string[] = [];
+    session.subscribe((e) => order.push(e.kind));
+    session.onExit((reason) => order.push(`exit:${reason}`));
+
+    const run = session.run("hello");
+    spawns[0]!.die(message);
+    spawns[0]!.die("a second report"); // only the first report counts
+    await run;
+
+    expect(order).toEqual(["turn_started", "turn_failed", `exit:${message}`]);
+  });
+
+  it("between turns reports the death to onExit and emits no turn_failed", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    const reasons: string[] = [];
+    session.onExit((reason) => reasons.push(reason));
+
+    const run = session.run("hello");
+    spawns[0]!.fireRaw({ type: "agent_settled" });
+    await run;
+    events.length = 0;
+
+    spawns[0]!.die(message);
+    expect(reasons).toEqual([message]);
+    expect(events).toEqual([]);
+  });
+
+  it("onExit on a session that is already dead reports at once", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    spawns[0]!.die(message);
+
+    const reasons: string[] = [];
+    session.onExit((reason) => reasons.push(reason));
+    expect(reasons).toEqual([message]);
+  });
+
+  it("an exit after close() fails no turn and reports nothing", async () => {
+    const { client, spawns } = clientWithDying();
+    const session = await client.createSession({ provider: "pi", cwd: "/work" });
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    const reasons: string[] = [];
+    session.onExit((reason) => reasons.push(reason));
+
+    void session.run("hello");
+    await session.close();
+    spawns[0]!.die(message);
+
+    expect(reasons).toEqual([]);
+    expect(events).toEqual([{ kind: "turn_started" }]); // nothing after the close
   });
 });
 

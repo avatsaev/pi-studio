@@ -166,11 +166,15 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
     stderrTail = (stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_MAX);
   });
 
-  const failAll = (error: Error): void => {
+  const failPending = (error: Error): void => {
     failure = error;
     for (const [, p] of pending) p.reject(error);
     pending.clear();
-    // Surface as a stream event so the session can emit an `error` timeline entry.
+  };
+
+  const failAll = (error: Error): void => {
+    failPending(error);
+    // Surface as a stream event so the session learns the process is gone (`error` frame).
     for (const cb of eventCbs) cb({ type: "error", error: error.message });
   };
 
@@ -187,6 +191,7 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
   });
   child.on("exit", (code, signal) => {
     const trimmedStderr = stderrTail.trim();
+    const clean = code === 0 && signal === null;
     if (pending.size > 0) {
       log?.error(
         {
@@ -198,28 +203,30 @@ export function createProcessTransport(spawnArgs: PiTransportSpawnArgs): PiRpcTr
         },
         "pi process exited with commands in flight",
       );
-      failAll(new Error(exitMessage(code, signal, trimmedStderr)));
-    } else if (code !== 0 && code !== null) {
+    } else if (!clean) {
       log?.error(
         {
           pid: child.pid,
-          code,
+          code: code ?? undefined,
           signal: signal ?? undefined,
           ...(trimmedStderr ? { stderr: trimmedStderr } : {}),
         },
         "pi process exited non-zero",
       );
-      // Nothing was waiting for an answer, but a turn may be: its `prompt` is a `notify`, and Pi
-      // dies at start-up when an extension fails to load. Failing the transport hands the exit
-      // status and stderr to the session, so the turn ends with them instead of waiting for a
-      // terminal event that never comes.
-      if (!closing) failAll(new Error(exitMessage(code, signal, trimmedStderr)));
     } else {
       log?.info(
         { pid: child.pid, code: code ?? undefined, signal: signal ?? undefined },
         "pi process exited",
       );
     }
+    // Whatever the status, a process that ends without `close()` asking for it is gone for good:
+    // nothing will answer a request and no terminal event will follow a turn's `prompt` (a notify,
+    // so nothing is pending during a turn). Failing the transport hands the status and stderr to
+    // the session. That covers a signal (`code` null: the OOM killer's SIGKILL) and an exit 0 nobody
+    // asked for. A requested exit only rejects what was still waiting.
+    const error = new Error(exitMessage(code, signal, trimmedStderr));
+    if (closing) failPending(error);
+    else failAll(error);
   });
   child.stdin?.on("error", () => {
     // Broken pipe after the process died; the exit/error handler already reports it.

@@ -180,8 +180,13 @@ class PiAgentSession implements AgentSession {
   private model: string | undefined;
   private sessionFile?: string;
   private thinkingLevel?: string;
-  /** Why the Pi process is gone, once the transport reported it (see the `error` frame below). */
+  /** Why the Pi process is gone, once the transport reported it (see `handleProcessExit`). */
   private processFailure?: string;
+  /** True from `run()` until it settles: only then does a dead process end a turn. */
+  private turnRunning = false;
+  /** Set by `close()`: the exit that follows is requested, so it reports nothing. */
+  private closed = false;
+  private readonly exitListeners = new Set<(reason: string) => void>();
 
   constructor(
     private readonly transport: PiRpcTransport,
@@ -192,10 +197,10 @@ class PiAgentSession implements AgentSession {
     transport.onEvent((raw) => {
       const rec = raw as Record<string, unknown>;
       // Only the transport emits an `error` frame, and only once the process is gone (exit status
-      // and stderr, `rpc-transport.ts` `failAll`): nothing more will answer, so a turn waiting for
-      // its terminal event must end with it (`run`).
+      // and stderr, `rpc-transport.ts` `failAll`).
       if (rec?.type === "error") {
-        this.processFailure = typeof rec.error === "string" ? rec.error : "pi process failed";
+        this.handleProcessExit(typeof rec.error === "string" ? rec.error : "pi process failed");
+        return;
       }
       if (rec?.type === "extension_ui_request") {
         // Forward to the daemon's UI channel — write no response here; the daemon answers, or
@@ -278,6 +283,30 @@ class PiAgentSession implements AgentSession {
     return () => this.subscribers.delete(cb);
   }
 
+  onExit(cb: (reason: string) => void): Unsubscribe {
+    if (this.processFailure !== undefined && !this.closed) {
+      cb(this.processFailure);
+      return () => {};
+    }
+    this.exitListeners.add(cb);
+    return () => this.exitListeners.delete(cb);
+  }
+
+  /**
+   * The transport says the process is gone and `close()` did not ask for it (killed by a signal,
+   * crashed, or exited on its own). Only the first report counts. A turn waiting for a terminal
+   * event that will never come ends as `turn_failed` with the reason; between turns nothing is
+   * emitted, because no turn is there to fail. Then the owners learn the session is dead.
+   */
+  private handleProcessExit(reason: string): void {
+    if (this.closed || this.processFailure !== undefined) return;
+    this.processFailure = reason;
+    if (this.turnRunning) this.emit({ kind: "turn_failed", error: reason });
+    const listeners = [...this.exitListeners];
+    this.exitListeners.clear();
+    for (const cb of listeners) cb(reason);
+  }
+
   /**
    * Convert client `{mimeType, data}` attachments to Pi's `ImageContent` shape
    * (`{type:"image", data, mimeType}`, docs/rpc.md). Shared by `prompt`, `steer`, `follow_up`.
@@ -305,17 +334,25 @@ class PiAgentSession implements AgentSession {
   }
 
   run(prompt: string, opts?: RunOptions): Promise<void> {
+    this.turnRunning = true;
     // A prompt starting with `/` may be an extension command, which Pi runs inline and emits NO
     // turn lifecycle for (dist/core/agent-session.js `prompt()` returns right after
     // `_tryExecuteExtensionCommand`) — awaiting a terminal event for one hangs the turn, and with
     // it the agent's `running` status, forever. Those go through `runSlashPrompt`.
-    if (prompt.startsWith("/")) return this.runSlashPrompt(prompt, opts);
+    const done = prompt.startsWith("/")
+      ? this.runSlashPrompt(prompt, opts)
+      : this.runPrompt(prompt, opts);
+    return done.finally(() => {
+      this.turnRunning = false;
+    });
+  }
+
+  private runPrompt(prompt: string, opts?: RunOptions): Promise<void> {
     return new Promise<void>((resolve) => {
-      // The process died before this turn (start-up failure: Pi exits when an extension fails to
-      // load, stderr names it) and the `error` frame went out while nobody listened: a `prompt`
-      // would be written to nothing, so end the turn now, with the error on the timeline.
+      // The process died before this turn and `handleProcessExit` ran while no turn was running: a
+      // `prompt` would be written to nothing, so end the turn now, with the reason on the timeline.
       if (this.processFailure !== undefined) {
-        this.emit({ kind: "error", message: this.processFailure });
+        this.emit({ kind: "turn_failed", error: this.processFailure });
         resolve();
         return;
       }
@@ -323,8 +360,7 @@ class PiAgentSession implements AgentSession {
         if (
           event.kind === "turn_completed" ||
           event.kind === "turn_failed" ||
-          event.kind === "turn_canceled" ||
-          (event.kind === "error" && this.processFailure !== undefined)
+          event.kind === "turn_canceled"
         ) {
           unsub();
           resolve();
@@ -599,6 +635,9 @@ class PiAgentSession implements AgentSession {
   }
 
   close(): Promise<void> {
+    // A requested exit is not a crash: no `turn_failed`, no `onExit`.
+    this.closed = true;
+    this.exitListeners.clear();
     this.partialOutput.cancelAll();
     this.subscribers.clear();
     return this.transport.close();

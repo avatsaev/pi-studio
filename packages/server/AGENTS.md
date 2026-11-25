@@ -713,6 +713,10 @@ src/
   rename, fixed by routing both rename RPCs through `updateRecord`).
 - Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
+- A session whose runtime ends on its own (`AgentSession.onExit`) is detached at once
+  (`managed.session = null`, status `error`, `warn` "agent session ended on its own; detached");
+  the next prompt resumes it. `archiveAgent`, `deleteAgent` and `closeAll` close silently: no
+  `onExit`, no `turn_failed`.
 - `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
   session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
   that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
@@ -982,18 +986,28 @@ creation" above.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
-- **A dead Pi process ends the turn with its error.** A non-zero exit with nothing in flight that
-  `close()` did not ask for also fails the transport (a turn's `prompt` is a `notify`, so nothing is
-  waiting for an answer). `PiAgentSession` keeps the transport's `error` frame (`processFailure`;
-  only the transport emits that frame, only once the process is gone): `run()` ends a turn at once
-  with an `error` stream event when the process died before it (the frame went out while nobody
-  listened: Pi exits at start-up when an extension fails to load and its stderr names it), and ends
-  one in flight when the process dies. `runTurn` then settles the agent as `error` with the message
-  on the timeline, and `create_agent` answers instead of timing out; before, the agent stayed
-  `running` forever and the stderr reached only the daemon log (found by the binary's live check,
-  `docs/binary-live-results.md`). The dead session answers every later prompt the same way until
-  `agent reload` respawns it. Tests: `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi
-  process ends the turn").
+- **A Pi process that ends on its own ends its turn and is replaced at the next message**
+  (sprint-149/task-001). The transport's `exit` handler fails it on *any* exit that `close()` did
+  not ask for — non-zero, a signal (`code` null, e.g. the OOM killer's SIGKILL) or an unrequested
+  exit 0 — rejecting what is pending and emitting one `error` frame with the exit status and stderr
+  (a turn's `prompt` is a `notify`, so nothing is pending during a turn). A requested exit only
+  rejects what is pending, with no frame. `PiAgentSession.handleProcessExit` takes that frame (only
+  the transport emits it, only once the process is gone; the first one counts) and records
+  `processFailure`. If `run()` is in flight it emits `turn_failed{error}` — the terminal the turn
+  waits for — and between turns it emits nothing (no turn to fail). It then calls the `onExit`
+  listeners. `run()` on an already dead session ends at once with `turn_failed` and writes no
+  `prompt` (Pi exits at start-up when an extension fails to load; stderr names it).
+  `close()` (archive, delete, shutdown) sets `closed`, drops the listeners and never reports.
+- **`AgentSession.onExit?(cb)`** (`provider-contract.ts`) is the dead-session signal: called once
+  with the reason when the runtime ends without `close()`; a session already dead reports at once.
+  Pi implements it; the mock implements it with a `crash(reason)` test hook (turn in progress →
+  `turn_failed`, then the listeners). `AgentManager.attachSession` subscribes; on exit
+  `detachDeadSession` sets `managed.session = null` (only if that session is still the attached
+  one) and the status to `error` (not for a `closed` agent), so `send_agent_prompt` goes through
+  `spawnOrResumeSession` and resumes the persisted session file. A turn in progress gets the same
+  `error` status from `runTurn` (last row `turn_failed`), and its send RPC resolves. Tests:
+  `agent-recovery.test.ts` (service + real `PiAgentClient` over a fake transport),
+  `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi process ends the turn").
 - **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
   `switch_session` to load `handle.nativeHandle`'s JSONL history into it.** RPC mode has no CLI
   flag to preload a session at spawn — `--session <path>` is a TUI-only flag (docs/usage.md),

@@ -1,7 +1,7 @@
 # Task 003 — One turn at a time per agent
 
 - **Sprint:** sprints/sprint-149-agent-recovery
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** bugfix
 - **Area:** packages/server (agent service, session and slash-command operations)
 - **Priority:** P1

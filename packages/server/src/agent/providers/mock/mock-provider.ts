@@ -109,6 +109,7 @@ export class MockAgentSession implements AgentSession {
   private activeTurn: string | null = null;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  private readonly exitListeners = new Set<(reason: string) => void>();
   private thinkingLevel = "off";
 
   // Extension UI (features/extension-ui-rpc.md, sprint-066): no `pi` process exists to script this
@@ -609,12 +610,34 @@ export class MockAgentSession implements AgentSession {
     ]);
   }
 
+  onExit(cb: (reason: string) => void): Unsubscribe {
+    this.exitListeners.add(cb);
+    return () => this.exitListeners.delete(cb);
+  }
+
+  /** Test hook: the runtime dies on its own. A turn in progress ends as `turn_failed` with
+   *  `reason`, then every `onExit` listener runs — what a killed `pi` process does. */
+  crash(reason: string): void {
+    if (this.closed) return;
+    clearTimeout(this.completionTimer ?? undefined);
+    this.completionTimer = null;
+    if (this.activeTurn !== null) {
+      this.activeTurn = null;
+      this.emit({ kind: "turn_failed", error: reason });
+    }
+    this.closed = true;
+    const listeners = [...this.exitListeners];
+    this.exitListeners.clear();
+    for (const cb of listeners) cb(reason);
+  }
+
   close(): Promise<void> {
     this.closed = true;
     if (this.completionTimer) clearTimeout(this.completionTimer);
     this.completionTimer = null;
     this.activeTurn = null;
     this.subscribers.clear();
+    this.exitListeners.clear();
     return Promise.resolve();
   }
 

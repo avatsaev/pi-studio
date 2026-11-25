@@ -213,6 +213,15 @@ export interface AgentSession {
   startTurn(prompt: string, opts?: StartTurnOptions): Promise<{ turnId: string }>;
 
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe;
+  /**
+   * Called once, with the reason, when the session's runtime ends without `close()` asking for it
+   * (Pi: the process was killed or exited). A turn in progress has already ended by then, with a
+   * `turn_failed` carrying the same reason; no turn is invented between turns. The session is dead
+   * from then on: the owner detaches it and the next prompt starts a fresh one. `close()` never
+   * calls it. A session already dead when this is called reports at once. Absent on a provider
+   * whose sessions have no runtime that can end on its own.
+   */
+  onExit?(cb: (reason: string) => void): Unsubscribe;
 
   getRuntimeInfo(): ProviderRuntimeInfo;
 

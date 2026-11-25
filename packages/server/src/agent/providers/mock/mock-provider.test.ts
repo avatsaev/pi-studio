@@ -614,3 +614,33 @@ describe("mock provider — #stream recipes and fork rebind (sprint-083/task-002
     expect(session.describePersistence()?.nativeHandle).not.toBe(before);
   });
 });
+
+describe("MockAgentSession exit", () => {
+  it("crash() ends a running turn as turn_failed, then reports the reason to onExit", async () => {
+    const session = await makeMockSession();
+    const order: string[] = [];
+    session.subscribe((e) => order.push(e.kind === "turn_failed" ? `failed:${e.error}` : e.kind));
+    session.onExit((reason) => order.push(`exit:${reason}`));
+
+    await session.startTurn("hello");
+    session.crash("killed");
+
+    expect(order.slice(-2)).toEqual(["failed:killed", "exit:killed"]);
+  });
+
+  it("crash() between turns only reports to onExit, and close() reports nothing", async () => {
+    const idle = await makeMockSession();
+    const events = collect(idle).events;
+    const reasons: string[] = [];
+    idle.onExit((reason) => reasons.push(reason));
+    idle.crash("killed");
+    expect(reasons).toEqual(["killed"]);
+    expect(events).toEqual([]);
+
+    const closed = await makeMockSession();
+    closed.onExit((reason) => reasons.push(reason));
+    await closed.close();
+    closed.crash("late");
+    expect(reasons).toEqual(["killed"]);
+  });
+});
