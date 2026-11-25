@@ -77,7 +77,7 @@ with it, and what to check first.
 | What Lite keeps | **Approved:** chat, sessions, dialogs, todos, model and thinking pickers, read-only files, diffs and git status |
 | Can Lite start new agents | **Approved: yes, with two limits** (existing folders only, and a cap per device) |
 | Serving the desktop viewers' bytes from Rust | **Parked.** The analysis below is kept for when it is picked up |
-| Milestones | **Proposed, not yet approved.** See [Milestones](#milestones-proposed) |
+| Milestones M1 to M9 | **Approved**, with the small fixes folded in. M1–M3 planned as sprints 146–150. See [Milestones](#milestones) |
 
 Not yet put to the owner: the rest of section 9 (the unreferenced project, workspace and terminal
 RPCs, the unused contract members other than the mode ones, the upload journal, the top-level
@@ -401,11 +401,18 @@ protocol is spoken by Rust only, and `FileTransferClient` (about 27 KB and 40 KB
 **Value.** A better experience with large media, and a control connection that carries no bulk data.
 Lower priority than the two-doors work. Effort: medium, most of it the three-platform checking.
 
-### Milestones (proposed)
+### Milestones
 
-Proposed 2026-11-24, not yet approved by the owner. Everything approved above is placed in exactly
-one milestone. No sprint or task files exist yet; those are derived (`av-swe plan`) once the
-milestones are agreed.
+Approved by the owner on 2026-11-24, with the small fixes folded in. M1 to M3 are planned as sprints
+146 to 150 in `swe/sprints/` (index in `swe/sprints/PLAN.md`); M4 to M9 are planned when each comes
+up, and M8 needs a written design first.
+
+| Milestone | Sprints |
+|---|---|
+| M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
+| M2 Clear the ground | 147, 148 |
+| M3 Agents that recover | 149, 150 (150/t002 is an owner gate on the timeline file design) |
+| M4 to M9 | not planned yet |
 
 | # | Milestone | Contains | What the user gets | Size | Needs |
 |---|---|---|---|---|---|
@@ -422,7 +429,9 @@ milestones are agreed.
 **Order and what can run side by side.**
 
 - M1 first, alone: it is small and it closes the most serious finding.
-- Then M2, M3 and M5 can run side by side; they touch different parts of the daemon.
+- Then M2, M3 and M5. Correction made while planning: M2 and M3 both edit the agent files
+  (`pi/agent.ts`, `agent-service.ts`, `session-operations.ts`), so in one working tree sprint 149
+  starts after sprint 147; sprint 148 and 149 then run side by side. M5 is still independent.
 - M4 follows M3. M6 follows M2 and is easier after M4, because M4 changes two of the handlers M6
   rewires.
 - M7, M8 and M9 are the Lite plan, in that order. They come after M6 so that sockets, roles and
@@ -450,10 +459,11 @@ than today, where the relay already works that way, but it is the reason M8 shou
   desktop client first calls them.
 - Never put to the owner: the unreferenced project, workspace and terminal requests, the unused
   provider-contract members, the upload journal, the top-level `version` config key.
-- Small fixes never put to the owner, with the milestone each would fit: deleting a symlink deletes
-  its target (F1, M5), `file_read_request` on endless files (F3, M5), terminal subscriptions leaking
-  on disconnect (F4, M5), the unwired skip store (T6, M5), credentials in extension error text
-  (section 7, M5), requests to Pi with no timeout (A8, M3).
+- Small fixes, folded in by the owner on 2026-11-24: requests to Pi with no timeout (A8) is
+  sprint-149/task-002; deleting a symlink deletes its target (F1), `file_read_request` on endless files
+  (F3), terminal subscriptions leaking on disconnect (F4) and credentials in extension error text
+  (section 7) go into M5 when it is planned. The unwired skip store (T6) needs nothing: it was fixed by
+  sprint-142/task-002 (`createFileSkipStore` is wired in `bootstrap.ts` on `main`).
 
 ---
 
@@ -606,6 +616,11 @@ RPC surface (**Checked**, by searching every registered name in `packages/client
 ## 4. Agent subsystem findings
 
 ### A1. A Pi crash during a turn leaves the agent stuck (**Checked**)
+
+**Update 2026-11-24 (on `main`, after the audit):** partly fixed in `601a91e6`. A non-zero exit now fails
+the transport and a waiting turn ends with an `error` row. Still open, and planned as
+sprint-149/task-001: an exit by signal or an unrequested exit 0 still hangs the turn, the turn ends with
+a non-terminal `error` rather than `turn_failed`, and the dead session is never replaced.
 
 - The `exit` handler in `agent/providers/pi/rpc-transport.ts:178` fails pending requests only when
   there are some. A prompt is sent with `notify`, so during a turn nothing is pending.
@@ -761,10 +776,9 @@ RPC surface (**Checked**, by searching every registered name in `packages/client
 
 ### T6. Update subsystem (**Checked** for the first item, **Read** for the rest)
 
-- `bootstrap.ts` passes no `skipStore` to `UpdateService`, so `createFileSkipStore`
-  (`update/update-service.ts:581`) is used only by tests. A version that was rolled back is forgotten
-  on the restart the update caused, and is offered again. This contradicts the decision that a
-  rolled-back version is not offered again. It may be unfinished work on this branch.
+- **Fixed after the audit** (sprint-142/task-002, on `main`): `bootstrap.ts` now passes
+  `createFileSkipStore(...)`, so a rolled-back version is not offered again by automatic checks. At the
+  audit's commit it was not wired.
 - The restart helper (`update/helper.ts`) is about 300 lines of JavaScript in a string, and the
   daemon it starts has `stdio: "ignore"`, so crash output is lost.
 

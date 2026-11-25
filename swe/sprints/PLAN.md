@@ -171,9 +171,14 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 143 | `sprint-143-desktop-local-binary` | desktop + workbench: **Single-binary daemon, slice 5 — the app's local daemon.** The pin and new states; the `install` crate; the supervisor runs the binary (the CLI search removed); the Daemons screen; the command-line tool. | 5 |
 | 144 | `sprint-144-desktop-ssh-install` | desktop + workbench: **Single-binary daemon, slice 6 — SSH hosts.** Sending a file over SSH; the remote supervisor's Install; the SSH row. | 3 |
 | 145 | `sprint-145-single-binary-close` | desktop + docs: **Single-binary daemon, slice 7 — close.** The live desktop run on Linux; documents and specs; the first desktop release with a pinned daemon after the owner's merge. | 3 |
+| 146 | `sprint-146-close-the-door` | server + workbench + web-client + cli + docker: **Daemon audit M1 — close the door.** Upgrades carrying an `Origin` refused (developer switch); no network bind without a password; the web client relay-only; `pi-studio ui` removed; Docker with a required password; live check. | 6 |
+| 147 | `sprint-147-drop-dead-subsystems` | server + protocol + client + cli: **Daemon audit M2, part 1 — the approved drops.** Chat, loops, schedules; service proxy, CORS, HTTP password; MCP server; modes; `extends: "pi"` profiles; four uncalled pieces and dead config keys. | 6 |
+| 148 | `sprint-148-shims-and-packaging` | server + protocol + cli + release: **Daemon audit M2, part 2.** Compatibility shims; the legacy permission schema; the CLI and binary without the web app; three packages no longer published; close of M2. | 5 |
+| 149 | `sprint-149-agent-recovery` | server: **Daemon audit M3, part 1 — agents that recover.** A dead Pi ends its turn and is replaced; request timeouts and a real stop; one turn at a time; one Pi process per agent; live check with a real Pi. | 5 |
+| 150 | `sprint-150-timeline-on-disk` | server: **Daemon audit M3, part 2 — saved history.** History loaded before the first turn; the timeline file design (owner gate); the store on the file; restart, resets, delete; live check and close of M3. | 5 |
 
-Total: **139 sprints, 702 tasks**, recomputed from the table above when sprints 082–087 were added
-(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23) and by 139–145 (+7/+29, 2026-11-24), less 140/t002 (dropped: pi-background-tasks left the baseline, +0/−1, 2026-11-24; the table sums to 139/702). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
+Total: **144 sprints, 729 tasks**, recomputed from the table above when sprints 082–087 were added
+(2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23), by 139–145 (+7/+29, 2026-11-24) and by 146–150 (+5/+27, 2026-11-24), less 140/t002 (dropped: pi-background-tasks left the baseline, +0/−1, 2026-11-24; the table sums to 144/729). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
 
@@ -3787,6 +3792,84 @@ t001 may run beside sprint 143; then t002, t003.
 | task-002 | Documents and spec close for milestone 6 | docs | task-001 | § Dependencies on other specs, § TODO(verify) |
 | task-003 | After the owner's merge: the first desktop release with a pinned daemon | chore | task-002 | § The pin, S6 |
 
+> **Daemon audit: milestones M1–M3** (`docs/daemon-audit-handoff.md`, the audit of 2026-11-24 and the
+> owner's decisions recorded there; no separate scope document). M1 to M9 were approved on 2026-11-24;
+> only M1–M3 are planned. The web client stays as a second-class "Lite" (relay only); the desktop app
+> is the first-class client. **Sprint-150/task-002 is a gate:** the timeline file design waits for the
+> owner's approval before any code. Live checks never touch the owner's own daemon: temporary homes and
+> a spare port. Order: 146 alone; then 147; then 148 and 149 side by side (one link: 149/t003 waits for
+> 148/t001, both edit `session-operations.ts`); then 150.
+
+### sprint-146-close-the-door
+> **What it ships.** No website can reach the daemon; the web client pairs through the relay only.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | The daemon refuses every WebSocket upgrade that carries an `Origin` | feature | none | S1; Lite row 1 |
+| task-002 | A daemon open to the network refuses to start without a password | feature | task-001 | S2 |
+| task-003 | The web client connects by pairing link through the relay only | feature | none | Lite row 1, relay-only decision |
+| task-004 | Remove `pi-studio ui` | chore | none | Lite row 1 |
+| task-005 | Docker: a required password, and the web image pairs through the relay | chore | task-002, task-003 | M1 set-up changes |
+| task-006 | Live check of the closed door, and close of M1 | test | task-001..005 | M1 |
+
+t001, t003 and t004 in parallel; t002 after t001; t005; t006 last.
+
+**Done 2026-11-24** (all six tasks, branch `feat/daemon-audit-m1-m3`). Live-checked on throwaway processes: evil `Origin` → 403, none → 101; a browser page's own WebSocket to the daemon port refused; `0.0.0.0` without a password refused, with one it starts; the production web build refuses a direct address and connects by pairing link through a local relay; the dev web client connects through `/daemon-ws`; the desktop Rust dial connects to loopback and to a password-protected daemon. Not run: the desktop app window itself. The task's `agent list` is `pi-studio ls` in the CLI. One test failure on the combined tree (`packages/server/src/daemon/bootstrap.test.ts`, extension packs) also fails on a pristine HEAD.
+
+### sprint-147-drop-dead-subsystems
+> **What it ships.** The approved drops: less code, nothing visible.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Drop chat rooms, loops and schedules | refactor | sprint-146/task-006 | F8; drop decision |
+| task-002 | Drop the service proxy, CORS and the HTTP password check | refactor | task-001, task-003 | drop decisions |
+| task-003 | Drop the unreachable MCP server | refactor | sprint-146/task-006 | drop decision |
+| task-004 | Drop agent modes | refactor | task-003 | A11; drop decision |
+| task-005 | Drop `extends: "pi"` provider profiles | refactor | task-002, task-004 | drop decision |
+| task-006 | Drop four uncalled pieces of code and the dead config keys | refactor | task-005 | drop decisions |
+
+t001 and t003 in parallel; then t002 and t004; t005; t006. Mostly sequential because they share
+`daemon-config.ts`, `bootstrap.ts` and `pi/agent.ts`.
+
+### sprint-148-shims-and-packaging
+> **What it ships.** No compatibility shims; five npm packages instead of eight; M2 closed.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Drop the daemon's compatibility shims | refactor | sprint-147/task-001, sprint-147/task-006 | shim decisions |
+| task-002 | Drop `legacyRespondToPermissionSchema` | refactor | sprint-147/task-001 | shim decision |
+| task-003 | The CLI package and the single binary stop carrying the web app | chore | sprint-146/task-004 | Lite row 1 |
+| task-004 | Stop publishing `workbench`, `ui-library` and `web-client` | chore | task-003 | Lite row 1 |
+| task-005 | Close of M2: gates, docs sweep, handoff | docs | task-001..004, sprint-147/task-002 | M2 |
+
+t001, t002 and t003 in parallel; t004; t005 last.
+
+### sprint-149-agent-recovery
+> **What it ships.** No stuck conversations, no doubled replies, no leftover Pi processes.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | A Pi process that ends, for any reason, ends its turn and is replaced | bugfix | sprint-147/task-006 | A1 (rest of the partial fix in `601a91e6`) |
+| task-002 | Requests to Pi time out, and a closed Pi is really stopped | bugfix | task-001 | A8 (folded in) |
+| task-003 | One turn at a time per agent | bugfix | task-001, sprint-148/task-001 | A2, A9 |
+| task-004 | One Pi process per agent, and no RPC left hanging by a close | bugfix | task-002, task-003 | A3, A4 |
+| task-005 | Live check with a real Pi, and docs | test | task-004 | improvement 2 |
+
+t002 and t003 in parallel after t001; t004; t005.
+
+### sprint-150-timeline-on-disk
+> **What it ships.** Conversation history saved to disk and intact after a restart.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | After a restart, history is loaded before the first turn | bugfix | sprint-149/task-004 | A6 (first half) |
+| task-002 | Design: the agent timeline file (owner review) | docs | task-001 | A5, A6 |
+| task-003 | The timeline store writes to and pages from the file | feature | task-002 | A5 |
+| task-004 | Restart, resets and delete with the timeline file | feature | task-003 | A6 |
+| task-005 | Live check of saved history, and close of M3 | test | task-004 | improvement 3 |
+
+Sequential; t002 waits for the owner.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -3968,6 +4051,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | architecture/single-binary-daemon.md (designed 2026-11-24) | s139/t001-004 (A1, A3–A6), s140/t001 and t003 (A2, A7–A9), s141/t002 (A10) |
 | features/self-update.md (milestone 6 amendments) | s142/t001-005 (protocol; skipped version; workbench; binary path; live run), s143/t003 and s144/t002 (desktop Update installs the pin) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
+| `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002. **Planned 2026-11-24.** Not turned into tasks yet, by decision: M4–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them). Folded fixes for M5 (F1, F3, F4, extension error text) wait for M5; T6 was fixed by sprint-142/task-002 |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.
