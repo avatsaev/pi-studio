@@ -9,6 +9,15 @@ payload of the `agent_stream` session message (`type: "agent_stream"`, wrapping 
 narrowed, so an old client silently ignoring a new kind is a supported, expected behavior — see
 `timeline/reducer.ts`'s `default` branch below.
 
+## Where a turn starts and ends on the wire
+
+`create_agent_request` and `send_agent_prompt` answer when the prompt is **accepted**
+(`create_agent_response` / `agent_prompt_response`, `payload.agentId`), not when the turn ends; the
+answer comes before the turn's first `agent_stream` frame. The turn's outcome is its rows (a
+failure ends in a `turn_failed` row with the reason) plus exactly one `agent_update` with status
+`idle` or `error`. A slash command an extension handles inline has no `turn_*` rows; its
+`agent_update idle` is the end signal. See `swe/features/agent-sessions.md` § Create — Answer.
+
 ## Wire event kinds — `AgentStreamEvent`
 
 Discriminated on `kind` (`agentStreamEventSchema`, `messages.ts:258-305`). This is the **complete**

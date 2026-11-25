@@ -180,16 +180,16 @@ const data = await transport.request("get_state");
 
 One `send_agent_prompt` call produces dozens-to-hundreds of events over minutes. Pure request/response can't express that — the design splits it:
 
-- The **RPC** (`send_agent_prompt`) is a *lifecycle* call. It resolves when the whole turn is over.
+- The **RPC** (`send_agent_prompt`) is an *acceptance* call. It resolves when the prompt is accepted (the agent exists and is not busy); the turn runs after the answer.
 - The **broadcast** (`agent_stream`, no `requestId`) carries every event as it happens.
 
 **Five hops:**
 
 **Hop 1 — browser → daemon.**
-`Composer.tsx:181` calls `ensureMaterialized` then `client.agent(agentId).send(prompt, …)`, which is a plain `send_agent_prompt` RPC through the `pending`-map machinery. `AgentService.handleSendPrompt` (`agent-service.ts:221-241`) looks up the record, and if there's no live provider session (daemon restart, or a deferred draft's first send), calls `spawnOrResumeSession` to get one.
+`Composer.tsx:181` calls `ensureMaterialized` then `client.agent(agentId).send(prompt, …)`, which is a plain `send_agent_prompt` RPC through the `pending`-map machinery. `AgentService.handleSendPrompt` (`agent-service.ts`) checks the request, takes the agent's turn claim, marks the agent `running` and answers. After the answer it records the user message and, if there's no live provider session (daemon restart, or a deferred draft's first send), calls `spawnOrResumeSession` to get one.
 
 **Hop 2 — daemon → `pi` subprocess (the second RPC system).**
-`runTurn` calls `session.run(prompt, opts)` (`agent-service.ts:326`). Inside the Pi adapter (`providers/pi/agent.ts:226-240`):
+`executeTurn` calls `session.run(prompt, opts)`. Inside the Pi adapter (`providers/pi/agent.ts:226-240`):
 
 ```ts
 run(prompt, opts) {
@@ -234,7 +234,7 @@ Raw Pi events are Pi's own shapes. A stateful `createPiEventMapper()` instance, 
 - **Returns `null`** for a whole set of raw events (`turn_start`, `message_start`, `compaction_start`, …) — dropped, never reach the timeline (`agent.ts:142`)
 
 **Hop 4 — timeline append + broadcast.**
-`runTurn` (`agent-service.ts:262-301`) subscribes to the session for the duration of the turn, and every event does exactly two things:
+`executeTurn` (`agent-service.ts`) subscribes to the session for the duration of the turn, and every event does exactly two things:
 
 ```ts
 const row = timeline.append(event);  // assign epoch, seq, timestamp
@@ -244,11 +244,11 @@ this.broadcastAll(getSessions(), {
 });
 ```
 
-`AgentTimelineStore.append` (`timeline-store.ts:181-190`) stamps three **daemon-owned** fields: monotonic `seq`, `epoch` (bumped by `startEpoch()` at the top of each turn), and `timestamp`. The exactly-once `user_message` rule: provider-emitted and keyed by `messageId`/`clientMessageId`, else synthesized if the provider never emits one.
+`AgentTimelineStore.append` (`timeline-store.ts:181-190`) stamps three **daemon-owned** fields: monotonic `seq`, `epoch` (bumped by `startEpoch()` at the top of each turn), and `timestamp`. The exactly-once `user_message` rule: the daemon records it when the prompt is accepted, before the provider session is spawned or resumed, keyed by `clientMessageId` (else a new id); a provider's own copy of it is dropped. A prompt that fails after acceptance (the session cannot start, `run` rejects) ends as one `turn_failed` row carrying the reason.
 
 Recipients come from `getActiveSessions()` = WS sessions **plus** relay sessions (`bootstrap.ts:224`), so a relayed client receives every event.
 
-When `session.run()` resolves, `runTurn` unsubscribes, derives status from the *last timeline row* (`turn_failed`/`error` → `error`, else `idle`), and broadcasts a final `agent_update`.
+When `session.run()` resolves, `executeTurn` unsubscribes, derives status from the *last timeline row* (`turn_failed`/`error` → `error`, else `idle`), and broadcasts a final `agent_update`.
 
 **Hop 5 — back into the UI.**
 `PiStudioClient.agent(id).timeline.subscribe` (`client/src/pistudio-client.ts:268-272`) is a thin filter:
@@ -266,9 +266,9 @@ return this.daemon.onSessionMessage((msg) => {
 
 ### Three consequences
 
-**Status never comes from the RPC.** `running`/`idle`/`error` reach the UI as `agent_update` broadcasts at the start and end of `runTurn`. The RPC's own `status` field is redundant — this is deliberate, so every connected client stays in sync.
+**Status never comes from the RPC.** `running`/`idle`/`error` reach the UI as `agent_update` broadcasts at the start (`beginTurn`) and end (`settleTurn`) of the turn. The answer carries only the agent id — this is deliberate, so every connected client stays in sync.
 
-**The RPC response is a completion signal, not data.** Everything you'd want already arrived over the stream. `Composer.tsx:184`'s bare `catch` swallowing rejection is consistent with that.
+**The RPC response is an acceptance signal, not data.** It answers once the prompt is accepted (`agent_prompt_response { agentId }`); a refusal (`busy`, an unknown agent) rejects it. Everything else about the turn — its rows, its outcome, its end — arrives over the stream, so a client has no need to hold the call open.
 
 **The timeline store, not the stream, is the durable source.** A reconnecting client backfills via `fetch_agent_timeline` using `seq`-based cursors (`encodeCursor` = `String(seq)`, `timeline-store.ts:123`; `page({direction, cursor, limit})` at line 232). Same rows, same ordering; live push and historical pull are two views of one append-only log.
 

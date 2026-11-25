@@ -63,8 +63,9 @@ function bootstrap():
   reconnects.
 - **Recovery:** agents are reloaded from disk; their runtime is *not* automatically resumed at boot,
   but records are available. The provider session is resumed lazily on the next `send_agent_prompt`
-  or explicit `resume_agent` for that agent (agent-sessions.md § Error Handling — "Send prompt with
-  no live session").
+  (answered at acceptance, the resume runs after the answer and a failure ends the turn in
+  `turn_failed` + `agent_update` `error`) or explicit `resume_agent` for that agent
+  (agent-sessions.md § Error Handling — "Send prompt with no live session").
 
 ### Shutdown
 ```

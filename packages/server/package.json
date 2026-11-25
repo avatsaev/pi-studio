@@ -1,6 +1,11 @@
 {
   "name": "@av-pi-studio/server",
   "version": "0.0.132",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/server"
+  },
   "bin": {
     "pi-studio-daemon": "dist/daemon/main.js"
   },
@@ -16,6 +21,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./shutdown": {
+      "types": "./dist/daemon/shutdown.d.ts",
+      "default": "./dist/daemon/shutdown.js"
     }
   },
   "scripts": {
@@ -48,10 +57,5 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/which": "^3.0.4",
     "@types/ws": "^8.18.1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/avatsaev/pi-studio.git",
-    "directory": "packages/server"
   }
 }

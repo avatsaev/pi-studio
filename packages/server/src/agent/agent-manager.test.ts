@@ -65,6 +65,17 @@ describe("transitions", () => {
     );
   });
 
+  // A created agent with a first prompt is `running` from acceptance: it never reads `idle`.
+  it("allows a created agent to go straight from initializing to running", async () => {
+    const { mgr, updates } = makeManager();
+    const agent = await mgr.add(record({ lastStatus: "initializing" }));
+
+    await mgr.setStatus(agent.record.id, "running");
+    await mgr.setStatus(agent.record.id, "idle");
+
+    expect(updates.map((u) => u.status)).toEqual(["initializing", "running", "idle"]);
+  });
+
   it("rejects an invalid transition", async () => {
     const { mgr } = makeManager();
     const agent = await mgr.add(record({ lastStatus: "idle" }));
@@ -75,7 +86,7 @@ describe("transitions", () => {
   });
 
   // Regression: a provider failure (bad API key, quota exhausted, 403/429) parks the agent at
-  // "error", and the user's way out is to fix the cause and send again — `runTurn` opens with
+  // "error", and the user's way out is to fix the cause and send again — accepting a prompt opens with
   // `setStatus(running)`. While `error` had no edge to `running`, that threw before the turn even
   // started, so every later message in the conversation came straight back as "failed to send".
   it("allows a retry straight out of error, so a failed turn never wedges the conversation", async () => {

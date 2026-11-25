@@ -5,6 +5,7 @@ import { WebSocket } from "ws";
 
 import type { MockAgentSession } from "../agent/providers/mock/mock-provider.js";
 import { silentLogger } from "../logging/logger.js";
+import { createdAgentId } from "../test-support/wire-answers.js";
 import { startDevDaemon, type DevBootstrapHandle } from "./dev-bootstrap.js";
 
 /**
@@ -106,13 +107,22 @@ function listeningPort(server: Server): Promise<number> {
   });
 }
 
+/**
+ * Creates the agent and waits for its first turn to settle: the create answer only accepts the
+ * prompt, and the session is attached once the turn has run.
+ */
 async function createMockAgent(client: Client): Promise<string> {
   const created = await client.rpc({
     type: "create_agent_request",
     config: { provider: "mock", cwd: "/tmp" },
     initialPrompt: "hello",
   });
-  return (created.payload as { agentId: string }).agentId;
+  const agentId = createdAgentId(created);
+  await waitFor(
+    client,
+    (m) => m.type === "agent_update" && m.agentId === agentId && m.status === "idle",
+  );
+  return agentId;
 }
 
 describe("extension UI, real dev daemon (sprint-066/task-004)", () => {

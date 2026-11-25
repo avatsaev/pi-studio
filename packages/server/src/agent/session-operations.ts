@@ -58,6 +58,13 @@ export class SessionOperationsService {
     this.deps.broadcast(sessions, msg);
   }
 
+  /**
+   * `interrupt_agent`. A turn whose provider session is still starting is canceled
+   * (`AgentService.cancelPendingStart`): it settles once, as `turn_canceled` then `idle`, and the
+   * start carries on. A turn the provider already has is interrupted there; its `turn_canceled`
+   * and its `idle` come from the turn itself. Only an agent with no turn in flight and a status
+   * that needs one is healed here.
+   */
   async handleInterrupt(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
@@ -66,14 +73,22 @@ export class SessionOperationsService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) return { type: "interrupt_response", agentId, ok: false };
 
+    if (this.deps.service.cancelPendingStart(agentId)) {
+      return { type: "interrupt_response", agentId, ok: true };
+    }
+    const turnInFlight = this.deps.service.hasTurn(agentId);
+
     if (!managed.session) {
       // No live provider session to interrupt (e.g. a daemon restart that hasn't lazily
       // re-attached one yet — see AgentService.handleSendPrompt). If the record is stuck on a
       // status that requires a session — the same impossible state `AgentManager.recover()`
       // reconciles on boot — self-heal it here too, so Stop can clear a session wedged by an
       // out-of-band restart without waiting for the next one. Already idle/error/closed is a
-      // legitimate no-op.
-      if (managed.record.lastStatus === "running" || managed.record.lastStatus === "initializing") {
+      // legitimate no-op, and so is a turn in flight: it settles the status itself.
+      if (
+        !turnInFlight &&
+        (managed.record.lastStatus === "running" || managed.record.lastStatus === "initializing")
+      ) {
         await this.deps.manager.setStatus(agentId, "idle");
         this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle" });
         return { type: "interrupt_response", agentId, ok: true };
@@ -82,9 +97,10 @@ export class SessionOperationsService {
     }
 
     await managed.session.interrupt();
-    // The provider session will emit turn_canceled which goes through runTurn's subscriber.
-    // If the agent is still "running" (interrupt was out-of-band), force it to idle.
-    if (managed.record.lastStatus === "running") {
+    // The provider session will emit turn_canceled which goes through the turn's subscriber and
+    // settles the status. With no turn in flight (the status is stale) nothing will: force it to
+    // idle.
+    if (!turnInFlight && managed.record.lastStatus === "running") {
       await this.deps.manager.setStatus(agentId, "idle");
       this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle" });
     }
@@ -94,10 +110,10 @@ export class SessionOperationsService {
   /**
    * `steer_agent_request` / `follow_up_agent_request` — inject a message into a LIVE turn without
    * starting a new turn (Pi RPC `steer`/`follow_up`, docs/rpc.md). Unlike `send_agent_prompt` this
-   * never routes through `runTurn`, never changes agent status, and is only meaningful while the
+   * never starts a turn (`AgentService`), never changes agent status, and is only meaningful while the
    * turn is running. We optimistically append the injected text as a `user_message` timeline row so
    * history shows what the user asked for; the provider then confirms queue state asynchronously
-   * via `queue_update` events, which flow through the in-flight `runTurn` subscriber.
+   * via `queue_update` events, which flow through the in-flight turn's subscriber.
    */
   async handleSteer(
     msg: Record<string, unknown>,

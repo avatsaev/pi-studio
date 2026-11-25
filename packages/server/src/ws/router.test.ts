@@ -103,6 +103,76 @@ describe("session dispatch", () => {
   });
 });
 
+function sessionFrame(message: Record<string, unknown>): string {
+  return JSON.stringify({ type: "session", message });
+}
+
+describe("after stopAccepting()", () => {
+  it("answers a request with rpc_error shutting_down and runs no handler", async () => {
+    const handler = vi.fn(() => ({ type: "do.thing.response" }));
+    const registry = new HandlerRegistry().register("do.thing.request", handler);
+    registry.stopAccepting();
+    const s = fakeSession();
+    await routeTextFrame(s, sessionFrame({ type: "do.thing.request", requestId: "r1" }), registry);
+    await routeTextFrame(s, sessionFrame({ type: "no.such.request", requestId: "r2" }), registry);
+    expect(handler).not.toHaveBeenCalled();
+    expect(s.sent).toEqual([
+      {
+        type: "session",
+        message: {
+          type: "rpc_error",
+          requestId: "r1",
+          code: "shutting_down",
+          message: "the daemon is shutting down",
+        },
+      },
+      {
+        type: "session",
+        message: {
+          type: "rpc_error",
+          requestId: "r2",
+          code: "shutting_down",
+          message: "the daemon is shutting down",
+        },
+      },
+    ]);
+  });
+
+  it("drops a message that expects no reply and still answers a ping", async () => {
+    const handler = vi.fn();
+    const registry = new HandlerRegistry().register("fire.and.forget", handler);
+    registry.stopAccepting();
+    const s = fakeSession();
+    await routeTextFrame(s, sessionFrame({ type: "fire.and.forget" }), registry);
+    expect(handler).not.toHaveBeenCalled();
+    expect(s.sent).toEqual([]);
+
+    await routeTextFrame(s, JSON.stringify({ type: "ping", requestId: "p1" }), registry);
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0]).toMatchObject({ type: "pong", requestId: "p1" });
+  });
+
+  it("lets a request that was already running finish and reply", async () => {
+    const release = Promise.withResolvers<void>();
+    const registry = new HandlerRegistry().register("slow.request", async () => {
+      await release.promise;
+      return { type: "slow.response" };
+    });
+    const s = fakeSession();
+    const running = routeTextFrame(
+      s,
+      sessionFrame({ type: "slow.request", requestId: "r1" }),
+      registry,
+    );
+    registry.stopAccepting();
+    release.resolve();
+    await running;
+    expect(s.sent).toEqual([
+      { type: "session", message: { type: "slow.response", requestId: "r1" } },
+    ]);
+  });
+});
+
 describe("rpc logging", () => {
   interface LogRecord {
     level: string;

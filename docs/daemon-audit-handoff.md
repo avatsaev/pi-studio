@@ -541,6 +541,12 @@ can be changed before its sprint starts.
   `daemon-keypair.json` is set aside and a new pair is made (pairings are lost either way), loudly.
 - **Folded small fixes:** F4's leaking terminal subscriptions go with the sockets sprint (154); F1, F3
   and the credentials in extension error text are sprint 156.
+- **Owner addition (2026-11-25): an update check on connect.** A connecting client gets only the
+  daemon's last stored result, which can be six hours old, and the owner saw no update notification on
+  an SSH daemon. Sprint 156 task 004 makes the daemon run an automatic check when a client connects,
+  unless auto-check is off, a check or an update is running, or the last attempt is younger than ten
+  minutes. The rule is in the daemon, so every client gets it. The task first finds out why the pill
+  was missing on the SSH daemon; that cause is not known yet.
 
 ---
 

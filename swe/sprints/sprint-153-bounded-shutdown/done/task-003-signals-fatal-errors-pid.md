@@ -1,7 +1,7 @@
 # Task 003 — Signals, fatal errors, and a second daemon that loses the port
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (daemon run and bootstrap)
 - **Priority:** P1

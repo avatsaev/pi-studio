@@ -1,7 +1,7 @@
 # Task 003 — Create and send answer as soon as the request is accepted
 
 - **Sprint:** sprints/sprint-151-instant-replies-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (agent service), tests across packages
 - **Priority:** P1
@@ -26,7 +26,7 @@ the answer. Task-002 made the timeline and the status carry every outcome; this 
 - Every test that relied on the blocking answer: in `packages/server/src/agent/` (`create-run`,
   `one-turn-at-a-time`, `agent-recovery`, `session-ops`, `one-process-per-agent`,
   `seed-before-first-turn`, `timeline-eviction`, `ephemeral-stream`, `agent-stream-mode`,
-  `fetch-timeline`, `compact-handler`, `slash-command-ops`), in `packages/server/src/daemon/`
+  `fetch-timeline`, `compact-handler`, `slash-command-ops`, `session-operations`), in `packages/server/src/daemon/`
   (`bootstrap.test.ts` :306-500, `agent-todos-e2e`, `agent-ui-e2e`, `daemon-logs-e2e`,
   `daemon-status-e2e`, `external-fixtures-e2e`), and in `packages/cli/src/`
   (`agent-todos-sdk-e2e.test.ts`, `agent-ui-sdk-e2e.test.ts`)
@@ -47,6 +47,11 @@ the answer. Task-002 made the timeline and the status carry every outcome; this 
 - **A seam to wait.** `AgentService.turnSettled(agentId): Promise<void>` resolves when no prompt is in
   flight for the agent (at once when none is). Tests use it; shutdown, archive and delete keep ending a
   running turn the way M3 built it.
+- **Interrupt during the start.** `SessionOperationsService.handleInterrupt`
+  (`session-operations.ts` near :76) sees `running` with no session and settles `idle` while the spawn
+  or resume continues (found by task-002; the window gets long once the answer is immediate). It must
+  not self-heal while a turn claim is held: it cancels the pending start so the turn settles once, as
+  `turn_canceled`, with no second `idle`.
 - **Port the tests** listed above to `turnSettled` or to the terminal event; do not weaken what they
   assert about rows and statuses.
 - Source comments and the two docs above.
@@ -65,6 +70,7 @@ Both are closed by sprint 152.
 - [ ] Pi cannot start after acceptance: the answer was a success; then `turn_failed` with the reason
       and `agent_update error`.
 - [ ] No `unhandledRejection` fires in any of the above (a listener in the test).
+- [ ] Interrupt sent while Pi is still starting: one `turn_canceled`, one `idle`, and the agent accepts the next send.
 - [ ] `autoArchive` still archives after the turn; a deferred draft (create without a prompt) answers
       as before.
 - [ ] `npx vitest run packages/server packages/cli packages/client` passes.

@@ -1,12 +1,12 @@
-import { type Server } from "node:http";
-import { request } from "node:http";
+import { once } from "node:events";
+import { createServer, request, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SERVER_VERSION } from "../version.js";
 import { createHostChecker } from "./host-allowlist.js";
-import { createHttpServer } from "./http-server.js";
+import { closeHttpServer, createHttpServer } from "./http-server.js";
 
 interface Resp {
   status: number;
@@ -118,5 +118,29 @@ describe("HTTP server pipeline", () => {
     const res = await call(port, { path: "/api/health", headers: { Origin: "https://app.test" } });
     expect(res.status).toBe(200);
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("closeHttpServer", () => {
+  it("does not wait for a request that is still in flight", async () => {
+    const server = createServer(() => {
+      // never answers
+    });
+    const port = await listen(server);
+    const hungUp = Promise.withResolvers<void>();
+    const received = once(server, "request");
+    const req = request({ host: "127.0.0.1", port, path: "/" });
+    req.on("error", () => hungUp.resolve());
+    req.end();
+    await received;
+
+    await closeHttpServer(server);
+
+    await hungUp.promise;
+    expect(server.listening).toBe(false);
+  });
+
+  it("resolves for a server that is not listening", async () => {
+    await closeHttpServer(createHttpServer());
   });
 });

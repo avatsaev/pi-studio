@@ -4,6 +4,7 @@ import { request } from "node:http";
 import { join } from "node:path";
 
 import { daemonCommand, waitForProcessExit } from "@av-pi-studio/server";
+import { SHUTDOWN_DEADLINE_MS } from "@av-pi-studio/server/shutdown";
 import bcrypt from "bcryptjs";
 
 import { parseHost } from "./connection.js";
@@ -320,8 +321,13 @@ export interface StopResult {
   error?: "still_running";
 }
 
-/** How long `daemon stop` and `daemon restart` wait for the old process to exit. */
-export const STOP_TIMEOUT_MS = 10_000;
+/**
+ * How long `daemon stop` and `daemon restart` wait for the old process to exit: the daemon's own
+ * shutdown deadline (it abandons a stuck step then and exits within a couple of seconds) plus a
+ * margin. The desktop app's `STOP_TIMEOUT` (`desktop/crates/shell/src/cli_answers.rs`) must exceed
+ * this.
+ */
+export const STOP_TIMEOUT_MS = SHUTDOWN_DEADLINE_MS + 5_000;
 
 /**
  * Stop the local daemon: SIGTERM its recorded pid, then wait for the process to exit. No pid file,

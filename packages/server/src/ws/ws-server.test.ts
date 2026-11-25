@@ -3,11 +3,15 @@ import { createServer, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
 import { homedir } from "node:os";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 
 import { type Session } from "./session.js";
-import { createWebSocketServer, type WebSocketServerHandle } from "./ws-server.js";
+import {
+  createWebSocketServer,
+  SOCKET_CLOSE_GRACE_MS,
+  type WebSocketServerHandle,
+} from "./ws-server.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -323,5 +327,73 @@ describe("upgrade Origin policy", () => {
     });
     expect(await upgradeStatus(authed.port, { Origin: "http://localhost:5173" })).toBe(401);
     expect(await upgradeStatus(authed.port)).toBe(401);
+  });
+});
+
+describe("shutdown", () => {
+  /** A connected client that completed the handshake. */
+  async function handshaken(port: number, clientId: string): Promise<WebSocket> {
+    const ws = await connect(port);
+    ws.send(hello(clientId));
+    await nextMessage(ws);
+    return ws;
+  }
+
+  it("stopAccepting() refuses later upgrades with 503 and leaves a connected client alone", async () => {
+    const { port, handle, sessions } = await startServer();
+    const ws = await handshaken(port, "before");
+    expect(sessions).toHaveLength(1);
+
+    handle.stopAccepting();
+
+    expect(await upgradeStatus(port)).toBe(503);
+    expect(sessions).toHaveLength(1);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("close() closes every connected client with 1001, one that has not said hello included", async () => {
+    const { port, handle } = await startServer();
+    const greeted = await handshaken(port, "greeted");
+    const silent = await connect(port);
+    const greetedClosed = once(greeted, "close");
+    const silentClosed = once(silent, "close");
+
+    await handle.close();
+
+    expect((await greetedClosed)[0]).toBe(1001);
+    expect((await silentClosed)[0]).toBe(1001);
+    expect(await upgradeStatus(port)).toBe(503);
+  });
+
+  it("close() resolves at once when no client is connected", async () => {
+    const { handle } = await startServer();
+    await handle.close();
+  });
+
+  it("close() terminates a client that never answers the close frame once the grace has passed", async () => {
+    const { port, handle } = await startServer();
+    const ws = await handshaken(port, "half-open");
+    expect(handle.sessions.size).toBe(1);
+    // The client reads nothing from now on, so it never answers the close frame (without the
+    // grace the server would wait for the `ws` library's own 30 s closing timeout).
+    ws.pause();
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let settled = false;
+      const closing = handle.close().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(SOCKET_CLOSE_GRACE_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await closing;
+      expect(settled).toBe(true);
+      expect(handle.sessions.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      ws.terminate();
+    }
   });
 });

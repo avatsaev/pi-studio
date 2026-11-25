@@ -1,4 +1,4 @@
-# Task 004 — Live check of damaged files and the small fixes, and close of M5
+# Task 005 — Live check of damaged files and the small fixes, and close of M5
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
 - **Status:** backlog
@@ -6,7 +6,7 @@
 - **Area:** all packages, desktop, docs
 - **Priority:** P1
 - **Estimated size:** S
-- **Depends on:** task-001, task-002, task-003, sprint-155/task-002, sprint-155/task-005
+- **Depends on:** task-001, task-003, task-004, sprint-155/task-002, sprint-155/task-005
 
 ## Goal
 The damaged-file rules and the three small fixes seen working on a real daemon, and M5 closed in the
@@ -31,13 +31,17 @@ Run and record:
    state file, the log or the client.
 4. **Desktop.** The Daemons screen shows both start-failure reasons (if the app can be run here;
    otherwise say so and rely on the tests).
+5. **Update check on connect.** A daemon whose last check is old offers a newer version within
+   seconds of a client connecting (a local release channel, as in `scripts/binary-update-check/`),
+   including over an SSH-style forwarded connection; a second connect inside ten minutes makes no
+   request.
 Docs: root `AGENTS.md` (§ Persistence layout: the `.corrupt-<timestamp>` files and the config rule),
 `packages/server/AGENTS.md`, `swe/architecture/persistence.md`, the CLI README and Fern page if the
 start messages are user-facing there; the handoff (improvements 5, 6 and 8, M5 and the small fixes
 marked done) and `PLAN.md`. Full gates, and `cd desktop && cargo xtask ci`.
 
 ## Acceptance criteria
-- [ ] All four recorded, with what was not checked named; gates green.
+- [ ] All five recorded, with what was not checked named; gates green.
 
 ## Test / verification plan
 As above.

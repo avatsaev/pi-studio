@@ -18,6 +18,7 @@ import {
   runExternalFixtureScenario,
   scenarioDaemonOptions,
 } from "../test-support/external-fixtures-scenario.js";
+import { createdAgentId } from "../test-support/wire-answers.js";
 import { startDevDaemon, type DevBootstrapHandle } from "./dev-bootstrap.js";
 
 /**
@@ -364,6 +365,64 @@ describe("client-input fixtures are accepted and answered with the paired respon
       }
     });
   }
+});
+
+// ── create and send answer at acceptance ──────────────────────────────────────────────────────
+
+/** Indexes in the frame log, from `from` on, of the `agent_stream` frames of `agentId`. */
+function streamFramesOf(agentId: string, from: number): number[] {
+  return client.frames.flatMap((frame, index) => {
+    const m = messageOf(frame);
+    return index >= from && m.type === "agent_stream" && m.agentId === agentId ? [index] : [];
+  });
+}
+
+/**
+ * Sends the request fixture `file` (volatile ids filled from `live`) and checks the contract the
+ * answer fixtures describe: the answer arrives before the first `agent_stream` frame of the
+ * turn, and the turn then ends in exactly one `agent_update` of `idle` or `error`.
+ */
+async function expectAnsweredBeforeTurn(
+  file: string,
+  live: Record<string, unknown>,
+): Promise<void> {
+  const entry = manifest.messages.find((e) => e.file === file);
+  const fixture = loadFixture(file);
+  const from = client.frames.length;
+  const { type, requestId: _requestId, ...body } = withLiveIds(fixture, live);
+  const reply = await client.rpcFrame(String(type), body);
+  expect(messageOf(reply).type, "must not be an rpc_error").not.toBe("rpc_error");
+  expectMatch(`${file} → ${entry?.response}`, loadFixture(entry!.response!), reply);
+
+  const agentId = createdAgentId(messageOf(reply));
+  const settled = (frame: WireFrame): boolean => {
+    const m = messageOf(frame);
+    return (
+      client.frames.indexOf(frame) >= from &&
+      m.type === "agent_update" &&
+      m.agentId === agentId &&
+      (m.status === "idle" || m.status === "error")
+    );
+  };
+  await client.waitFor(settled);
+
+  const answeredAt = client.frames.indexOf(reply);
+  const streamAt = streamFramesOf(agentId, from);
+  expect(streamAt.length, "the turn sent agent_stream frames").toBeGreaterThan(0);
+  expect(Math.min(...streamAt), "the first agent_stream frame follows the answer").toBeGreaterThan(
+    answeredAt,
+  );
+  expect(client.frames.filter(settled), "one settling agent_update").toHaveLength(1);
+}
+
+describe("create and send answer at acceptance", () => {
+  it("create_agent_request answers before the turn's first agent_stream frame", async () => {
+    await expectAnsweredBeforeTurn("create_agent_request.json", {});
+  });
+
+  it("send_agent_prompt answers before the turn's first agent_stream frame", async () => {
+    await expectAnsweredBeforeTurn("send_agent_prompt.json", { agentId: await liveAgent() });
+  });
 });
 
 // ── shapeMatches rules ────────────────────────────────────────────────────────────────────────

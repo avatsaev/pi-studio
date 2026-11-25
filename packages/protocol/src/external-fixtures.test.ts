@@ -159,6 +159,22 @@ describe("breaking-change guard", () => {
     expect(guardProblems(recorded, current, loadChangelog())).toEqual([]);
   });
 
+  it.each(["create_agent_response.json", "agent_prompt_response.json"])(
+    "removing payload.agentId from %s is refused",
+    (file) => {
+      const pointer = "/message/payload/agentId";
+      expect(recorded.files[file]?.[pointer], `${file} pins ${pointer}`).toBe("string");
+      const current = computeSignatures(manifest);
+      delete current.files[file]![pointer];
+      expect(breakingChanges(recorded, current)).toEqual([
+        { file, pointer, was: "string", now: "missing" },
+      ]);
+      expect(guardProblems(recorded, current, loadChangelog())[0]).toContain(
+        "without a formatVersion bump",
+      );
+    },
+  );
+
   describe("rules (in-memory mutations)", () => {
     it("a renamed leaf fails without a bump", () => {
       const current = base();

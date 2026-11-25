@@ -45,7 +45,8 @@ protocol ping. RPC timeouts are operation failures and must **not** be treated a
 ### Session message families (non-exhaustive)
 | Type(s) | Purpose |
 |---------|---------|
-| `create_agent_request` / response | Create an agent session |
+| `create_agent_request` / `create_agent_response` | Create an agent session; answers at acceptance (`payload.agentId`), the first turn runs after the answer |
+| `send_agent_prompt` / `agent_prompt_response` | Send a prompt; answers at acceptance (`payload.agentId`, no `status`) before any `agent_stream` frame of the turn. The outcome is the turn's rows plus one `agent_update` `idle` or `error`; a refusal is an `rpc_error` |
 | `agent_update` | Agent state changed (status, title, labels) |
 | `agent_stream` | New timeline event from a running agent (may be delta-shaped) |
 | `fetch_agent_timeline_request` / response | Authoritative paged timeline history |
@@ -188,6 +189,7 @@ other message; this is not a precedent. Detail:
 | First frame not `hello` | Reject / close | connection error |
 | Unknown session message type | Ignore or `rpc_error` per handler | `rpc_error` |
 | RPC handler throws | Emit `rpc_error` with `requestId` | session message |
+| Request after the daemon began shutting down | `rpc_error` code `shutting_down`, no handler runs; a `ping` is still answered | session message |
 | Large timeline response exceeds relay frame size | Use bounded paging (see timeline-streaming) | paged responses |
 | Old client receives new enum value | Prevented by capability gating | — |
 

@@ -1,7 +1,7 @@
 # Task 002 — Every accepted prompt leaves its outcome in the timeline and the status
 
 - **Sprint:** sprints/sprint-151-instant-replies-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (agent service)
 - **Priority:** P1

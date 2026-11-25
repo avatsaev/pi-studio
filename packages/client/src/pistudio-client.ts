@@ -163,10 +163,26 @@ export interface PiStudioAgentTimelineHandle {
 export interface PiStudioAgentActions {
   readonly agentId: string;
   readonly timeline: PiStudioAgentTimelineHandle;
-  /** Send a follow-up prompt to the running/idle agent. */
-  send(prompt: string, opts?: { clientMessageId?: string; images?: unknown[] }): Promise<unknown>;
-  /** Alias for `send` reflecting the scope's "run a turn" verb. */
-  run(prompt: string, opts?: { clientMessageId?: string; images?: unknown[] }): Promise<unknown>;
+  /**
+   * Send a prompt. Resolves `{ agentId }` as soon as the daemon has ACCEPTED it (the agent is
+   * `running`); the turn runs on after the answer and reports through `timeline.subscribe` rows and
+   * one `agent_update` (`idle` or `error`). Use `waitForIdle()` to wait for that. A refusal
+   * (`busy`, unknown agent) rejects with `RpcError` and nothing started — including a send made
+   * after the previous answer but before that turn's `agent_update`.
+   */
+  send(
+    prompt: string,
+    opts?: { clientMessageId?: string; images?: unknown[] },
+  ): Promise<{ agentId: string }>;
+  /**
+   * Resolve when the agent is not `running` or `initializing`: at once if it is not now, else on
+   * its next `agent_update` with status `idle` or `error` (`closed` when it is archived or deleted
+   * meanwhile; an agent the daemon does not list is `closed` too). Rejects with
+   * `WaitForIdleTimeoutError` after `timeoutMs` (no limit when omitted), with an `AbortError` when
+   * `signal` aborts, and with `WaitForIdleConnectionClosedError` when the connection closes. Call
+   * it after `send` or `createAgent` has answered: the agent is `running` from that answer on.
+   */
+  waitForIdle(opts?: WaitForIdleOptions): Promise<WaitForIdleResult>;
   /** Interrupt the current turn. */
   interrupt(): Promise<unknown>;
   /** Steer the LIVE turn — inject a message delivered after the current assistant turn's tool
@@ -566,16 +582,14 @@ export class PiStudioClient {
   }
 
   /**
-   * Create a new agent session. Returns the response payload (includes `agentId`). When
-   * `initialPrompt` is set, the daemon runs the first turn and streams events to subscribers.
+   * Create a new agent session. Resolves `{ agentId }` as soon as the daemon has accepted the
+   * request. With `initialPrompt` the first turn is accepted too (the agent is `running`) and runs
+   * on after the answer, like `agent(id).send`; `agent(id).waitForIdle()` waits for it.
    */
   async createAgent(
     req: Omit<CreateAgentRequest, "type" | "requestId"> & { requestId?: string },
-  ): Promise<{ agentId: string; [key: string]: unknown }> {
-    const payload = await this.daemon.request<{ agentId: string }>("create_agent_request", {
-      ...req,
-    });
-    return payload as { agentId: string };
+  ): Promise<{ agentId: string }> {
+    return this.daemon.request<{ agentId: string }>("create_agent_request", { ...req });
   }
 
   /** Get an agent handle for an existing agentId. */
@@ -1251,8 +1265,8 @@ class AgentHandle implements PiStudioAgentActions {
   send(
     prompt: string,
     opts: { clientMessageId?: string; images?: unknown[] } = {},
-  ): Promise<unknown> {
-    return this.daemon.request("send_agent_prompt", {
+  ): Promise<{ agentId: string }> {
+    return this.daemon.request<{ agentId: string }>("send_agent_prompt", {
       agentId: this.agentId,
       prompt,
       clientMessageId: opts.clientMessageId,
@@ -1260,8 +1274,8 @@ class AgentHandle implements PiStudioAgentActions {
     });
   }
 
-  run(prompt: string, opts?: { clientMessageId?: string; images?: unknown[] }): Promise<unknown> {
-    return this.send(prompt, opts);
+  waitForIdle(opts?: WaitForIdleOptions): Promise<WaitForIdleResult> {
+    return waitForAgentIdle(this.daemon, this.agentId, opts);
   }
 
   interrupt(): Promise<unknown> {

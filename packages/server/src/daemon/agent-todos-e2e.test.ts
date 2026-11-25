@@ -81,6 +81,25 @@ async function waitFor(
   }
 }
 
+/**
+ * `create_agent_request` and `send_agent_prompt` answer once the prompt is accepted, so a turn has
+ * settled at the first `agent_update` of `idle` or `error` for `agentId` after `since` messages.
+ */
+function settledSince(
+  client: Client,
+  agentId: string,
+  since: number,
+): Promise<Record<string, unknown>> {
+  return waitFor(
+    client,
+    (m) =>
+      client.messages.indexOf(m) >= since &&
+      m.type === "agent_update" &&
+      m.agentId === agentId &&
+      (m.status === "idle" || m.status === "error"),
+  );
+}
+
 function listeningPort(server: Server): Promise<number> {
   if (server.listening) return Promise.resolve((server.address() as AddressInfo).port);
   return new Promise<number>((resolve, reject) => {
@@ -128,14 +147,13 @@ describe("agent todos, real dev daemon (sprint-079/task-007)", () => {
     expect(planned.tasks[0]!.activeForm).toEqual(expect.any(String));
 
     // The turn ends with the list unchanged: the settle reconcile must not add a second broadcast.
-    await waitFor(
-      a,
-      (m) => m.type === "agent_stream" && (m.event as { kind: string }).kind === "turn_completed",
-    );
+    await settledSince(a, agentId, 0);
     expect(updates(a)).toHaveLength(1);
 
+    const sinceAdvance = a.messages.length;
     await a.rpc({ type: "send_agent_prompt", agentId, prompt: "#todo advance" });
     await waitFor(a, (m) => m.type === "agent_todos_update" && (m.snapshot as Snapshot).seq === 2);
+    await settledSince(a, agentId, sinceAdvance);
     const advanced = updates(a)[1]!;
     expect(advanced.tasks.filter((t) => t.status === "completed")).toHaveLength(1);
     expect(advanced.tasks.filter((t) => t.status === "in_progress")).toHaveLength(1);
@@ -185,10 +203,7 @@ describe("agent todos, real dev daemon (sprint-079/task-007)", () => {
       initialPrompt: "hello",
     });
     const agentId = (created.payload as { agentId: string }).agentId;
-    await waitFor(
-      client,
-      (m) => m.type === "agent_stream" && (m.event as { kind: string }).kind === "turn_completed",
-    );
+    await settledSince(client, agentId, 0);
 
     expect(updates(client)).toHaveLength(0);
     const listed = await client.rpc({ type: "agent_todos_list_request", agentId });

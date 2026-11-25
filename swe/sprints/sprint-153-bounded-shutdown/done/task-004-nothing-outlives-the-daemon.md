@@ -1,7 +1,7 @@
 # Task 004 — Nothing the daemon started outlives it
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (extensions, resources, provider auth, file transfer, terminals)
 - **Priority:** P1

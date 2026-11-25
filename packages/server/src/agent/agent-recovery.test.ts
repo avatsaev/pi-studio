@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { agentCalls } from "../test-support/answer-then-run.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { PiAgentClient } from "./providers/pi/agent.js";
@@ -95,10 +96,10 @@ function setup(behaviours: Behaviour[][]): {
 }
 
 async function createAgent(service: AgentService, prompt?: string): Promise<string> {
-  const result = (await service.handleCreate(
-    { config: { provider: "pi", cwd: "/work" }, ...(prompt ? { initialPrompt: prompt } : {}) },
-    () => [],
-  )) as { payload: { agentId: string } };
+  const result = await agentCalls(service).createSettled({
+    config: { provider: "pi", cwd: "/work" },
+    ...(prompt ? { initialPrompt: prompt } : {}),
+  });
   return result.payload.agentId;
 }
 
@@ -116,14 +117,14 @@ describe.each([
   ["a signal", "pi process exited (code null, SIGKILL)"],
   ["an unrequested exit 0", "pi process exited (code 0)"],
 ])("Pi ends by %s", (_label, reason) => {
-  it("fails the turn with the reason, resolves the send, and detaches the session", async () => {
+  it("fails the turn with the reason, answers the send, and detaches the session", async () => {
     const { service, manager, processes } = setup([["complete", { dies: reason }]]);
     const agentId = await createAgent(service, "first");
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
 
-    const response = await service.handleSendPrompt({ agentId, prompt: "second" }, () => []);
+    const response = await agentCalls(service).sendSettled({ agentId, prompt: "second" });
 
-    expect(response).toMatchObject({ type: "agent_prompt_response", agentId });
+    expect(response).toMatchObject({ type: "agent_prompt_response", payload: { agentId } });
     expect(lastEvents(manager, agentId, 1)).toEqual([{ kind: "turn_failed", error: reason }]);
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
     expect(manager.get(agentId)?.session).toBeNull();
@@ -135,7 +136,7 @@ describe.each([
     const agentId = await createAgent(service, "first");
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
 
-    await service.handleSendPrompt({ agentId, prompt: "again" }, () => []);
+    await agentCalls(service).sendSettled({ agentId, prompt: "again" });
 
     expect(processes).toHaveLength(2);
     expect(processes[1]?.spawnArgs.sessionFile).toBe(SESSION_FILE);
@@ -147,6 +148,7 @@ describe.each([
 
   it("between turns it detaches the session and marks the agent error without a turn_failed", async () => {
     const { service, manager, processes } = setup([[], []]);
+    const calls = agentCalls(service);
     const agentId = await createAgent(service, "first");
     const rowsBefore = manager.timelines.get(agentId)?.allRows().length;
 
@@ -157,7 +159,7 @@ describe.each([
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
     expect(manager.timelines.get(agentId)?.allRows().length).toBe(rowsBefore);
 
-    await service.handleSendPrompt({ agentId, prompt: "again" }, () => []);
+    await calls.sendSettled({ agentId, prompt: "again" });
     expect(processes).toHaveLength(2);
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });

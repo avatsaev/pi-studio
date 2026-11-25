@@ -4,6 +4,7 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
@@ -125,19 +126,29 @@ async function setup() {
       const inner = f.message as Record<string, unknown> | undefined;
       return inner?.type === "agent_stream" ? [(inner.event as AgentStreamEvent).kind] : [];
     });
-  return { agentId: rec.id, manager, session, service, slash, ops, streamKinds };
+  return {
+    agentId: rec.id,
+    manager,
+    session,
+    service,
+    calls: agentCalls(service),
+    slash,
+    ops,
+    streamKinds,
+  };
 }
 
 describe("send while a turn runs", () => {
   it("runs one turn for two concurrent sends, refuses the other, and records every event once", async () => {
-    const { agentId, manager, session, service, streamKinds } = await setup();
+    const { agentId, manager, session, service, calls, streamKinds } = await setup();
 
-    const first = service.handleSendPrompt({ agentId, prompt: "one" }, () => []);
-    const second = service.handleSendPrompt({ agentId, prompt: "two" }, () => []);
+    const first = calls.send({ agentId, prompt: "one" });
+    const second = calls.send({ agentId, prompt: "two" });
     await expect(second).rejects.toThrow(`busy: agent ${agentId} is running`);
 
     session.turnGate.resolve();
     await first;
+    await service.turnSettled(agentId);
 
     expect(session.runs).toBe(1);
     expect(session.subscribers.size).toBe(0);
@@ -157,30 +168,31 @@ describe("send while a turn runs", () => {
   });
 
   it("accepts the next send once the turn has ended", async () => {
-    const { agentId, session, service } = await setup();
+    const { agentId, session, calls } = await setup();
     session.turnGate.resolve();
-    await service.handleSendPrompt({ agentId, prompt: "one" }, () => []);
-    await service.handleSendPrompt({ agentId, prompt: "two" }, () => []);
+    await calls.sendSettled({ agentId, prompt: "one" });
+    await calls.sendSettled({ agentId, prompt: "two" });
     expect(session.runs).toBe(2);
   });
 
   it("releases the agent when the run rejects outright", async () => {
-    const { agentId, session, service } = await setup();
-    const boom = new Error("boom");
-    session.run = () => Promise.reject(boom);
-    await expect(service.handleSendPrompt({ agentId, prompt: "one" }, () => [])).rejects.toBe(boom);
+    const { agentId, manager, session, calls } = await setup();
+    session.run = () => Promise.reject(new Error("boom"));
+    await calls.sendSettled({ agentId, prompt: "one" });
+    expect(manager.get(agentId)?.record.lastStatus).toBe("error");
     session.run = () => Promise.resolve();
-    await service.handleSendPrompt({ agentId, prompt: "two" }, () => []);
+    await calls.sendSettled({ agentId, prompt: "two" });
+    expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });
 });
 
 describe("send during a compaction", () => {
   it("is refused with busy, and the compaction still completes", async () => {
-    const { agentId, session, service, slash } = await setup();
+    const { agentId, session, calls, slash } = await setup();
 
     const compaction = slash.handleCompact({ agentId }, () => []);
     await vi.waitFor(() => expect(session.compact).toHaveBeenCalledTimes(1));
-    await expect(service.handleSendPrompt({ agentId, prompt: "go" }, () => [])).rejects.toThrow(
+    await expect(calls.send({ agentId, prompt: "go" })).rejects.toThrow(
       `busy: agent ${agentId} is compacting`,
     );
     expect(session.runs).toBe(0);
@@ -192,8 +204,8 @@ describe("send during a compaction", () => {
 
 describe("session operations while a turn runs", () => {
   it("refuses fork, clone, new session, switch and resume with busy, and runs none of them", async () => {
-    const { agentId, session, service, slash, ops } = await setup();
-    const turn = service.handleSendPrompt({ agentId, prompt: "one" }, () => []);
+    const { agentId, session, service, calls, slash, ops } = await setup();
+    await calls.send({ agentId, prompt: "one" });
 
     const refused = [
       slash.handleFork({ agentId, entryId: "e1" }, () => []),
@@ -213,14 +225,14 @@ describe("session operations while a turn runs", () => {
     expect(session.compact).not.toHaveBeenCalled();
 
     session.turnGate.resolve();
-    await turn;
+    await service.turnSettled(agentId);
     await slash.handleFork({ agentId, entryId: "e1" }, () => []);
     expect(session.fork).toHaveBeenCalledTimes(1);
   });
 
   it("lets model and thinking-level changes through", async () => {
-    const { agentId, session, service, slash } = await setup();
-    const turn = service.handleSendPrompt({ agentId, prompt: "one" }, () => []);
+    const { agentId, session, service, calls, slash } = await setup();
+    await calls.send({ agentId, prompt: "one" });
 
     await slash.handleSetModel({ agentId, provider: "anthropic", modelId: "m1" }, () => []);
     await slash.handleSetThinking({ agentId, level: "high" }, () => []);
@@ -228,18 +240,18 @@ describe("session operations while a turn runs", () => {
     expect(session.setProviderModel).toHaveBeenCalledWith("anthropic", "m1");
     expect(session.setThinkingOption).toHaveBeenCalledWith("high");
     session.turnGate.resolve();
-    await turn;
+    await service.turnSettled(agentId);
   });
 });
 
 describe("session operation in progress", () => {
   it("refuses a send until the fork has finished", async () => {
-    const { agentId, session, service, slash } = await setup();
+    const { agentId, session, calls, slash } = await setup();
     const forkGate = Promise.withResolvers<{ text: string; cancelled: boolean }>();
     session.fork.mockReturnValueOnce(forkGate.promise);
 
     const fork = slash.handleFork({ agentId, entryId: "e1" }, () => []);
-    await expect(service.handleSendPrompt({ agentId, prompt: "go" }, () => [])).rejects.toThrow(
+    await expect(calls.send({ agentId, prompt: "go" })).rejects.toThrow(
       /busy.*is changing its session/,
     );
 

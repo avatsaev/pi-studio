@@ -147,7 +147,7 @@ export class SlashCommandOperationsService {
    * record after a daemon restart) is resumed first — compacting an old, oversized session before
    * continuing it is a primary use.
    *
-   * Compaction runs outside any turn, so `runTurn`'s subscription is not there to record its
+   * Compaction runs outside any turn, so a turn's subscription is not there to record its
    * `compaction` events: this handler holds its own subscription window for the duration of the
    * call and forwards only `compaction` events through the shared `appendStreamEvent` path.
    */

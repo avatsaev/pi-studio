@@ -1,6 +1,7 @@
 import { encodeTerminalFrame, nextFreeSlot, SLOT_SPACE } from "@av-pi-studio/protocol";
 
 import type { Logger } from "../logging/logger.js";
+import { settlesWithin } from "../util/settles-within.js";
 import {
   createDefaultPtyBackend,
   type PtyBackend,
@@ -10,6 +11,9 @@ import {
 import { ScreenBuffer } from "./screen-buffer.js";
 
 const textEncoder = new TextEncoder();
+
+/** How long a killed terminal's process gets to exit after SIGTERM before it is sent SIGKILL. */
+const KILL_GRACE_MS = 2_000;
 
 /**
  * Workspace-scoped PTY terminal manager (features/terminals.md § Behavior, § PTY size ownership,
@@ -71,6 +75,8 @@ export interface TerminalManagerOptions {
   /** Max bytes retained as the transient "screen" snapshot. Default 64KiB. */
   snapshotBytes?: number;
   defaultShell?: string;
+  /** How long a killed terminal's process may take to exit before SIGKILL. Default 2 s. */
+  killGraceMs?: number;
   /** Operational logger: terminal opened/killed/exited (info), spawn failures (error). */
   logger?: Logger;
 }
@@ -125,6 +131,8 @@ interface ManagedTerminal {
   /** Pending coalesced output. */
   pending: Uint8Array[];
   flushTimer: ReturnType<typeof setTimeout> | null;
+  /** Settles when the PTY's process has really exited (`entry.closed` is true sooner, at `kill`). */
+  exit: PromiseWithResolvers<void>;
 }
 
 export class TerminalManager {
@@ -132,6 +140,9 @@ export class TerminalManager {
   private readonly coalesceMs: number;
   private readonly snapshotBytes: number;
   private readonly defaultShell: string;
+  private readonly killGraceMs: number;
+  /** Killed terminals whose process has not exited yet: SIGTERM sent, SIGKILL pending. */
+  private readonly reaping = new Set<Promise<void>>();
   private readonly terminals = new Map<number, ManagedTerminal>();
   private readonly logger?: Logger;
   /** Rotating hand-out point in the one-byte slot space (see `nextFreeSlot`). */
@@ -146,6 +157,7 @@ export class TerminalManager {
     this.snapshotBytes = options.snapshotBytes ?? 64 * 1024;
     this.logger = options.logger;
     this.defaultShell = resolveExecutable(options.defaultShell ?? process.env.SHELL ?? "/bin/sh");
+    this.killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
   }
 
   /** All live terminal runtime entries. */
@@ -244,10 +256,14 @@ export class TerminalManager {
       screenModel: new ScreenBuffer(cols, rows),
       pending: [],
       flushTimer: null,
+      exit: Promise.withResolvers<void>(),
     };
     this.terminals.set(slot, managed);
     pty.onData((data) => this.onOutput(managed, data));
-    pty.onExit(() => this.onExit(managed));
+    pty.onExit(() => {
+      managed.exit.resolve();
+      this.onExit(managed);
+    });
 
     return entry;
   }
@@ -324,29 +340,53 @@ export class TerminalManager {
     return managed.screenModel.snapshotText();
   }
 
-  /** Terminate the PTY and notify subscribers. */
+  /**
+   * Terminate the PTY and notify subscribers. The entry is gone at once; the process gets SIGTERM
+   * now and SIGKILL when it has not exited after the grace (a shell may ignore SIGTERM). The
+   * escalation runs on its own: {@link killAll} waits for it.
+   */
   kill(slot: number): boolean {
     const managed = this.terminals.get(slot);
     if (!managed) return false;
     this.logger?.info({ slot, workspaceId: managed.entry.workspaceId }, "terminal kill requested");
     managed.pty.kill();
     this.onExit(managed);
+    const reaped = this.reap(managed);
+    this.reaping.add(reaped);
+    void reaped.finally(() => this.reaping.delete(reaped));
     return true;
   }
 
-  /** Kill every live terminal and clear its pending flush timer. Call on daemon shutdown so no
-   * PTY can emit output after the transports/sinks it would flush through have been torn down
-   * (a stray coalesce timer firing post-shutdown used to throw "cannot send after close()" from
-   * inside a bare `setTimeout` callback, crashing the process). */
-  killAll(): void {
+  /** Kill every live terminal and clear its pending flush timer, then wait until every killed
+   * process has exited — SIGKILL after the grace for one that ignored SIGTERM. Call on daemon
+   * shutdown so no PTY can emit output after the transports/sinks it would flush through have been
+   * torn down (a stray coalesce timer firing post-shutdown used to throw "cannot send after
+   * close()" from inside a bare `setTimeout` callback, crashing the process) and no shell outlives
+   * the daemon. */
+  async killAll(): Promise<void> {
     for (const slot of Array.from(this.terminals.keys())) {
       this.kill(slot);
     }
+    await Promise.all(this.reaping);
+  }
+
+  /** After SIGTERM: resolves once the process exited, sending SIGKILL when the grace ran out. */
+  private async reap(managed: ManagedTerminal): Promise<void> {
+    if (await settlesWithin(managed.exit.promise, this.killGraceMs)) return;
+    this.logger?.warn(
+      { slot: managed.entry.slot, workspaceId: managed.entry.workspaceId },
+      "terminal ignored SIGTERM: killed",
+    );
+    managed.pty.kill(true);
+    await settlesWithin(managed.exit.promise, this.killGraceMs);
   }
 
   // ─── Internals ───────────────────────────────────────────────────────────
 
   private onOutput(managed: ManagedTerminal, data: Uint8Array): void {
+    // A killed terminal is gone from the list and its screen model is disposed; what the process
+    // still prints before it exits (SIGKILL pending) has no reader.
+    if (managed.entry.closed) return;
     // Append to the transient screen snapshot (bounded ring) for binary client replay.
     managed.screen.append(data);
     // Feed the headless grid for screen-accurate text capture.

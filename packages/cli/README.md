@@ -237,7 +237,7 @@ address; it is for tests and self-hosted mirrors and is never set by a release.
 A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
 installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
 screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that
-host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 10 s for the old
+host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 15 s for the old
 process to exit and report `still_running` if it does not.
 
 ### Feature groups

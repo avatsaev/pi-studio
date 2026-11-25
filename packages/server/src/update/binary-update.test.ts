@@ -18,6 +18,9 @@ import {
 } from "./binary-update.js";
 import type { HelperSpawn } from "./helper.js";
 
+/** The extensions step is refused before it spawns anything; the seam is never called. */
+const noSpawn = async () => ({ exitCode: 0, stderr: "" });
+
 let home: string;
 let server: HttpFixture | undefined;
 
@@ -381,9 +384,9 @@ describe("createBinaryUpdate", () => {
 
   it("refuses the extensions step before an install", () => {
     const update = createBinaryUpdate({ home, ...SYSTEM, listen: () => "" });
-    expect(() => update.updateExtensions({ config: persistedConfigSchema.parse({}) })).toThrow(
-      /no new binary/,
-    );
+    expect(() =>
+      update.updateExtensions({ config: persistedConfigSchema.parse({}), spawn: noSpawn }),
+    ).toThrow(/no new binary/);
   });
 });
 

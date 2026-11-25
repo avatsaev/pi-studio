@@ -126,18 +126,20 @@ function broadcastKind(frame: WireFrame): string | undefined {
     : undefined;
 }
 
-function broadcastKinds(client: TestClient): string[] {
-  return client.frames.flatMap((frame) => broadcastKind(frame) ?? []);
-}
-
 /** Fakes for everything a real apply would touch: npm, the extensions and the helper. */
 function applySeams(
   events: string[],
   pause: () => Promise<void>,
+  probeGate: Promise<void> = Promise.resolve(),
 ): NonNullable<DaemonOptions["updateTestSeams"]> {
   return {
     service: {
-      detectInstallKind: async () => "npm-global",
+      // The probe stays pending until the test has connected, so the connect-time status and the
+      // probe's own broadcast both reach the client (the old race, now every time).
+      detectInstallKind: async () => {
+        await probeGate;
+        return "npm-global";
+      },
       fetchLatest: async () => "99.0.0",
       npmOnPath: async () => true,
       globalFolder: async () => "/fake/npm/root",
@@ -158,12 +160,17 @@ describe("the apply handoff on the production daemon (fakes only)", () => {
     const events: string[] = [];
     const exited = Promise.withResolvers<number>();
     const watcher: { client?: TestClient } = {};
+    const probeGate = Promise.withResolvers<void>();
     const { client } = await boot({
       options: {
         // Hands over once the client has seen `restarting`: the sockets close right after.
-        updateTestSeams: applySeams(events, async () => {
-          await watcher.client?.waitFor((f) => broadcastKind(f) === "restarting");
-        }),
+        updateTestSeams: applySeams(
+          events,
+          async () => {
+            await watcher.client?.waitFor((f) => broadcastKind(f) === "restarting");
+          },
+          probeGate.promise,
+        ),
         onUpdateRestart: (code) => {
           const pidFile = join(handle?.home ?? "", "pi-studio.pid");
           events.push(
@@ -174,6 +181,11 @@ describe("the apply handoff on the production daemon (fakes only)", () => {
       },
     });
     watcher.client = client;
+    probeGate.resolve();
+    // The status answer waits for the start-up probe, whose own broadcast lands before the reply:
+    // frames collected from here on are the apply sequence only.
+    await client.rpc("daemon_update_status_request");
+    const probed = client.frames.length;
     const checked = await client.rpc("daemon_update_check_request");
     expect(daemonUpdateStatusSchema.parse(checked.status).state).toEqual({
       kind: "available",
@@ -192,8 +204,7 @@ describe("the apply handoff on the production daemon (fakes only)", () => {
       // Shutdown had finished when exit was called: not listening, pid file removed.
       "exit 0 listening=false pid=false",
     ]);
-    expect(broadcastKinds(client)).toEqual([
-      "idle",
+    expect(client.frames.slice(probed).flatMap((frame) => broadcastKind(frame) ?? [])).toEqual([
       "checking",
       "available",
       "installing",

@@ -1,7 +1,7 @@
 # Task 001 — Make the `update-e2e` "apply handoff" test deterministic
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server (daemon tests)
 - **Priority:** P1

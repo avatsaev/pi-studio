@@ -1,7 +1,7 @@
 # Task 004 — External fixtures and changelog for create and send
 
 - **Sprint:** sprints/sprint-151-instant-replies-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/protocol (fixtures), packages/server (fixture e2e), docs
 - **Priority:** P2
@@ -36,6 +36,8 @@ behaviour change is breaking for any client that waited on the answer, so the ch
   first `agent_stream` frame of the turn. The record script prints the new candidates.
 - Docs: a "Create and send answer at acceptance" bullet in the root `AGENTS.md` protocol overview, and
   the spec files above.
+
+- The `rpc_error.json` fixture description and the comment in `packages/protocol/src/messages.ts` (~:1110) say the router only emits `unknown_message_type` / `handler_error`; sprint-153/task-002 added `shutting_down` (and sprint-154 adds `too_many_requests`). Update both texts, and state in the CHANGELOG that `code` is an open string.
 
 ## Out of scope
 Clients (sprint 152).

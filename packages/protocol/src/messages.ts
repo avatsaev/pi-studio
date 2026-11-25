@@ -202,12 +202,39 @@ export const createAgentRequestSchema = z.object({
 });
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 
+/** Answer to `create_agent_request`: the agent was accepted; the turn's outcome arrives as stream rows and one `agent_update`. */
 export const createAgentResponseSchema = z.object({
   type: z.literal("create_agent_response"),
   requestId: z.string(),
   payload: z.object({ agentId: z.string() }).passthrough(),
 });
 export type CreateAgentResponse = z.infer<typeof createAgentResponseSchema>;
+
+// Contract for create and send answers: a `create_agent_response` or
+// `agent_prompt_response` means the request was ACCEPTED, not that the turn
+// finished. The outcome arrives as `agent_stream` rows and one `agent_update`.
+
+export const sendAgentPromptRequestSchema = z
+  .object({
+    type: z.literal("send_agent_prompt"),
+    requestId: z.string(),
+    agentId: z.string(),
+    prompt: z.string(),
+    clientMessageId: z.string().optional(),
+    images: z.array(imageAttachmentSchema).optional(),
+  })
+  .passthrough();
+export type SendAgentPromptRequest = z.infer<typeof sendAgentPromptRequestSchema>;
+
+/** Answer to `send_agent_prompt`: the prompt was accepted; the turn's outcome arrives as stream rows and one `agent_update`. */
+export const agentPromptResponseSchema = z
+  .object({
+    type: z.literal("agent_prompt_response"),
+    requestId: z.string(),
+    payload: z.object({ agentId: z.string() }).passthrough(),
+  })
+  .passthrough();
+export type AgentPromptResponse = z.infer<typeof agentPromptResponseSchema>;
 
 // ===========================================================================
 // Agent lifecycle messages
@@ -1080,8 +1107,8 @@ export type ExtensionPacksSetResponse = z.infer<typeof extensionPacksSetResponse
 // `sessionMessageBaseSchema`'s passthrough fallback. Do not "fix" that by adding a schema for it.
 //
 // Every response requires `ok`; a domain failure is `{ ok: false, error: "<reason>" }` in the
-// payload, never a chosen `rpc_error` code (`ws/router.ts` only emits `unknown_message_type` /
-// `handler_error`, both reserved for transport-level failures).
+// payload, never a chosen `rpc_error` code (`ws/router.ts` emits only transport-level codes:
+// `unknown_message_type`, `handler_error` and `shutting_down`; `code` is an open string).
 // ===========================================================================
 
 export const providerAuthTypeSchema = z.enum(["api_key", "oauth"]);
@@ -2207,6 +2234,8 @@ export type RpcError = z.infer<typeof rpcErrorSchema>;
 export const sessionMessageSchema = z.discriminatedUnion("type", [
   createAgentRequestSchema,
   createAgentResponseSchema,
+  sendAgentPromptRequestSchema,
+  agentPromptResponseSchema,
   agentUpdateSchema,
   agentStatusMessageSchema,
   agentListSchema,

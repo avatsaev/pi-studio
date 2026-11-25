@@ -190,7 +190,7 @@ describe("stopDaemon", () => {
     );
     expect(result).toEqual({ stopped: true });
     expect(killed).toBe(9999);
-    expect(waited).toEqual([9999, 10_000]);
+    expect(waited).toEqual([9999, 15_000]);
     expect(existsSync(join(home, "pi-studio.pid"))).toBe(false);
   });
   it("leaves a pid file that now names another process", async () => {
@@ -211,6 +211,27 @@ describe("stopDaemon", () => {
     const result = await stopDaemon(home, fakeRuntime({ waitForExit: async () => false }));
     expect(result).toEqual({ stopped: false, error: "still_running" });
     expect(existsSync(join(home, "pi-studio.pid"))).toBe(true);
+  });
+  it("reports a daemon that takes 12 s to exit as stopped", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    // The daemon exits 12 s after the signal; the fake wait answers as the real one would.
+    const result = await stopDaemon(
+      home,
+      fakeRuntime({ waitForExit: async (_pid, ms) => ms >= 12_000 }),
+    );
+    expect(result).toEqual({ stopped: true });
+  });
+  it("reports still_running for a daemon that never exits, after the full wait", async () => {
+    const home = tmpHome();
+    writeFileSync(join(home, "pi-studio.pid"), "9999", "utf8");
+    const waits: number[] = [];
+    const result = await stopDaemon(
+      home,
+      fakeRuntime({ waitForExit: async (_pid, ms) => (waits.push(ms), false) }),
+    );
+    expect(result).toEqual({ stopped: false, error: "still_running" });
+    expect(waits).toEqual([15_000]);
   });
   it("reports still_running when the signal fails but the process exists (EPERM)", async () => {
     const home = tmpHome();
@@ -742,7 +763,7 @@ describe("daemon --json", () => {
     expect(code).toBe(1);
     expect(err).toEqual([]);
     expect(out).toEqual([JSON.stringify({ stopped: false, error: "still_running" })]);
-    expect(waits).toEqual([[9999, 10_000]]);
+    expect(waits).toEqual([[9999, 15_000]]);
     expect(existsSync(join(home, "pi-studio.pid"))).toBe(true);
   });
 

@@ -14,7 +14,7 @@ const NOW = "2026-06-11T12:00:00.000Z";
  * `persistence` handle, but NO in-memory `AgentTimelineStore` for its id — exactly the state every
  * agent is in immediately after a daemon restart (the manager's timeline registry is
  * process-memory only). `manager.timelines.get(agentId)` will genuinely return `undefined` here
- * because this agentId was never passed through `AgentService.runTurn`/`timelineFor` here.
+ * because this agentId was never passed through `AgentService`'s turn path or `timelineFor` here.
  */
 async function makeRestartedAgentManager(record: AgentRecord): Promise<AgentManager> {
   const manager = new AgentManager({

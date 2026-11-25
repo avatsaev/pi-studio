@@ -12,7 +12,7 @@ import { execFile } from "node:child_process";
 import type { Server as HttpServer } from "node:http";
 import { join } from "node:path";
 import { expandHome } from "../files/resolve-path.js";
-import { createHttpServer } from "../http/http-server.js";
+import { closeHttpServer, createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeBinaryFrame, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
@@ -53,6 +53,7 @@ import {
 } from "../update/dev-update-script.js";
 import { UpdateService } from "../update/update-service.js";
 import { isLoopbackHost, unprotectedBindError } from "./loopback.js";
+import { runShutdown } from "./shutdown.js";
 
 export interface DevBootstrapOptions {
   host: string;
@@ -525,20 +526,34 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   httpServer.listen(opts.port, opts.host);
   void updateService.start();
 
-  return {
-    httpServer,
-    serverId,
-    logger,
-    manager,
-    close: async () => {
+  // One shutdown, memoized like the production daemon's (`close()` twice returns the first run).
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
       logger.info("dev daemon shutting down");
-      updateService.close();
-      await manager.closeAll();
-      daemonStatusService.dispose();
-      terminalManager.killAll();
-      daemonLogsService.dispose();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-    },
+      await runShutdown(
+        [
+          {
+            name: "stop accepting",
+            run: () => {
+              registry.stopAccepting();
+              wsHandle.stopAccepting();
+              updateService.close();
+            },
+          },
+          { name: "agents", run: () => manager.closeAll() },
+          { name: "terminals", run: () => terminalManager.killAll() },
+          { name: "transfers", run: () => fileTransfer.close() },
+          { name: "status service", run: () => daemonStatusService.dispose() },
+          { name: "log service", run: () => daemonLogsService.dispose() },
+          { name: "sockets", run: () => wsHandle.close() },
+          { name: "http", run: () => closeHttpServer(httpServer) },
+        ],
+        logger,
+      );
+    })();
+    return closing;
   };
+
+  return { httpServer, serverId, logger, manager, close };
 }

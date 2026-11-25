@@ -50,10 +50,24 @@ Request fields:
 | `extra` | `{ pi? }` | provider-specific config |
 | `systemPrompt` | string? | custom system prompt |
 
+#### Answer — accepted, not finished
+
+`create_agent_request` answers `create_agent_response {requestId, payload: {agentId}}`, and
+`send_agent_prompt` answers `agent_prompt_response {requestId, payload: {agentId}}`, as soon as the
+request is **accepted**: the agent exists, the busy claim is taken and its status is `running`. The
+answer arrives before any `agent_stream` frame of the turn and carries no `status`. A refusal
+(`busy`, unknown or archived agent, invalid request) is an `rpc_error` and means nothing was
+started. The turn runs after the answer; its outcome is the turn's `agent_stream` rows (a failure,
+including a provider that cannot start or refuses the prompt, ends in a `turn_failed` row with the
+reason) and exactly one `agent_update` with status `idle` or `error`. A slash command an extension
+handles inline has no `turn_*` rows; its `agent_update idle` is the end signal. A create without
+`initialPrompt` makes a draft and answers once it exists. Pinned by the external fixtures
+(`create_agent_*`, `send_agent_prompt`, `agent_prompt_response`).
+
 ### Other operations (session RPC families + CLI mirrors)
 | Operation | Surface |
 |-----------|---------|
-| Send a prompt / follow-up (while idle) | `send_agent_prompt`, `pi-studio send`, composer submit |
+| Send a prompt / follow-up (while idle) | `send_agent_prompt` → `agent_prompt_response {payload: {agentId}}` at acceptance (see Create § Answer), `pi-studio send`, composer submit |
 | Steer a running turn (mid-turn injection, delivered before the next LLM call) | `steer_agent_request` (SDK/CLI `steer`), composer **Steer** button |
 | Queue a follow-up (delivered only once the turn fully stops) | `follow_up_agent_request` (SDK/CLI `followUp`) — not surfaced in the web composer |
 | Interrupt current turn | interrupt RPC / `pi-studio stop` |
@@ -143,7 +157,7 @@ function run(agent, prompt):
 | Duplicate provider echo of a user message | Deduped by message id | — |
 | `autoArchive` + worktree | Agent (and its worktree) archived after terminal turn | global archive |
 | Resume with stale handle | Resume fails; surface error | `rpc_error` |
-| Send prompt with no live session (e.g. after a daemon restart) | Lazily resumes from the persisted handle, then runs the turn; fails only if no persistence handle exists | `agent_prompt_response` or `rpc_error` |
+| Send prompt with no live session (e.g. after a daemon restart) | Accepted at once (`agent_prompt_response`); after the answer it lazily resumes from the persisted handle and runs the turn. A handle that cannot be resumed ends the turn in a `turn_failed` row and an `agent_update` `error`, not in an `rpc_error` | `agent_prompt_response`, then `turn_failed` + `agent_update` |
 
 ## Dependencies
 - Internal: AgentManager, provider registry/adapters, timeline store, permission flow, worktree
@@ -151,7 +165,7 @@ function run(agent, prompt):
 - External: agent provider CLIs/SDKs.
 
 ## Acceptance Criteria
-- [ ] `create_agent_request` with `initialPrompt` creates an agent, runs the first turn, and streams events.
+- [ ] `create_agent_request` with `initialPrompt` answers `create_agent_response` at acceptance, then runs the first turn and streams events; the answer precedes the turn's first `agent_stream` frame.
 - [ ] Exactly one `user_message` row exists per submitted prompt, keyed by provider message id.
 - [ ] Interrupting a running turn yields `turn_canceled` and returns the agent to `idle`.
 - [ ] Resuming a closed agent via its `PersistenceHandle` restores the conversation.
@@ -159,6 +173,5 @@ function run(agent, prompt):
 - [ ] Updating model/thinking/features persists and broadcasts without recreating the session unnecessarily.
 
 ## TODO(verify)
-- [ ] Exact `send_agent_prompt`/interrupt/update RPC message type names on the wire.
 - [ ] `GitSetupOptions` and `CreateAgentWorktreeTarget` field shapes.
 - [ ] `outputSchema` structured-output run semantics.

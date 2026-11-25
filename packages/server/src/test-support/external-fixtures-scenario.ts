@@ -80,6 +80,8 @@ export function variantKey(frame: WireFrame): string | undefined {
     case "daemon_log_lines":
     case "list_agents_response":
     case "agent_archived":
+    case "create_agent_response":
+    case "agent_prompt_response":
     case "agent_deleted":
     case "agent_timeline_reset":
     case "fetch_agent_timeline_response":
@@ -227,6 +229,22 @@ export async function runExternalFixtureScenario(
     if (!session) throw new Error(`no live session for ${agentId}`);
     return session as MockAgentSession;
   };
+  // `create_agent_request` and `send_agent_prompt` answer once the prompt is accepted: a turn has
+  // settled at the first `agent_update` of `idle` or `error` for the agent after `since` frames.
+  const settledSince = (agentId: string, since: number): Promise<WireFrame> =>
+    waitFor(
+      (frame) =>
+        client.frames.indexOf(frame) >= since &&
+        isType(
+          "agent_update",
+          (m) => m.agentId === agentId && (m.status === "idle" || m.status === "error"),
+        )(frame),
+    );
+  const sendAndSettle = async (agentId: string, prompt: string): Promise<void> => {
+    const since = client.frames.length;
+    await rpc("send_agent_prompt", { agentId, prompt });
+    await settledSince(agentId, since);
+  };
 
   // Liveness.
   client.send({ type: "ping", requestId: "scenario-ping", clientSentAt: Date.now() });
@@ -238,13 +256,14 @@ export async function runExternalFixtureScenario(
   await waitFor(isType("agent_update", (m) => m.status === "idle"));
 
   // Tool call with partials, then the `#stream` kinds the normal turn never produces.
-  await rpc("send_agent_prompt", { agentId, prompt: "#tool shell" });
+  await sendAndSettle(agentId, "#tool shell");
   for (const recipe of ["reasoning", "fail", "error"]) {
-    await rpc("send_agent_prompt", { agentId, prompt: `#stream ${recipe}` });
+    await sendAndSettle(agentId, `#stream ${recipe}`);
   }
 
-  // Cancellation: `send_agent_prompt` blocks until the turn ends, so send raw and interrupt once
-  // the daemon has recorded the prompt (the mock turn is still pending its delay).
+  // Cancellation: send raw and interrupt once the daemon has recorded the prompt (the mock turn is
+  // still pending its delay).
+  const sinceSlow = client.frames.length;
   client.send({
     type: "session",
     message: {
@@ -258,6 +277,7 @@ export async function runExternalFixtureScenario(
   await rpc("interrupt_agent", { agentId });
   await waitFor(isStream("turn_canceled"));
   await waitFor(isType("agent_prompt_response", (m) => m.requestId === "scenario-slow"));
+  await settledSince(agentId, sinceSlow);
 
   // Compaction (mock holds `started` for ~1.5 s).
   await rpc("agent_compact_request", { agentId });

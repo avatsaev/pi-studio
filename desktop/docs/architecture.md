@@ -251,7 +251,7 @@ reached `running` the installer tidies: version folders other than `current` and
 archive cache keeps the pin's only. A running daemon older than 0.0.127, which `GET /api/health` tells (`pi-studio daemon status` has no
 version), is `outdated {version}`: that is how an npm daemon that was running before the app is found, through the binary's
 `daemon status` (the PID file and the folder are shared), and used as it is when it is current. Each call has its own
-limit (`--version` 15 s, `status` 5 s, `start` and `restart` 90 s, `stop` 15 s; a download has a 60 s stall limit and no
+limit (`--version` 15 s, `status` 5 s, `start` and `restart` 90 s, `stop` 20 s, which exceeds the CLI's own 15 s wait for the daemon to exit; a download has a 60 s stall limit and no
 total), a timed-out process group is killed, and the answer is the last non-empty line of standard output read as JSON
 whatever the exit code. The binary's `pairingUrl` is discarded where the line is parsed. `daemon_resolve_current`
 waits for a local daemon that is changing state for the longest call plus 10 s after the last sign of life, so it waits

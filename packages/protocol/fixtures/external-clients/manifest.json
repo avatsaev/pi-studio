@@ -12,6 +12,11 @@
       "direction": "server_to_client"
     },
     {
+      "file": "agent_prompt_response.json",
+      "type": "agent_prompt_response",
+      "direction": "server_to_client"
+    },
+    {
       "file": "agent_session_stats_request.json",
       "type": "agent_session_stats_request",
       "direction": "client_to_server",
@@ -196,6 +201,17 @@
     {
       "file": "capture_terminal_response.json",
       "type": "capture_terminal_response",
+      "direction": "server_to_client"
+    },
+    {
+      "file": "create_agent_request.json",
+      "type": "create_agent_request",
+      "direction": "client_to_server",
+      "response": "create_agent_response.json"
+    },
+    {
+      "file": "create_agent_response.json",
+      "type": "create_agent_response",
       "direction": "server_to_client"
     },
     {
@@ -427,6 +443,12 @@
       "file": "rpc_error.json",
       "type": "rpc_error",
       "direction": "server_to_client"
+    },
+    {
+      "file": "send_agent_prompt.json",
+      "type": "send_agent_prompt",
+      "direction": "client_to_server",
+      "response": "agent_prompt_response.json"
     },
     {
       "file": "status.server_info.json",

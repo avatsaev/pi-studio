@@ -1,9 +1,5 @@
 import type { PersistedConfig } from "../config/daemon-config.js";
-import {
-  defaultInstallSpawn,
-  type InstallSpawn,
-  updateInstalledExtensions,
-} from "../extensions/sync-executor.js";
+import { type InstallSpawn, updateInstalledExtensions } from "../extensions/sync-executor.js";
 import type { SelfRuntime } from "../runtime/self.js";
 import { PACKAGE_NAME } from "../version.js";
 import { installBinaryVersion, type BinaryInstallOptions } from "./binary-install.js";
@@ -106,7 +102,7 @@ export interface BinaryUpdate {
   /** The pipeline's install step: `bin/versions/<version>`, `current` untouched. */
   install(version: string): Promise<void>;
   /** The NEW binary's `__pi update --extensions`; call after `install`. */
-  updateExtensions(deps: { config: PersistedConfig; spawn?: InstallSpawn }): Promise<void>;
+  updateExtensions(deps: { config: PersistedConfig; spawn: InstallSpawn }): Promise<void>;
   /** Starts the NEW binary's `__update-helper` detached. */
   spawnHelper(target: string, previous: string): void;
 }
@@ -138,7 +134,7 @@ export function createBinaryUpdate(options: BinaryUpdateOptions): BinaryUpdate {
       if (installed === undefined) throw new Error("no new binary was installed");
       return updateInstalledExtensions({
         config,
-        spawn: redirectSpawn(spawn ?? defaultInstallSpawn, installed),
+        spawn: redirectSpawn(spawn, installed),
       });
     },
     spawnHelper: (target, previous) => {

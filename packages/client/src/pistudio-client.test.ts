@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DaemonClient, RpcTimeoutError } from "./daemon-client.js";
 import * as clientIndex from "./index.js";
@@ -108,6 +108,88 @@ describe("PiStudioClient — agent create + stream", () => {
     expect(events).toContain("turn_started");
     expect(events).toContain("assistant_message");
     expect(events).toContain("turn_completed");
+  });
+});
+
+describe("PiStudioClient — create and send answer at acceptance", () => {
+  beforeEach(() => {
+    vi.useFakeTimers(); // microtask-only daemon: the fake clock just lets the tests drain it
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("send resolves { agentId } once the prompt is accepted, before its turn settles", async () => {
+    const { client, fake } = await makeFacade({ holdTurns: true });
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+    const statuses: Array<string | undefined> = [];
+    agent.onUpdate((update) => statuses.push(update.status));
+
+    await expect(agent.send("hi", { clientMessageId: "m1" })).resolves.toEqual({ agentId });
+    expect(fake.sent.at(-1)).toMatchObject({
+      type: "send_agent_prompt",
+      agentId,
+      prompt: "hi",
+      clientMessageId: "m1",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statuses).toEqual(["running"]); // the turn is under way, not finished
+
+    fake.settle(agentId, "idle");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statuses).toEqual(["running", "idle"]);
+  });
+
+  it("a send before the previous turn's agent_update is refused as busy; after it, accepted", async () => {
+    const { client, fake } = await makeFacade({ holdTurns: true });
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+    await agent.send("first");
+
+    await expect(agent.send("second")).rejects.toMatchObject({ name: "RpcError", code: "busy" });
+
+    fake.settle(agentId, "idle");
+    await expect(agent.send("third")).resolves.toEqual({ agentId });
+  });
+
+  it("createAgent with an initialPrompt answers at acceptance; the agent is running", async () => {
+    const { client } = await makeFacade({ holdTurns: true });
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      initialPrompt: "go",
+      labels: {},
+    });
+
+    expect(created).toEqual({ agentId: "agent-1" });
+    await expect(client.agent(created.agentId).send("again")).rejects.toMatchObject({
+      code: "busy",
+    });
+  });
+
+  it("send then waitForIdle resolves idle once the turn has settled", async () => {
+    const { client } = await makeFacade();
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+
+    await agent.send("hi");
+
+    await expect(agent.waitForIdle()).resolves.toEqual({ status: "idle" });
+  });
+
+  it("send to an unknown agent rejects, nothing started", async () => {
+    const { client } = await makeFacade();
+
+    await expect(client.agent("ghost").send("hi")).rejects.toMatchObject({ name: "RpcError" });
   });
 });
 

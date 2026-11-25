@@ -17,8 +17,10 @@ pub const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 pub const START_TIMEOUT: Duration = Duration::from_secs(90);
 /// Time limit of `daemon restart`.
 pub const RESTART_TIMEOUT: Duration = Duration::from_secs(90);
-/// Time limit of `daemon stop`.
-pub const STOP_TIMEOUT: Duration = Duration::from_secs(15);
+/// Time limit of `daemon stop`. It must exceed the CLI's own wait for the daemon to exit
+/// (`STOP_TIMEOUT_MS` in `packages/cli/src/daemon-control.ts`: the daemon's 10 s shutdown deadline
+/// plus 5 s), or the app kills a CLI that is still waiting.
+pub const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 /// How many of the last lines of what a host or a binary printed are kept.
 const TAIL_LINES: usize = 20;
 /// The most characters kept of them (the end is kept).
@@ -235,7 +237,7 @@ mod tests {
     #[test]
     fn limits() {
         assert_eq!(START_TIMEOUT, Duration::from_secs(90));
-        assert_eq!(STOP_TIMEOUT, Duration::from_secs(15));
+        assert_eq!(STOP_TIMEOUT, Duration::from_secs(20));
     }
 
     #[test]

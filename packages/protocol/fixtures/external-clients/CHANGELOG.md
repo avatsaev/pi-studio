@@ -114,3 +114,27 @@ no migration.
 presence and type are the contract). `status` is unchanged, so every existing reader (the Docker
 HEALTHCHECK, the CLI's probe, the desktop) keeps working. No existing leaf changed type or
 disappeared, no migration. A daemon built before this change answers only `{ "status": "ok" }`.
+
+## Additive — 2026-11-25 (formatVersion stays 2)
+
+Create and send (pi-studio 0.0.133, no feature flag): `create_agent_request.json` and
+`create_agent_response.json`, `send_agent_prompt.json` and `agent_prompt_response.json`. New files
+only; no existing fixture changed a leaf path or type, so the fixture change is additive and
+`formatVersion` stays 2. The rest of this entry is a **behaviour change that is breaking for any
+client that waited on the answer**; there is no compatibility path and no flag, so a client written
+for an older daemon must change:
+
+- Both answers now mean **accepted**, not "the turn finished". `create_agent_response` and
+  `agent_prompt_response` arrive as soon as the agent exists (create) or the prompt is accepted
+  (send), before any `agent_stream` frame of the turn. A refusal (unknown or archived agent,
+  `busy`, invalid request) is still an `rpc_error` and means nothing was started.
+- `agent_prompt_response` is `{ payload: { agentId } }` and carries **no `status`**; the old
+  literal `status: "idle"` is gone. Do not read the turn's result from the answer.
+- The outcome is the turn's `agent_stream` rows (a failure ends in a `turn_failed` row with the
+  reason) plus **exactly one** `agent_update` with `status` `idle` or `error`. A slash command an
+  extension handles inline has no `turn_*` rows; its `agent_update` `idle` is the end signal. One
+  turn runs per agent at a time, so the next such `agent_update` after an accepted send belongs to
+  that send. A client that needs the end of a turn waits for that `agent_update`.
+- `rpc_error.json` only had its `description` refreshed: `code` is an **open string** (today
+  `unknown_message_type`, `handler_error` and `shutting_down`), so a client must treat a code it
+  does not know as a generic failure. No leaf changed.

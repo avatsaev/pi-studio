@@ -1,7 +1,7 @@
 # Task 001 — SDK: `send` resolves on acceptance, and `waitForIdle`
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1
@@ -34,6 +34,8 @@ wait for a turn. The CLI (task-002) needs one.
   function with its own tests.
 - The scripted daemon answers `send_agent_prompt` and pushes `running` then a settle.
 - `packages/client/AGENTS.md`: the contract, `waitForIdle`, and the removal of `run`.
+
+- **Contract notes from sprint-151.** `create_agent_response` and `agent_prompt_response` now answer `{payload: {agentId}}` at acceptance; the turn's rows and one `agent_update` (`idle` or `error`) follow. A send right after the answer is refused with `busy` until that `agent_update`. `agent_update` is broadcast to every session. The daemon's `shutting_down` and (sprint-154) `too_many_requests` `rpc_error` codes exist.
 
 ## Out of scope
 The connection-wide timeout and per-call timeouts (task-004).

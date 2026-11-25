@@ -135,7 +135,7 @@ Stage 1:
 | `agent_ui_respond_request` (`confirm` → `{confirmed}`, `select` → `{value}`), `agent_ui_respond_response` (`ok:true`, `ok:false error:not_found`) | both | same — the dashboard's answer mutation (D36) | Zod |
 | `agent_ui_list_request`, `agent_ui_list_response` (pending + surfaces) | both | same — late-join catch-up (D36) | Zod |
 | `interrupt_agent`, `interrupt_response` | both | `session-operations.ts` (`{type:"interrupt_response",agentId,ok}`) | **none** |
-| `rpc_error` | S→C | `ws/router.ts` (`requestId, code, message`; codes `unknown_message_type`, `handler_error`) | Zod |
+| `rpc_error` | S→C | `ws/router.ts` (`requestId, code, message`; codes `unknown_message_type`, `handler_error`, `shutting_down`) | Zod |
 | `health` (HTTP, `GET /api/health`) | HTTP | `http/http-server.ts` `HEALTH_PATH` — body + status as returned unauthenticated. *Shipped:* `direction: "http"`, frame `{status, contentType, body}` | **none** |
 
 Stage 2 (added when the corresponding spec ships; flagged `"stage": 2` and `requiresFeature`):

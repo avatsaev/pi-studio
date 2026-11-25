@@ -1,6 +1,10 @@
 import { decodeTerminalFrame, encodeTerminalFrame } from "@av-pi-studio/protocol";
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isAlive, killQuietly, readPid } from "../test-support/process-probe.js";
 import type { PtyBackend, PtyProcess, PtySpawnOptions } from "./pty-backend.js";
 import { safeReplayStart, TerminalManager } from "./terminal-manager.js";
 
@@ -21,6 +25,10 @@ class FakePty implements PtyProcess {
   writes: Uint8Array[] = [];
   resizes: Array<{ cols: number; rows: number }> = [];
   killed = false;
+  /** The signals `kill()` was asked to send, in order. */
+  signals: Array<"SIGTERM" | "SIGKILL"> = [];
+  /** A shell that ignores SIGTERM: only `kill(true)` (SIGKILL) ends it. */
+  ignoresSigterm = false;
   private dataCb: ((d: Uint8Array) => void) | null = null;
   private exitCb: ((c: number | null) => void) | null = null;
   constructor(readonly opts: PtySpawnOptions) {}
@@ -30,7 +38,9 @@ class FakePty implements PtyProcess {
   resize(cols: number, rows: number): void {
     this.resizes.push({ cols, rows });
   }
-  kill(): void {
+  kill(force?: boolean): void {
+    this.signals.push(force ? "SIGKILL" : "SIGTERM");
+    if (this.ignoresSigterm && !force) return;
     this.killed = true;
     this.exitCb?.(0);
   }
@@ -219,6 +229,67 @@ describe("TerminalManager", () => {
     mgr.kill(entry.slot);
 
     expect(exits).toEqual([entry.slot]);
+  });
+
+  it("killAll resolves once every killed PTY has exited, with no SIGKILL for one that obeys SIGTERM", async () => {
+    const backend = new FakePtyBackend();
+    const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+    mgr.createTerminal({ workspaceId: "ws1" });
+    mgr.createTerminal({ workspaceId: "ws1" });
+
+    await mgr.killAll();
+
+    expect(mgr.list()).toEqual([]);
+    expect(backend.ptys.map((p) => p.signals)).toEqual([["SIGTERM"], ["SIGTERM"]]);
+  });
+
+  it("killAll sends SIGKILL to a PTY that ignores SIGTERM after 2 s, and resolves once it exited", async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakePtyBackend();
+      const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+      mgr.createTerminal({ workspaceId: "ws1" });
+      const pty = backend.last();
+      pty.ignoresSigterm = true;
+
+      let resolved = false;
+      const done = mgr.killAll().then(() => {
+        resolved = true;
+      });
+      expect(pty.signals).toEqual(["SIGTERM"]);
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(pty.signals).toEqual(["SIGTERM"]);
+      expect(resolved).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(pty.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a single kill() escalates the same way, and killAll waits for it", async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakePtyBackend();
+      const mgr = new TerminalManager({ backend, coalesceMs: 0 });
+      const entry = mgr.createTerminal({ workspaceId: "ws1" });
+      const pty = backend.last();
+      pty.ignoresSigterm = true;
+
+      expect(mgr.kill(entry.slot)).toBe(true);
+      expect(mgr.get(entry.slot)).toBeUndefined(); // gone from the list at once
+      expect(pty.signals).toEqual(["SIGTERM"]);
+
+      const done = mgr.killAll(); // nothing left to kill, but the SIGKILL is still pending
+      await vi.advanceTimersByTimeAsync(2000);
+      await done;
+      expect(pty.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("onTerminalExit unsubscribe stops further notifications", () => {
@@ -575,4 +646,35 @@ describe("resize validation", () => {
 it("uses the protocol terminal codec", () => {
   const f = encodeTerminalFrame({ opcode: "Output", slot: 5, data: new Uint8Array([1, 2]) });
   expect(decodeTerminalFrame(f).slot).toBe(5);
+});
+
+// A fake backend cannot show that a shell is really dead, so this one starts a real shell (a real PTY
+// where `node-pty` loads, a piped child otherwise) that ignores the polite signals.
+describe("TerminalManager with a real shell", () => {
+  const dirs: string[] = [];
+  const leftovers: number[] = [];
+
+  afterEach(async () => {
+    for (const pid of leftovers.splice(0)) killQuietly(pid);
+    await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it("killAll leaves a shell that ignores SIGTERM and SIGHUP dead when it resolves", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-studio-terminal-"));
+    dirs.push(dir);
+    const shell = join(dir, "stubborn-shell");
+    await writeFile(
+      shell,
+      '#!/bin/sh\ntrap "" TERM HUP\necho $$ > "$PIDFILE"\nwhile :; do sleep 1; done\n',
+      { mode: 0o755 },
+    );
+    const mgr = new TerminalManager({ killGraceMs: 300 });
+    mgr.createTerminal({ workspaceId: "ws1", shell, env: { PIDFILE: join(dir, "pid") } });
+    const pid = await readPid(join(dir, "pid"));
+    leftovers.push(pid);
+
+    await mgr.killAll();
+
+    expect(isAlive(pid)).toBe(false);
+  });
 });

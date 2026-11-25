@@ -1,7 +1,7 @@
 # Task 005 — The CLI and the desktop app wait as long as a stop can take
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/cli (daemon control), desktop/crates/shell
 - **Priority:** P2

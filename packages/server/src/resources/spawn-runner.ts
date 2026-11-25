@@ -1,4 +1,4 @@
-import type { InstallSpawn } from "../extensions/sync-executor.js";
+import type { InstallSpawn, InstallSpawnResult } from "../extensions/sync-executor.js";
 
 /**
  * Shared spawn seam for skills-manager mutations (install/remove/update_all — tasks 004/005/077),
@@ -27,7 +27,7 @@ export interface SpawnOutcome {
 /**
  * Runs `command` through the injected `InstallSpawn` seam, translating its result (or a thrown
  * `spawn` error — e.g. ENOENT) into the `skills_*` error taxonomy. The seam itself owns the
- * per-call timeout and process-tree kill (`sync-executor.ts`'s `defaultInstallSpawn`); this
+ * per-call timeout and process-tree kill (`extensions/install-processes.ts`); this
  * function only interprets the outcome.
  */
 export async function runSpawn(
@@ -37,7 +37,7 @@ export async function runSpawn(
   timeoutMs: number,
   cwd?: string,
 ): Promise<SpawnOutcome> {
-  let result: { exitCode: number | null; stderr: string; stdout?: string; timedOut?: boolean };
+  let result: InstallSpawnResult;
   try {
     result = await spawn({ command, env, timeoutMs, cwd });
   } catch {

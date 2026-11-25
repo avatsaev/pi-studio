@@ -1,7 +1,7 @@
 # Task 001 — Protocol: schemas for send and the two "accepted" answers
 
 - **Sprint:** sprints/sprint-151-instant-replies-daemon
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/protocol (messages)
 - **Priority:** P1

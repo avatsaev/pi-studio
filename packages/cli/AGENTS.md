@@ -232,7 +232,7 @@ the file both the CLI and every future agent spawn read, before any agent needs 
 | Command                                   | Description                                                                                                                  |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `daemon start`                            | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
-| `daemon stop`                             | Send SIGTERM to the local daemon, then wait up to 10 s for the process to exit                                              |
+| `daemon stop`                             | Send SIGTERM to the local daemon, then wait up to 15 s for the process to exit                                              |
 | `daemon restart`                          | Stop (waiting for the old process to exit), then start the local daemon                                                      |
 | `daemon status`                           | Print health + PID                                                                                                           |
 | `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
@@ -261,7 +261,7 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 | --- | --- | --- |
 | `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}`; healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
 | `pair` | `{"pairingUrl","relay"}` | `{"error":"no_keypair"}` |
-| `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 10 s) |
+| `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 15 s) |
 | `restart` when the old daemon did not exit | — | `{"up":false,"host","port","error":"still_running"}` |
 
 `DaemonRuntime` (`daemon-control.ts`; every member injectable, tests pass fakes):
@@ -277,7 +277,7 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 
 Free functions: `waitForDaemon(runtime, host, port, opts)` polls health until up or timeout;
 `stopDaemon(home, runtime)` (async) → `StopResult { stopped, error?: "still_running" }`: no pid file
-→ `{stopped:false}`; SIGTERM, then `waitForExit(pid, STOP_TIMEOUT_MS = 10 000)`; a pid file whose
+→ `{stopped:false}`; SIGTERM, then `waitForExit(pid, STOP_TIMEOUT_MS)` (the daemon's `SHUTDOWN_DEADLINE_MS` + 5 s = 15 s, imported from `@av-pi-studio/server/shutdown`, a pure module; the desktop app's `STOP_TIMEOUT` of 20 s must exceed it); a pid file whose
 process is gone (the signal failed and one liveness check says gone) is removed and reported as not
 running; a process that survives the wait, or cannot be signalled but exists, is
 `{stopped:false, error:"still_running"}`; after a confirmed exit the pid file is removed when it
@@ -642,6 +642,9 @@ branches to `createRelayTransport` when it carries a relay offer).
   binary's `binary-update.ts`/`binary-layout.ts`/`binary-helper.ts`): pure functions, `npm` child
   processes, the manifest download and the link switch, never the daemon's lifecycle, a WS server, or
   daemon state.
+- **`daemon-control.ts` imports one constant from `@av-pi-studio/server/shutdown`.** That path is a
+  `package.json` `exports` entry for `daemon/shutdown.ts` (it imports only a logger type), so the CLI's
+  stop wait is derived from the daemon's `SHUTDOWN_DEADLINE_MS` without loading the rest of `daemon/`.
 - **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
   import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
   `await import()` taken only when a prompt is about to render — verified with a `node:module`
@@ -665,7 +668,7 @@ The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desk
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
 - `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
-- `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 10 s (exit 1). The app reads `stopped` only and ignores the rest.
+- `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 15 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 
 The app reads the last non-empty line of standard output as JSON **whatever the exit code** (a down daemon or a failed start exits 1 and the line still says why), within a limit per command (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s). It discards `pairingUrl`. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply). Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too (`desktop/docs/architecture.md` § The registry and the local daemon).

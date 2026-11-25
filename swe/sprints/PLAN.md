@@ -181,9 +181,9 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 153 | `sprint-153-bounded-shutdown` | server + cli + desktop: **Daemon audit M5, part 1 — a stop that always finishes.** A deterministic update test; an ordered, bounded shutdown; signals, fatal errors and the PID file; no child, timer or upload left behind; stop budgets in the CLI and the desktop app; live check and the update recipes. | 6 |
 | 154 | `sprint-154-socket-limits` | server: **Daemon audit M5, part 2 — connections.** A time limit for `hello`, a frame size limit, a cap on requests in flight; dead connections noticed; slow clients cut off; terminal subscriptions end with their session; live check. | 5 |
 | 155 | `sprint-155-damaged-files` | server + cli + desktop: **Daemon audit M5, part 3 — damaged files.** Set a damaged file aside and serialise writes; stores keep what is valid; a damaged `config.json` stops the daemon; identity files; the desktop app shows why a daemon did not start. | 5 |
-| 156 | `sprint-156-small-fixes-and-close-m5` | server: **Daemon audit M5, part 4.** Symlink delete; `file_read_request` on regular files only; no credentials in extension error text; live check and close of M5. | 4 |
+| 156 | `sprint-156-small-fixes-and-close-m5` | server: **Daemon audit M5, part 4.** Symlink delete; `file_read_request` on regular files only; no credentials in extension error text; an update check when a client connects (owner addition); live check and close of M5. | 5 |
 
-Total: **150 sprints, 758 tasks** (bumped by 151–156, +6/+29, 2026-11-25), recomputed from the table above when sprints 082–087 were added
+Total: **150 sprints, 759 tasks** (bumped by 151–156, +6/+30, 2026-11-25), recomputed from the table above when sprints 082–087 were added
 (2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23), by 139–145 (+7/+29, 2026-11-24) and by 146–150 (+5/+27, 2026-11-24), less 140/t002 (dropped: pi-background-tasks left the baseline, +0/−1, 2026-11-24; the table sums to 144/729). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
@@ -3966,9 +3966,10 @@ t001; then t002 beside t003; then t004 beside t005.
 | task-001 | Deleting a symlink removes the link, not what it points to | bugfix | none | F1 (folded) |
 | task-002 | `file_read_request` reads regular files only, and never more than its limit | bugfix | sprint-155/task-004 | F3 (folded) |
 | task-003 | No credentials in extension error text | bugfix | sprint-153/task-004 | § 7 (folded) |
-| task-004 | Live check of damaged files and the small fixes, and close of M5 | test | task-001, task-002, task-003, sprint-155/task-002, sprint-155/task-005 | improvements 5, 6, 8 |
+| task-004 | Check for a daemon update when a client connects | feature | task-002 | owner request 2026-11-25 |
+| task-005 | Live check of damaged files and the small fixes, and close of M5 | test | task-001, task-003, task-004, sprint-155/task-002, sprint-155/task-005 | improvements 5, 6, 8 |
 
-t001, t002 and t003 in parallel; t004.
+t001, t002 and t003 in parallel; t004 after t002 (both edit `daemon/bootstrap.ts`); t005.
 
 ## Coverage check
 
@@ -4151,7 +4152,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | architecture/single-binary-daemon.md (designed 2026-11-24) | s139/t001-004 (A1, A3–A6), s140/t001 and t003 (A2, A7–A9), s141/t002 (A10) |
 | features/self-update.md (milestone 6 amendments) | s142/t001-005 (protocol; skipped version; workbench; binary path; live run), s143/t003 and s144/t002 (desktop Update installs the pin) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
-| `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002 and **not adopted** (owner, 2026-11-25). M4: s151/t001-004, s152/t001-005; M5: s153/t001-006, s154/t001-005, s155/t001-005, s156/t001-004 (**planned 2026-11-25**; scope in the handoff's "M4 and M5: what was fixed while planning"; folded fixes F1 → s156/t001, F3 → s156/t002, F4 → s154/t004 and s153/t004, extension error text → s156/t003). Not turned into tasks yet, by decision: M6–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them); the rest of T5 (the PID file as a lock, `server_info.hostname`), T7 and T8; the rest of F4 (binary terminal output), F5 and F6; the rest of § 7 (install queue waits, the skills watcher window). T6 was fixed by sprint-142/task-002 |
+| `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002 and **not adopted** (owner, 2026-11-25). M4: s151/t001-004, s152/t001-005; M5: s153/t001-006, s154/t001-005, s155/t001-005, s156/t001-005 (**planned 2026-11-25**; s156/t004, an update check on connect, is an owner addition of the same day, not an audit finding; scope in the handoff's "M4 and M5: what was fixed while planning"; folded fixes F1 → s156/t001, F3 → s156/t002, F4 → s154/t004 and s153/t004, extension error text → s156/t003). Not turned into tasks yet, by decision: M6–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them); the rest of T5 (the PID file as a lock, `server_info.hostname`), T7 and T8; the rest of F4 (binary terminal output), F5 and F6; the rest of § 7 (install queue waits, the skills watcher window). T6 was fixed by sprint-142/task-002 |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.

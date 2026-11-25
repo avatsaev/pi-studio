@@ -180,6 +180,29 @@ async function waitForAgentTitle(
   }
 }
 
+/** `create_agent_request` and `send_agent_prompt` answer once the prompt is accepted, so a turn has
+ *  ended when `list_agents_request` reports the agent back at `idle` (it reads `running` from the
+ *  moment the prompt is accepted). Same real bounded poll as `waitForAgentTitle`. */
+async function waitForAgentIdle(client: Client, agentId: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const list = await client.rpc({ type: "list_agents_request" });
+    const agents: unknown[] = Array.isArray(list.agents) ? list.agents : [];
+    const idle = agents.some(
+      (a) =>
+        typeof a === "object" &&
+        a !== null &&
+        "agentId" in a &&
+        a.agentId === agentId &&
+        "status" in a &&
+        a.status === "idle",
+    );
+    if (idle) return;
+    if (Date.now() > deadline) throw new Error("waitForAgentIdle: timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** The stream event `kind` of a captured `agent_stream` frame ("" when the frame has no event). */
 function kindOf(frame: Record<string, unknown>): string {
   const event = frame.event;
@@ -404,6 +427,7 @@ describe("production daemon bootstrap", () => {
     // First send spawns the mock session and replays the pin; the mock clamps `max` → `off`,
     // and the live value must win over the stale pin.
     await client.rpc({ type: "send_agent_prompt", agentId, prompt: "go" });
+    await waitForAgentIdle(client, agentId as string);
     entry = entryOf(await client.rpc({ type: "list_agents_request" }));
     expect(entry?.thinkingLevel).toBe("off");
 
@@ -440,6 +464,7 @@ describe("production daemon bootstrap", () => {
     const entry = await waitForAgentTitle(client, agentId as string);
     expect(entry.title).toBe("add dark mode toggle to the settings page");
     expect(titleBroadcasts.some((m) => m.agentId === agentId)).toBe(true);
+    await waitForAgentIdle(client, agentId as string);
 
     // A second, very different prompt on the same agent must never regenerate the title
     // (write-once semantics — `record.title` already set).
@@ -448,6 +473,7 @@ describe("production daemon bootstrap", () => {
       agentId,
       prompt: "totally unrelated follow-up about deployment",
     });
+    await waitForAgentIdle(client, agentId as string);
     const after = await waitForAgentTitle(client, agentId as string);
     expect(after.title).toBe("add dark mode toggle to the settings page");
 
@@ -1387,6 +1413,7 @@ describe("dev daemon auto-titling", () => {
 
       const entry = await waitForAgentTitle(client, agentId as string);
       expect(entry.title).toBe("add dark mode toggle to the settings page");
+      await waitForAgentIdle(client, agentId as string);
 
       client.close();
     } finally {

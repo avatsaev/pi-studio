@@ -17,7 +17,8 @@ import { BunPtyBackend, isBunRuntime } from "./bun-pty-backend.js";
 export interface PtyProcess {
   write(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
-  kill(): void;
+  /** Ask the process (and its descendants) to stop: SIGTERM, or SIGKILL when `force` is set. */
+  kill(force?: boolean): void;
   onData(cb: (data: Uint8Array) => void): void;
   onExit(cb: (code: number | null) => void): void;
 }
@@ -93,10 +94,11 @@ export class NodePtyBackend implements PtyBackend {
           // PTY may have exited between the size change and this call; ignore.
         }
       },
-      kill: () => {
-        killTree(proc.pid);
+      kill: (force) => {
+        killTree(proc.pid, force ? "SIGKILL" : "SIGTERM");
         try {
-          proc.kill();
+          // node-pty's own default signal is SIGHUP, which also ends an interactive shell.
+          proc.kill(force ? "SIGKILL" : undefined);
         } catch {
           // Already exited.
         }
@@ -144,9 +146,10 @@ export class ChildProcessPtyBackend implements PtyBackend {
       resize: () => {
         // No-op for piped child processes (no TTY); the node-pty backend calls `pty.resize`.
       },
-      kill: () => {
-        killTree(child.pid);
-        child.kill();
+      kill: (force) => {
+        const signal = force ? "SIGKILL" : "SIGTERM";
+        killTree(child.pid, signal);
+        child.kill(signal);
       },
       onData: (cb) => {
         dataCbs.push(cb);

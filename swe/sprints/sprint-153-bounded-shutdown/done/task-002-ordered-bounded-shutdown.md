@@ -1,7 +1,7 @@
 # Task 002 — An ordered, bounded shutdown that always removes the PID file
 
 - **Sprint:** sprints/sprint-153-bounded-shutdown
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (daemon bootstrap, ws server, HTTP)
 - **Priority:** P1

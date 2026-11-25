@@ -35,6 +35,7 @@ export type BinaryHandler = (session: Session, bytes: Uint8Array) => void;
 /** Registry of RPC handlers keyed by message type. */
 export class HandlerRegistry {
   private readonly handlers = new Map<string, RpcHandler>();
+  private accepting = true;
 
   /**
    * @param logger Optional operational logger. When present, every dispatched RPC is logged at
@@ -52,6 +53,20 @@ export class HandlerRegistry {
   get(type: string): RpcHandler | undefined {
     return this.handlers.get(type);
   }
+
+  /** False once {@link stopAccepting} was called. */
+  get isAccepting(): boolean {
+    return this.accepting;
+  }
+
+  /**
+   * Shutdown began: every later session message is refused — a request gets `rpc_error`
+   * `shutting_down`, anything else is dropped — and no handler runs. A `ping` is still answered.
+   * Requests already running finish. Irreversible.
+   */
+  stopAccepting(): void {
+    this.accepting = false;
+  }
 }
 
 function sendRpcError(session: Session, requestId: string, code: string, message: string): void {
@@ -66,6 +81,11 @@ async function dispatchSessionMessage(
   const type = typeof message.type === "string" ? message.type : undefined;
   const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
   if (!type) return;
+
+  if (!registry.isAccepting) {
+    if (requestId) sendRpcError(session, requestId, "shutting_down", "the daemon is shutting down");
+    return;
+  }
 
   const handler = registry.get(type);
   if (!handler) {

@@ -17,7 +17,7 @@ import type { Server as HttpServer } from "node:http";
 import nacl from "tweetnacl";
 
 import { PACKAGE_NAME, SERVER_VERSION } from "../version.js";
-import { createHttpServer } from "../http/http-server.js";
+import { closeHttpServer, createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import {
   HandlerRegistry,
@@ -113,6 +113,7 @@ import { parseDaemonListen } from "./index.js";
 import { isUnprotectedBind, unprotectedBindError } from "./loopback.js";
 import { attachRelaySession } from "./relay-sessions.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
+import { runShutdown } from "./shutdown.js";
 
 export interface DaemonOptions {
   /** Bind host. Defaults to the host of `config.daemon.listen` (`PI_STUDIO_LISTEN` → config → loopback). */
@@ -136,8 +137,8 @@ export interface DaemonOptions {
    * same tap to `createLogger({tap})` (an injected logger without it streams nothing).
    */
   logTap?: LogTap;
-  /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
-   *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
+  /** Test-only injection for the process seam of the extensions sync and the update's extensions
+   *  step; production spawns through the extensions service's own `InstallProcesses`. */
   extensionsInstallSpawn?: InstallSpawn;
   /**
    * Called after an update's shutdown has finished, to end the process (`daemon/main.ts` exits 0).
@@ -308,7 +309,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   }
   const serverId = resolveServerId(home, opts.serverId);
   const daemonKeypairB64 = resolveDaemonKeypair(home);
-  writePidLock(home);
+  // The PID file is written once `listen` has succeeded (see the "listening" handler below).
   logger.info({ home, configPath, serverId }, "daemon starting");
 
   // ── Preinstalled-extensions sync (constructed here; kicked off after the WS server is
@@ -452,13 +453,13 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       ? {
           install: (version) => binaryUpdate.install(version),
           updateExtensions: () =>
-            binaryUpdate.updateExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+            binaryUpdate.updateExtensions({ config, spawn: extensionsService.installSpawn }),
           spawnHelper: (target, previous) => binaryUpdate.spawnHelper(target, previous),
         }
       : {
           install: (version) => npmGlobalInstall(PACKAGE_NAME, version),
           updateExtensions: () =>
-            updateInstalledExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+            updateInstalledExtensions({ config, spawn: extensionsService.installSpawn }),
           spawnHelper: (target, previous) =>
             spawnUpdateHelper({
               oldPid: process.pid,
@@ -908,14 +909,17 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     },
   );
 
-  // Fail cleanly on a bind error (e.g. EADDRINUSE) instead of an unhandled 'error' throw.
+  // A listen failure (e.g. EADDRINUSE) fails cleanly instead of an unhandled 'error' throw, and
+  // runs the same shutdown as every other exit: the relay, the update service and agent recovery
+  // are already running by now, and the PID file is left alone (never written, and
+  // `removePidLock` skips one that names another process).
   //
   // Deliberately does NOT call `process.exit()` itself: `startDaemon` is a library entry point
   // (embedded by `packages/desktop`, and booted in-process by the daemon integration tests), and a
   // library must never kill its host. Killing the process here made a port collision in the test
   // suite surface as an opaque, misattributed "process.exit unexpectedly called with 1" unhandled
   // rejection with every test still reported green. The process-level decision belongs to the
-  // process entry point, which passes `onFatalError` (see `daemon/main.ts`).
+  // process entry point, which passes `onFatalError` (see `daemon/run.ts`).
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       logger.error(
@@ -926,7 +930,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       logger.error({ err: err.message }, "http server error");
     }
     process.exitCode = 1;
-    void wsHandle.close().finally(() => opts.onFatalError?.(err));
+    void closeDaemon().finally(() => opts.onFatalError?.(err));
+  });
+
+  // Only a daemon that holds the port names itself in the PID file: a second daemon that loses the
+  // bind must not overwrite the first one's. Not after a shutdown has begun: it has already
+  // removed (or skipped) the file, and nothing would remove this one.
+  httpServer.on("listening", () => {
+    if (closing === undefined) writePidLock(home);
   });
 
   httpServer.listen(listen.port, listen.host);
@@ -946,21 +957,46 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   void updateService.start();
 
   // One shutdown for every caller (signal handler, fatal error, the update pipeline, tests): a
-  // second `close()` returns the first one's promise instead of re-running it.
+  // second `close()` returns the first one's promise instead of re-running it. The steps go through
+  // `runShutdown`: each is isolated, the whole is bounded, and the PID file goes on every path.
   let closing: Promise<void> | undefined;
   function closeDaemon(): Promise<void> {
     closing ??= (async () => {
-      updateService.close();
       logger.info("daemon shutting down");
-      await manager.closeAll();
-      terminalManager.killAll();
-      fileWatchService.close();
-      daemonStatusService.dispose();
-      daemonLogsService.dispose();
-      relayHandle?.close();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-      removePidLock(home);
+      await runShutdown(
+        [
+          {
+            // First, so nothing new starts while the agents close: no upgrades, no dials, no
+            // requests (`shutting_down`), no update check.
+            name: "stop accepting",
+            run: () => {
+              registry.stopAccepting();
+              wsHandle.stopAccepting();
+              relayHandle?.stopAccepting();
+              updateService.close();
+            },
+          },
+          { name: "agents", run: () => manager.closeAll() },
+          { name: "terminals", run: () => terminalManager.killAll() },
+          {
+            // Queued syncs and skills operations reject; the install children are killed.
+            name: "installs",
+            run: async () => {
+              await Promise.all([extensionsService.close(), resourceService.close()]);
+            },
+          },
+          { name: "login flows", run: () => providerAuthService.close() },
+          { name: "transfers", run: () => fileTransfer.close() },
+          { name: "file watch", run: () => fileWatchService.close() },
+          { name: "status service", run: () => daemonStatusService.dispose() },
+          { name: "log service", run: () => daemonLogsService.dispose() },
+          { name: "relay", run: () => relayHandle?.close() },
+          { name: "sockets", run: () => wsHandle.close() },
+          { name: "http", run: () => closeHttpServer(httpServer) },
+          { name: "pid file", run: () => removePidLock(home), always: true },
+        ],
+        logger,
+      );
     })();
     return closing;
   }

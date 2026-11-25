@@ -5,6 +5,8 @@ import { SERVER_FEATURES } from "./client-capabilities.js";
 import {
   AGENT_TODO_MAX_SUBJECT_CHARS,
   AGENT_TODOS_MAX_TASKS,
+  agentPromptResponseSchema,
+  type AgentPromptResponse,
   agentCloneResponseSchema,
   agentCompactRequestSchema,
   agentCompactResponseSchema,
@@ -78,6 +80,7 @@ import {
   rpcErrorSchema,
   rpcName,
   sessionEnvelopeSchema,
+  sendAgentPromptRequestSchema,
   sessionMessageSchema,
   skillInfoSchema,
   itemResultSchema,
@@ -105,6 +108,57 @@ import {
   viewerSettingsSetResponseSchema,
   viewerSettingsUpdateSchema,
 } from "./messages.js";
+
+describe("send_agent_prompt and its answer", () => {
+  it("parses a valid request and answer through the session union", () => {
+    const request = sessionMessageSchema.safeParse({
+      type: "send_agent_prompt",
+      requestId: "r1",
+      agentId: "a1",
+      prompt: "hi",
+    });
+    expect(request.success).toBe(true);
+    const answer = sessionMessageSchema.safeParse({
+      type: "agent_prompt_response",
+      requestId: "r1",
+      payload: { agentId: "a1" },
+    });
+    expect(answer.success).toBe(true);
+  });
+
+  it("rejects a send without agentId or prompt", () => {
+    expect(
+      sendAgentPromptRequestSchema.safeParse({
+        type: "send_agent_prompt",
+        requestId: "r",
+        prompt: "x",
+      }).success,
+    ).toBe(false);
+    expect(
+      sendAgentPromptRequestSchema.safeParse({
+        type: "send_agent_prompt",
+        requestId: "r",
+        agentId: "a",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("tolerates a stray status on the answer but does not type it", () => {
+    const parsed = agentPromptResponseSchema.safeParse({
+      type: "agent_prompt_response",
+      requestId: "r1",
+      payload: { agentId: "a1" },
+      status: "idle",
+    });
+    expect(parsed.success).toBe(true);
+    const typed: AgentPromptResponse = {
+      type: "agent_prompt_response",
+      requestId: "r1",
+      payload: { agentId: "a1" },
+    };
+    expect("status" in typed).toBe(false);
+  });
+});
 
 describe("create_agent_request", () => {
   const fullConfig = {

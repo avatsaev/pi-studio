@@ -14,8 +14,9 @@ import {
 
 import type { PersistedConfig } from "../config/daemon-config.js";
 import { effectivePiHomeKey } from "../extensions/extensions-state.js";
+import { InstallProcesses, shuttingDownError } from "../extensions/install-processes.js";
 import { parseSource as parseCuratedSource } from "../extensions/pi-source.js";
-import { defaultInstallSpawn, type InstallSpawn } from "../extensions/sync-executor.js";
+import type { InstallSpawn } from "../extensions/sync-executor.js";
 import type { FileWatchService } from "../files/file-watch-service.js";
 import { expandHome } from "../files/resolve-path.js";
 import type { Logger } from "../logging/logger.js";
@@ -98,8 +99,9 @@ export interface ResourceServiceDeps {
   logger?: Logger;
   /** Overridable for tests; defaults to 500 ms (architecture doc § Queue, watcher, broadcast). */
   externalDebounceMs?: number;
-  /** Injectable process seam for queued mutations (`runSpawn`); defaults to
-   *  `defaultInstallSpawn` (`extensions/sync-executor.ts`). Tests pass a fake. */
+  /** Injectable process seam for queued mutations (`runSpawn`); defaults to the service's own
+   *  `InstallProcesses` (`extensions/install-processes.ts`), which `close()` stops. Tests pass a
+   *  fake. */
   spawn?: InstallSpawn;
   /** `$PI_STUDIO_HOME` — root of the preview scratch directory (`<studioHome>/tmp/preview-*`,
    *  task-003). Defaults to `process.env.PI_STUDIO_HOME ?? ~/.pi-studio`, mirroring
@@ -205,6 +207,8 @@ export class ResourceService {
   private readonly logger: Logger | undefined;
   private readonly externalDebounceMs: number;
   private readonly spawnFn: InstallSpawn;
+  /** The live children of the default seam; {@link close} stops them. */
+  private readonly processes: InstallProcesses;
   /** `$PI_STUDIO_HOME` — preview scratch root (task-003). */
   private readonly studioHome: string;
   /** FIFO for preview/install/remove/update_all (tasks 004/005/077) — separate from
@@ -214,6 +218,8 @@ export class ResourceService {
 
   private watcherStarted = false;
   private externalTimer: NodeJS.Timeout | undefined;
+  /** Set by {@link close}: queued work rejects and no external-edit push is scheduled. */
+  private closed = false;
   /** Timestamp (ms) until which an incoming fs event is attributed to this service's own last
    *  write, not an external edit — see {@link markOwnWrite} / {@link handleFsEvent}. */
   private ownWriteUntil = 0;
@@ -225,7 +231,8 @@ export class ResourceService {
     this.getActiveSessions = deps.getActiveSessions;
     this.logger = deps.logger;
     this.externalDebounceMs = deps.externalDebounceMs ?? DEFAULT_EXTERNAL_DEBOUNCE_MS;
-    this.spawnFn = deps.spawn ?? defaultInstallSpawn;
+    this.processes = new InstallProcesses({ logger: deps.logger });
+    this.spawnFn = deps.spawn ?? this.processes.spawn;
     this.studioHome =
       deps.studioHome ?? process.env.PI_STUDIO_HOME ?? join(homedir(), ".pi-studio");
   }
@@ -234,6 +241,18 @@ export class ResourceService {
     const ctx = buildCtx(this.config);
     this.ensureWatcher(ctx);
     return this.loadResult(ctx);
+  }
+
+  /**
+   * Stops for good (the daemon is shutting down): a preview or mutation still queued, or requested
+   * later, rejects; the running one ends because its child is killed (SIGTERM, then SIGKILL after
+   * a grace). Resolves once the queue is idle, so a preview's scratch directory is already gone.
+   */
+  async close(): Promise<void> {
+    this.closed = true;
+    clearTimeout(this.externalTimer);
+    this.externalTimer = undefined;
+    await Promise.all([this.processes.stop(), this.queue(() => undefined)]);
   }
 
   /**
@@ -246,7 +265,10 @@ export class ResourceService {
    * skips `markOwnWrite`/re-list/broadcast entirely.
    */
   async preview(source: string): Promise<PreviewResult> {
-    return this.queue(() => this.previewLocked(source));
+    return this.queue(() => {
+      if (this.closed) throw shuttingDownError();
+      return this.previewLocked(source);
+    });
   }
 
   private async previewLocked(source: string): Promise<PreviewResult> {
@@ -844,6 +866,7 @@ export class ResourceService {
     fn: (ctx: ResourceCtx) => Promise<T>,
   ): Promise<T & ResourceServiceResult> {
     return this.queue(async () => {
+      if (this.closed) throw shuttingDownError();
       const ctx = buildCtx(this.config);
       this.ensureWatcher(ctx);
       const redactedSource = redactSource(source);
@@ -911,6 +934,7 @@ export class ResourceService {
   }
 
   private handleFsEvent(): void {
+    if (this.closed) return; // after the stop nothing is pushed
     // Folded into the mutation's own broadcast — this event is (almost certainly) an echo of our
     // own write, not a genuine external edit.
     if (Date.now() < this.ownWriteUntil) return;

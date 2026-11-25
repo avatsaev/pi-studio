@@ -438,6 +438,17 @@ All communication uses a **single WebSocket connection** per client.
   `checkout.github.set_auto_merge.request`).
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
   there's a specific reason to nest.
+- **Create and send answer at acceptance** (sprint 151, M4). `create_agent_request` and
+  `send_agent_prompt` answer `create_agent_response {payload: {agentId}}` / `agent_prompt_response
+  {payload: {agentId}}` as soon as the request is accepted (agent exists, busy claim taken, status
+  `running`), before any event of the turn; neither answer carries a `status`, and neither means the
+  turn finished. A refusal (`busy`, unknown or archived agent, invalid request) is an `rpc_error` and
+  means nothing was started. The outcome is the turn's `agent_stream` rows (a failure ends in
+  `turn_failed` with the reason) and exactly one `agent_update` with status `idle` or `error`; an
+  inline-handled slash command has no `turn_*` rows and its `agent_update idle` is the end signal. No
+  feature flag and no compatibility path. The four fixtures under
+  `packages/protocol/fixtures/external-clients/` pin it (additive; dated `CHANGELOG.md` entry, which
+  also records the behaviour change).
 - **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough
   fallback rather than a `messages.ts` discriminated-union entry — `checkout_status_subscribe`/
   `_unsubscribe` + `checkout_status_update` (git status, per-session `send()`, not broadcast) and
@@ -584,7 +595,7 @@ All communication uses a **single WebSocket connection** per client.
   `event-mapper.ts`; Pi's own `Compaction failed: ` / `Auto-compaction failed: ` prefix is stripped
   from `error` because the row label supplies it. A **manual** compaction runs outside any turn, so
   `handleCompact` (`slash-command-operations.ts`) opens its own subscription window to record and
-  broadcast the events; **automatic** ones arrive inside `runTurn`'s subscription. `agent_compact_request`
+  broadcast the events; **automatic** ones arrive inside `executeTurn`'s subscription. `agent_compact_request`
   is refused with a `busy` error while the agent is running or already compacting (it would abort the
   turn, since Pi's `compact()` aborts first), and a process-less record (after a daemon restart) is
   resumed before compacting, with its timeline seeded so history is intact. The response carries
@@ -756,7 +767,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 
 ```
 config.json           Daemon config (password hash, provider overrides, relay, …) — written 0600
-pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
+pi-studio.pid         PID of the running daemon (written once the daemon is listening, so a second daemon that loses the port never names itself in it; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
 update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
 bin/                  The single binary's own folders (only where the binary was installed here, by the app or a binary update):

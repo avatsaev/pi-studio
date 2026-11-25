@@ -87,12 +87,28 @@ function trackController(controller: AgentUiController): AgentUiController {
 async function createMockAgent(client: PiStudioClient): Promise<string> {
   // initialPrompt is required — without it, create_agent_request takes the deferred-draft path
   // (no process spawned, no session ever attached), and `manager.get(agentId)?.session` stays null.
-  const created = await client.createAgent({
-    config: { provider: "mock", cwd: "/tmp" },
-    labels: {},
-    initialPrompt: "hello",
+  // The answer only accepts the prompt: the session is attached once the first turn has settled.
+  const settledAgents = new Set<string>();
+  const settled = Promise.withResolvers<void>();
+  let created: string | undefined;
+  const off = client.onAgentUpdate((update) => {
+    if (update.status !== "idle" && update.status !== "error") return;
+    settledAgents.add(update.agentId);
+    if (update.agentId === created) settled.resolve();
   });
-  return created.agentId;
+  try {
+    const answer = await client.createAgent({
+      config: { provider: "mock", cwd: "/tmp" },
+      labels: {},
+      initialPrompt: "hello",
+    });
+    created = answer.agentId;
+    if (settledAgents.has(created)) settled.resolve();
+    await settled.promise;
+    return created;
+  } finally {
+    off();
+  }
 }
 
 // Both helpers below poll/await against a REAL daemon process over a REAL WebSocket (no fake

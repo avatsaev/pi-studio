@@ -706,6 +706,39 @@ describe("FileTransferService download lifecycle", () => {
       expect(again.response.ok).toBe(true);
       await again.run!(() => {}, openSocket);
     });
+
+    it("close() stops a running download and releases its file handle when the daemon stops", async () => {
+      const file = join(dir, "daemon-stops-mid.bin");
+      await writeFile(file, Buffer.alloc(300_000, "k"));
+      const registry = new HandlerRegistry();
+      const svc = new FileTransferService({
+        chunkBytes: 1024,
+        highWaterBytes: 4 * 1024,
+        lowWaterBytes: 1024,
+        drainPollMs: 1,
+      });
+      svc.registerHandlers(registry);
+      const { wire, socket, session } = wireSocket();
+      socket.bufferedAmount = 1_000_000;
+      const fdsBefore = openFdCount();
+
+      await routeTextFrame(
+        session,
+        JSON.stringify({
+          type: "session",
+          message: { type: "file_download_request", requestId: "d1", path: file, stream: 7 },
+        }),
+        registry,
+      );
+      await waitUntil(() => wire.some((w) => w.frame?.opcode === "Chunk"));
+      expect(openFdCount()).toBeGreaterThan(fdsBefore);
+      const sent = wire.length;
+
+      await svc.close();
+
+      await waitUntil(() => openFdCount() <= fdsBefore);
+      expect(wire).toHaveLength(sent); // nothing sent, not even Error
+    });
   });
 });
 
@@ -1110,6 +1143,30 @@ describe("FileTransferService atomic upload", () => {
     rig.svc.disposeSession(rig.session);
     await waitUntil(() => partFiles(dir).length === 0);
     expect(await readFile(rig.target, "utf8")).toBe("OLD");
+  });
+
+  it("close() leaves no temporary file and the old file intact when the daemon stops mid-upload", async () => {
+    const rig = await openUpload(dir, "old4.txt");
+    await writeFile(rig.target, "OLD");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("new") });
+    await waitUntil(() => partFiles(dir).length === 1);
+
+    await rig.svc.close();
+
+    expect(partFiles(dir)).toEqual([]); // gone when close resolves, not later
+    expect(await readFile(rig.target, "utf8")).toBe("OLD");
+  });
+
+  it("close() removes the temporary file of a Begin that was still opening it", async () => {
+    const rig = await openUpload(dir, "old5.txt");
+    rig.push({ opcode: "Begin", stream: rig.stream, meta: { transferId: rig.transferId } });
+    rig.push({ opcode: "Chunk", stream: rig.stream, data: encoder.encode("new") });
+
+    await rig.svc.close(); // no wait: the Begin is not done yet
+
+    expect(partFiles(dir)).toEqual([]);
+    await expect(stat(rig.target)).rejects.toThrow(); // the upload never completed
   });
 
   it("keeps the old file intact when a write fails", async () => {

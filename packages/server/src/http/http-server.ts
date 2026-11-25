@@ -51,3 +51,16 @@ export function createRequestListener(
 export function createHttpServer(deps: HttpServerDeps = {}): Server {
   return createServer(createRequestListener(deps));
 }
+
+/**
+ * Stop listening and drop every connection that is not an upgraded WebSocket (those belong to the
+ * socket server): idle keep-alive sockets and requests still in flight are closed instead of being
+ * waited for, so this settles at once. Resolves when the server is closed (also when it was not
+ * listening).
+ */
+export function closeHttpServer(server: Server): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  server.close(() => resolve());
+  server.closeAllConnections();
+  return promise;
+}

@@ -1,0 +1,21 @@
+{
+  "type": "create_agent_request",
+  "direction": "client_to_server",
+  "description": "Create an agent and start its first turn. The daemon answers with create_agent_response as soon as the request is accepted, before any event of the turn; the turn's outcome arrives as agent_stream rows and one agent_update (idle or error). Optional fields not shown: env, workspaceId, worktreeName, clientMessageId, outputSchema, images, attachments, autoArchive, labels. Without initialPrompt the agent is a draft and the answer means it exists (status idle). A refusal is an rpc_error and nothing was created. The provider id and cwd shown are the dev daemon's; use your own.",
+  "since": "0.0.133",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "create_agent_request",
+      "requestId": "req-1",
+      "config": {
+        "provider": "mock",
+        "cwd": "/tmp"
+      },
+      "initialPrompt": "hello"
+    }
+  }
+}

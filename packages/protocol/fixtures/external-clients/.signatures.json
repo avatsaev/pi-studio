@@ -12,6 +12,12 @@
       "/message/type": "string",
       "/type": "string"
     },
+    "agent_prompt_response.json": {
+      "/message/payload/agentId": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
     "agent_session_stats_request.json": {
       "/message/agentId": "string",
       "/message/requestId": "string",
@@ -334,6 +340,20 @@
       "/message/requestId": "string",
       "/message/screen": "string",
       "/message/slot": "number",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "create_agent_request.json": {
+      "/message/config/cwd": "string",
+      "/message/config/provider": "string",
+      "/message/initialPrompt": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "create_agent_response.json": {
+      "/message/payload/agentId": "string",
+      "/message/requestId": "string",
       "/message/type": "string",
       "/type": "string"
     },
@@ -713,6 +733,13 @@
     "rpc_error.json": {
       "/message/code": "string",
       "/message/message": "string",
+      "/message/requestId": "string",
+      "/message/type": "string",
+      "/type": "string"
+    },
+    "send_agent_prompt.json": {
+      "/message/agentId": "string",
+      "/message/prompt": "string",
       "/message/requestId": "string",
       "/message/type": "string",
       "/type": "string"
