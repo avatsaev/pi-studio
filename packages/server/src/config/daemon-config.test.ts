@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   loadConfig,
-  migrateConfig,
   overlayEnv,
   persistedConfigSchema,
   persistExtensionPacks,
@@ -50,29 +49,6 @@ describe("defaults", () => {
 
   it("an empty object parses to defaults", () => {
     expect(persistedConfigSchema.parse({}).daemon.listen).toBe("127.0.0.1:6767");
-  });
-});
-
-describe("legacy migration", () => {
-  it("migrates daemon.allowedHosts → hostnames", async () => {
-    const path = await tempConfig({ daemon: { allowedHosts: ["a.local", "b.local"] } });
-    const cfg = loadConfig(path, {});
-    expect(cfg.daemon.hostnames).toEqual(["a.local", "b.local"]);
-  });
-
-  it("migrates top-level allowedHosts → hostnames", () => {
-    const migrated = migrateConfig({ allowedHosts: true }) as { daemon: { hostnames: unknown } };
-    expect(migrated.daemon.hostnames).toBe(true);
-  });
-
-  it("loads a legacy provider command:{mode,…} without error", async () => {
-    const path = await tempConfig({
-      agents: {
-        providers: { pi: { command: { mode: "rpc", command: "pi-fork", args: ["--flag"] } } },
-      },
-    });
-    const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers.pi?.command).toEqual(["pi-fork", "--flag"]);
   });
 });
 

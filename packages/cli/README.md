@@ -78,10 +78,6 @@ Every file opens with full syntax highlighting:
   <img src="assets/screenshots/code-viewer.webp" alt="Pi-Studio web UI — syntax-highlighted code viewer" width="850">
 </p>
 
-See the [`ui`](#ui) command below for every flag, and
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md#web-ui-dev-server) for how to run the UI from source in
-dev mode.
-
 ## Global options
 
 | Flag                    | Description                                                                                                                                                                                                                       |
@@ -215,20 +211,6 @@ come before `pi` on the command line) redirects the bundled CLI's `.pi` config d
 does for a locally-spawned daemon. Falls back to a global `pi` on `$PATH` if the bundled
 dependency isn't installed. Never touches the daemon or the wire protocol.
 
-### `ui`
-
-| Command                                                            | Description                                        |
-| ------------------------------------------------------------------- | --------------------------------------------------- |
-| `ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` | Serve the prebuilt web-client SPA as a static site |
-
-Serves the built `@av-pi-studio/web-client` UI (`dist/web`) via a minimal static file server with
-SPA fallback — no vite/dev dependency at runtime, works from any install shape. `--daemon-host`
-(falls back to the global `--host`) pre-fills the printed URL's `?host=&connect=1` so the browser
-tab auto-connects; the command never itself probes or starts a daemon. Blocks until
-`SIGINT`/`SIGTERM`.
-
-See [The web UI](#the-web-ui) above for screenshots.
-
 ### `update`
 
 | Command            | Description                                                            |
@@ -313,7 +295,7 @@ spawned daemon and never a real credential store.
 `npm run build && npm run build:binary -- --target linux-x64` (also `linux-arm64`, `darwin-arm64`,
 `darwin-x64`) compiles the whole CLI, the daemon, the relay, Pi and `skills` into one `pi-studio`
 executable with Bun, and writes `dist-binary/pi-studio-<version>-<target>/` plus its `.tar.gz`. The
-folder also holds a `bun` script, Pi's runtime assets and `web/`, so
+folder also holds a `bun` script and Pi's runtime assets, so
 it can be moved anywhere and needs no Node. macOS targets are ad-hoc signed only when built on
 macOS. `scripts/binary-container-check.sh` runs the main commands from an unpacked folder in a
 Node-less Docker container.

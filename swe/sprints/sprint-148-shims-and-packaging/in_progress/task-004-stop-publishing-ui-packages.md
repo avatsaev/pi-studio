@@ -1,7 +1,7 @@
 # Task 004 — Stop publishing `workbench`, `ui-library` and `web-client` to npm
 
 - **Sprint:** sprints/sprint-148-shims-and-packaging
-- **Status:** backlog
+- **Status:** in_progress
 - **Type:** chore
 - **Area:** release tooling, packages/workbench, packages/ui-library, packages/web-client
 - **Priority:** P2

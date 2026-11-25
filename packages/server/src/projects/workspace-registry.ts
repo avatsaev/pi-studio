@@ -23,9 +23,8 @@ import {
 
 export type WorkspaceKind = "local_checkout" | "worktree" | "directory";
 
-/** Wire also accepts the legacy `checkout` kind; it maps to `local_checkout` and is never persisted. */
+/** Coerce a wire kind to a known {@link WorkspaceKind}; anything unknown is a plain `directory`. */
 export function normalizeWorkspaceKind(kind: string): WorkspaceKind {
-  if (kind === "checkout") return "local_checkout";
   if (kind === "local_checkout" || kind === "worktree" || kind === "directory") return kind;
   return "directory";
 }

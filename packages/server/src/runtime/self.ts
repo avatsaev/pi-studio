@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { resolveBundledPiCli } from "../agent/providers/pi/rpc-transport.js";
 import { resolveSkillsCli } from "../resources/skills-cli.js";
@@ -150,19 +150,8 @@ export function helperCommand(
   return [runtime.execPath, "-e", script, json];
 }
 
-/** The folder holding the binary and its assets (`bun`, Pi's files, `web/`). Binary only. */
+/** The folder holding the binary and its assets (`bun`, Pi's files). Binary only. */
 export function assetsDir(runtime: SelfRuntime = currentRuntime()): string {
   if (!runtime.isBinary) throw new Error("assetsDir is only defined for the compiled binary");
   return dirname(runtime.execPath);
-}
-
-/**
- * The built web UI. In the binary it is `<assetsDir>/web`; on Node `resolveNodeDist` finds the
- * `@av-pi-studio/web-client` package, which the server does not depend on (the CLI does).
- */
-export function webDist(
-  resolveNodeDist: () => string,
-  runtime: SelfRuntime = currentRuntime(),
-): string {
-  return runtime.isBinary ? join(assetsDir(runtime), "web") : resolveNodeDist();
 }

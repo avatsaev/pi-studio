@@ -650,12 +650,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   registerGitCheckoutHandlers(registry, {
     gitService,
     diffManager,
-    checkoutRefreshEnabled: true,
     subscriptions,
   });
   new GitOperationsService({ gitService }).registerHandlers(registry);
   new GitHubService({
-    setAutoMergeEnabled: true,
     archiveWorkspace: async (workspaceId) => {
       await workspaceRegistry.archiveWorkspace(workspaceId);
     },
@@ -771,7 +769,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     {
       manager: terminalManager,
       broadcast,
-      restoreModesEnabled: true,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
     },
     getActiveSessions,

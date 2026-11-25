@@ -1,7 +1,7 @@
 # Task 001 — Drop the daemon's compatibility shims
 
 - **Sprint:** sprints/sprint-148-shims-and-packaging
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (config, ws, projects, persistence, terminal, bootstraps)
 - **Priority:** P2

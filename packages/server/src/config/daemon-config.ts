@@ -10,8 +10,7 @@ import { atomicWriteJson } from "../persistence/atomic-store.js";
  * § Env precedence, § Behavior; MAIN-SCOPE.md §6.
  *
  * Every field is optional with a sensible default, so a missing or `{}` config yields a fully
- * populated object. Legacy shapes (`allowedHosts`, provider `command:{mode,…}`) are normalized
- * inline on load (no migration framework). Environment variables overlay the parsed config (env
+ * populated object. Environment variables overlay the parsed config (env
  * wins) for the keys enumerated in config.md.
  */
 
@@ -106,64 +105,6 @@ export const persistedConfigSchema = z
 export type PersistedConfig = z.infer<typeof persistedConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// Legacy normalization (inline; no migration framework)
-// ---------------------------------------------------------------------------
-
-/**
- * Migrate a legacy provider override. The old `command` was an object `{ mode, command?, args? }`;
- * the current shape is a `string[]`. The `mode` wrapper is dropped (rpc is implicit).
- *
- * COMPAT(legacy-provider-command): inline; remove when no config.json carries the object form.
- */
-function migrateProviderSettings(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const override = { ...(value as Record<string, unknown>) };
-  const command = override.command;
-  if (command && !Array.isArray(command) && typeof command === "object") {
-    const legacy = command as Record<string, unknown>;
-    const base =
-      typeof legacy.command === "string"
-        ? [legacy.command]
-        : Array.isArray(legacy.command)
-          ? legacy.command
-          : [];
-    const args = Array.isArray(legacy.args) ? legacy.args : [];
-    const merged = [...base, ...args].filter((part): part is string => typeof part === "string");
-    if (merged.length > 0) override.command = merged;
-    else delete override.command;
-  }
-  return override;
-}
-
-/** Normalize a raw config object before schema validation. */
-export function migrateConfig(raw: unknown): unknown {
-  const root = { ...(raw as Record<string, unknown>) };
-  const daemon = { ...(root.daemon as Record<string, unknown>) };
-
-  // COMPAT(legacy-allowed-hosts): `allowedHosts` → `hostnames` (daemon-level or top-level).
-  if (daemon.hostnames === undefined) {
-    if (daemon.allowedHosts !== undefined) daemon.hostnames = daemon.allowedHosts;
-    else if (root.allowedHosts !== undefined) daemon.hostnames = root.allowedHosts;
-  }
-  delete daemon.allowedHosts;
-  delete root.allowedHosts;
-  root.daemon = daemon;
-
-  const agents = { ...(root.agents as Record<string, unknown>) };
-  const providers = agents.providers;
-  if (providers && typeof providers === "object" && !Array.isArray(providers)) {
-    const migrated: Record<string, unknown> = {};
-    for (const [id, override] of Object.entries(providers)) {
-      migrated[id] = migrateProviderSettings(override);
-    }
-    agents.providers = migrated;
-  }
-  if (Object.keys(agents).length > 0) root.agents = agents;
-
-  return root;
-}
-
-// ---------------------------------------------------------------------------
 // Environment overlay (env wins)
 // ---------------------------------------------------------------------------
 
@@ -240,8 +181,8 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * Load and normalize `config.json`: read JSON (or `{}` when missing/corrupt), migrate legacy
- * shapes, validate with {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
+ * Load `config.json`: read JSON (or `{}` when missing/corrupt), validate with
+ * {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
  * config is structurally invalid (e.g. an `agents.providers` key other than `pi`).
  */
 export function loadConfig(path: string, env: Env = process.env): PersistedConfig {
@@ -253,7 +194,7 @@ export function loadConfig(path: string, env: Env = process.env): PersistedConfi
       raw = {};
     }
   }
-  const result = persistedConfigSchema.safeParse(migrateConfig(raw));
+  const result = persistedConfigSchema.safeParse(raw);
   if (!result.success) {
     throw new Error(
       result.error.issues.map((i) => `${i.path.join(".") || "config"}: ${i.message}`).join("; "),

@@ -90,17 +90,16 @@ protocol    ──────────────────────�
 relay       ─────────────────────────────────────────► (no workspace deps)
 client      ──────► protocol, relay
 server      ──────► protocol, relay
-cli         ──────► protocol, client, relay, server, web-client
+cli         ──────► protocol, client, relay, server
 web-client  ──────► protocol, client, ui-library, workbench   (devDependencies, bundled into the SPA)
 ui-library  ──────► (no workspace deps)
 workbench   ──────► protocol, client, ui-library
 ui-gallery  ──────► ui-library
 ```
 
-`cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
+`cli` depends on `server` primarily NOT to import its runtime code, but to
 (a) resolve `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
-`import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
-`web-client`'s prebuilt static SPA assets (sprint-148/task-003 removes this dependency). One narrow, deliberate
+`import.meta.resolve` for spawning a detached daemon/relay subprocess. One narrow, deliberate
 exception: `pi-studio extensions list --local` (sprint-057/task-005) imports `server`'s pure
 extension-planning modules (`extensions/index.ts`'s `curated-packs`/`sync-planner`/
 `extensions-state`, plus `daemon-config.ts`'s `loadConfig`) in-process, to run the same read-only
@@ -431,8 +430,7 @@ All communication uses a **single WebSocket connection** per client.
   `create_terminal_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
   not a "legacy" fallback. A small minority use a dotted `domain.provider.operation.direction` form
   (`agent.rewind.request`,
-  `checkout.github.set_auto_merge.request`); where a dotted name exists, the flat form is usually
-  also registered as an alias (`registry.registerAlias(flatName, dottedName)`) for compatibility.
+  `checkout.github.set_auto_merge.request`).
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
   there's a specific reason to nest.
 - **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough

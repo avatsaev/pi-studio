@@ -52,8 +52,6 @@ export class SessionOperationsService {
     registry.register("follow_up_agent_request", (ctx) =>
       this.handleSteer(ctx.message as Record<string, unknown>, getActiveSessions, "followUp"),
     );
-    // Legacy flat alias.
-    registry.registerAlias("cancel_agent", "interrupt_agent");
   }
 
   private broadcastAll(sessions: Iterable<Session>, msg: unknown): void {

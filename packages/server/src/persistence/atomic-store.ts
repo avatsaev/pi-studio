@@ -14,7 +14,7 @@ import { mapWithConcurrency } from "../util/concurrency.js";
  * Pi-Studio uses file-based JSON persistence instead of a database. Every document is Zod-validated.
  * Most stores write **atomically** (temp file in the same directory, fsync, rename — atomic on
  * POSIX). There is no migration framework:
- * forward-compat is optional fields + defaults + an inline `normalize` hook on load.
+ * forward-compat is optional fields + defaults.
  */
 
 /** The subdirectories created under `$PI_STUDIO_HOME`. */
@@ -54,25 +54,14 @@ export async function atomicWriteJson<S extends z.ZodTypeAny>(
   }
 }
 
-/** Options for {@link loadStore}. */
-export interface LoadStoreOptions {
-  /**
-   * Inline legacy normalization hook applied to the raw parsed JSON **before** schema validation.
-   * This is where legacy field shapes are migrated (no versioned migration framework).
-   */
-  normalize?: (raw: unknown) => unknown;
-}
-
 /**
  * Load a JSON store from `path`. Missing file → `defaults`. Corrupt/partial JSON or a schema
- * mismatch → `defaults` (never throws, so the daemon cannot be crashed by a bad file). A
- * `normalize` hook may rewrite the raw JSON before validation.
+ * mismatch → `defaults` (never throws, so the daemon cannot be crashed by a bad file).
  */
 export async function loadStore<S extends z.ZodTypeAny>(
   path: string,
   schema: S,
   defaults: z.infer<S>,
-  options: LoadStoreOptions = {},
 ): Promise<z.infer<S>> {
   if (!existsSync(path)) return defaults;
 
@@ -84,8 +73,7 @@ export async function loadStore<S extends z.ZodTypeAny>(
     return defaults;
   }
 
-  const normalized = options.normalize ? options.normalize(raw) : raw;
-  return safeParseOrDefault(schema, normalized, defaults);
+  return safeParseOrDefault(schema, raw, defaults);
 }
 
 /**

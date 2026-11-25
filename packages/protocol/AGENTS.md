@@ -83,7 +83,6 @@ fixtures/external-clients/                Published external-client wire fixture
 | `agentPermissionResolvedSchema` | schema | Broadcast: a permission request was resolved (by any client) |
 | `respondToPermissionRequestSchema` | schema | Client→Daemon permission response (dotted name `agent.permission.respond.request`) |
 | `respondToPermissionResponseSchema` | schema | Response to the above |
-| `legacyRespondToPermissionSchema` | schema | Accepted legacy flat name for the above |
 | `rewindModeSchema` / `RewindMode` | schema + type | `"conversation" \| "files" \| "both"` |
 | `agentRewindRequestSchema` / `AgentRewindRequest` | schema + type | `agent.rewind.request` — conversation/file time-travel |
 | `agentRewindResponseSchema` / `AgentRewindResponse` | schema + type | Response, includes `truncatedAt` |

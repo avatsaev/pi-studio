@@ -417,7 +417,6 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
     {
       manager: terminalManager,
       broadcast,
-      restoreModesEnabled: true,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
     },
     getActiveSessions,

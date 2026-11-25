@@ -1,7 +1,7 @@
 # Task 003 — The CLI package and the single binary stop carrying the web app
 
 - **Sprint:** sprints/sprint-148-shims-and-packaging
-- **Status:** backlog
+- **Status:** done
 - **Type:** chore
 - **Area:** packages/cli, scripts (binary build)
 - **Priority:** P2

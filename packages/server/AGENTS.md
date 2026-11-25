@@ -40,7 +40,7 @@ src/
                                    `false` when undefined), `piCommand(args)` / `skillsCommand(args)`
                                    (`null` on Node when the package is not installed), `daemonCommand(opts,
                                    resolveServerUrl)` / `relayCommand(opts, resolveRelayUrl)`,
-                                   `helperCommand(params, script)`, `assetsDir()`, `webDist(resolveNodeDist)`.
+                                   `helperCommand(params, script)`, `assetsDir()`.
                                    Node: exactly the argv each site built before; binary:
                                    `[execPath, "__pi" | "__skills" | "__daemon" | "__relay" |
                                    "__update-helper", …]` (`SUBCOMMAND`). Every function takes a trailing
@@ -684,8 +684,7 @@ src/
 6. Routes subsequent frames to `deps.onMessage(session, frame)`.
 
 `HandlerRegistry` (`router.ts`):
-- `register(type, handler)` — register a handler for a canonical dotted message type.
-- `registerAlias(alias, canonical)` — map legacy flat names to canonical names.
+- `register(type, handler)` — register a handler for a message type.
 - A handler that throws yields a correlated `rpc_error` back to the sender.
 - `ctx.afterReply(fn)` (handler context, sprint-097): `fn` runs after the router has sent the
   handler's reply (also when that send threw; never when the handler threw; a throwing `fn` is only
@@ -1179,7 +1178,7 @@ creation" above.
 - Cursor-based paging via `fetchAgentTimeline(agentId, cursor, direction, limit)`.
 - Collapsed/merged view for UI display.
 
-**Tool-call permissions** are retired (sprint-086): no `PermissionService`, provider-contract members, MCP tools or CLI group remain. The `agent_permission_*` / `agent.permission.respond.request` / `respond_to_permission` schemas stay in the protocol (append-only, unread) and answer `unknown_message_type`. Pi's questions travel on `agent_ui_*`.
+**Tool-call permissions** are retired (sprint-086): no `PermissionService`, provider-contract members, MCP tools or CLI group remain. The `agent_permission_*` / `agent.permission.respond.request` schemas stay in the protocol (append-only, unread) and answer `unknown_message_type`. Pi's questions travel on `agent_ui_*`.
 
 ### Provider auth (`agent/provider-auth/`)
 
@@ -1722,7 +1721,7 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.
 - **Project key derivation**: normalizes git remote URLs to `host/owner/repo` form for grouping.
-- **`WorkspaceKind`**: `local_checkout | worktree | directory` (legacy `checkout` → `local_checkout`).
+- **`WorkspaceKind`**: `local_checkout | worktree | directory`.
 - **`WorktreeService`**: `git worktree add/list/remove` via shell.
 - **`WorkspaceGitService`**: git status, branch, diff, commit, log per workspace.
 - **`GitHubService`**: GitHub API (PRs, issues) via `GITHUB_TOKEN`.

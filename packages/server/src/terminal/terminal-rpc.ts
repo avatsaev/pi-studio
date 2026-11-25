@@ -7,15 +7,12 @@ import type { RestoreMode, TerminalManager } from "./terminal-manager.js";
 
 /**
  * Terminal control RPC surface + capture/restore semantics (features/terminals.md § Control RPCs,
- * § Restore / snapshot). Per-slot binary streams are piped to the requesting session; restore modes
- * are gated by `features["terminal-restore-modes"]`.
+ * § Restore / snapshot). Per-slot binary streams are piped to the requesting session.
  */
 
 export interface TerminalRpcDeps {
   manager: TerminalManager;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
-  /** Whether the daemon advertises `features["terminal-restore-modes"]`. */
-  restoreModesEnabled: boolean;
   /** Resolve a project root → `pi-studio.json` path (for StartWorkspaceScriptRequest). */
   projectConfigPath: (cwd: string) => string;
 }
@@ -75,7 +72,7 @@ export function registerTerminalHandlers(
   registry.register("subscribe_terminal_request", (ctx) => {
     const slot = Number(ctx.message.slot);
     const session = ctx.session;
-    // Restore mode is honored only when the daemon advertises the feature AND the client advertised
+    // Restore mode is honored only when the client advertised
     // the reflowable-snapshot capability AND asked for it by name. The wire literal is exactly
     // "reflowable" (sprint-053/task-004) — any other requested value (including a future/typo'd
     // one) is served and echoed as "basic", so the response never names a tier that was not
@@ -83,9 +80,7 @@ export function registerTerminalHandlers(
     const requestedMode = ctx.message.restoreMode as string | undefined;
     const clientReflowable = session.supports("terminal_reflowable_snapshot");
     const restoreMode: RestoreMode =
-      deps.restoreModesEnabled && clientReflowable && requestedMode === "reflowable"
-        ? "reflowable"
-        : "basic";
+      clientReflowable && requestedMode === "reflowable" ? "reflowable" : "basic";
 
     streamUnsubs.get(key(session, slot))?.(); // replace existing subscription
     try {

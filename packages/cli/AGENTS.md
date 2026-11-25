@@ -26,7 +26,7 @@ Or `npm link` inside `packages/cli` to expose `pi-studio` globally on `PATH`.
 `npm run build:binary -- --target <linux-x64|linux-arm64|darwin-arm64|darwin-x64>`
 (`scripts/build-binary.mjs`, after `npm run build`) compiles `dist/binary-main.js` with the root's
 pinned Bun into `dist-binary/pi-studio-<version>-<target>/` and a `.tar.gz`: `pi-studio` (the whole
-CLI plus daemon, relay, Pi and `skills`), the `bun` script, Pi's runtime assets and `web/`.
+CLI plus daemon, relay, Pi and `skills`), the `bun` script and Pi's runtime assets.
 `binary-main.ts` dispatches on the first argument (`binary-dispatch.ts` decides): `__daemon <json>`,
 `__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (the server's `runBinaryHelperMain`,
 then `process.exit`), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
@@ -603,10 +603,10 @@ branches to `createRelayTransport` when it carries a relay offer).
   after a self-update's shutdown (without it the daemon cannot update itself). Test:
   `packages/server/src/runtime/self.test.ts`.
 - **The runtime seam (sprint-139/task-002) is a further narrow exception.** `daemon-control.ts`,
-  `relay-control.ts` and `pi-commands.ts` import `daemonCommand`, `relayCommand`,
-  `piCommand` and `webDist` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
+  `relay-control.ts` and `pi-commands.ts` import `daemonCommand`, `relayCommand`
+  and `piCommand` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
   that spawn and bind nothing. The CLI passes the Node-only module resolvers
-  (`import.meta.resolve("@av-pi-studio/server")`, `…/relay/server`, `…/web-client/package.json`) in as
+  (`import.meta.resolve("@av-pi-studio/server")` and `…/relay/server`) in as
   functions, so they run in its own module graph and are never called by the compiled binary, whose
   commands are `<binary> __daemon|__relay <json>`, `<binary> __pi|__skills <args>` and
   `<binary> __update-helper <json>` (`binary-main.ts`).

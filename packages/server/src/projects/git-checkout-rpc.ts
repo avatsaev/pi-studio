@@ -7,15 +7,12 @@ import { WorkspaceGitService } from "./workspace-git-service.js";
  * Wire the checkout status/diff streaming RPCs (features/git-checkout.md § Status & diff;
  * architecture/websocket-protocol.md § checkout_* families).
  *
- * Status/diff updates are pushed to the requesting session. `checkout_refresh_request` is only
- * registered when `features.checkoutRefresh` is advertised by the daemon.
+ * Status/diff updates are pushed to the requesting session.
  */
 
 export interface GitCheckoutRpcDeps {
   gitService: WorkspaceGitService;
   diffManager: CheckoutDiffManager;
-  /** Whether the daemon advertises `features.checkoutRefresh`. */
-  checkoutRefreshEnabled: boolean;
   /** Per-session subscription registry — disposes `checkout_status_subscribe`'s listener when the
    *  session's socket closes, not just on an explicit unsubscribe. */
   subscriptions: SessionSubscriptions;
@@ -65,12 +62,9 @@ export function registerGitCheckoutHandlers(
     return { type: "checkout_diff_unsubscribe_response", subscriptionId, ok };
   });
 
-  // Feature-gated: only available when the daemon advertises checkoutRefresh.
-  if (deps.checkoutRefreshEnabled) {
-    registry.register("checkout_refresh_request", async (ctx) => {
-      const cwd = String(ctx.message.cwd ?? "");
-      const changed = await gitService.refresh(cwd);
-      return { type: "checkout_refresh_response", cwd, changed };
-    });
-  }
+  registry.register("checkout_refresh_request", async (ctx) => {
+    const cwd = String(ctx.message.cwd ?? "");
+    const changed = await gitService.refresh(cwd);
+    return { type: "checkout_refresh_response", cwd, changed };
+  });
 }

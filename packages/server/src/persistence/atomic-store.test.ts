@@ -85,24 +85,6 @@ describe("loadStore fallbacks", () => {
     const result = await loadStore(path, docSchema, { value: -1, label: "default" });
     expect(result).toEqual({ value: -1, label: "default" });
   });
-
-  it("applies the inline normalize hook before validation", async () => {
-    const dir = await makeTempDir();
-    const path = join(dir, "legacy.json");
-    await writeFile(path, JSON.stringify({ value: 7, legacyLabel: "old" }), "utf8");
-    const result = await loadStore(
-      path,
-      docSchema,
-      { value: 0, label: "x" },
-      {
-        normalize: (raw) => {
-          const obj = raw as Record<string, unknown>;
-          return { value: obj.value, label: obj.legacyLabel ?? obj.label };
-        },
-      },
-    );
-    expect(result).toEqual({ value: 7, label: "old" });
-  });
 });
 
 describe("ensureDirectoryLayout", () => {

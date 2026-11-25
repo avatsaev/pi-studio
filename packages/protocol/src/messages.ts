@@ -438,14 +438,6 @@ export const respondToPermissionResponseSchema = z.object({
   payload: z.object({ resolved: z.boolean() }).passthrough(),
 });
 
-/** Legacy flat name for the same operation — still accepted (parsed), never generated. */
-export const legacyRespondToPermissionSchema = z.object({
-  type: z.literal("respond_to_permission"),
-  requestId: z.string(),
-  permissionRequestId: z.string(),
-  response: z.unknown(),
-});
-
 // ===========================================================================
 // ===========================================================================
 // Rewind RPC (features/rewind.md) — additive, new in sprint-015
@@ -2227,7 +2219,6 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentPermissionResolvedSchema,
   respondToPermissionRequestSchema,
   respondToPermissionResponseSchema,
-  legacyRespondToPermissionSchema,
   agentRewindRequestSchema,
   agentRewindResponseSchema,
   agentSessionStatsRequestSchema,

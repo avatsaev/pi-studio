@@ -32,10 +32,9 @@ export type RpcHandler = (ctx: RpcHandlerContext) => unknown | Promise<unknown>;
 
 export type BinaryHandler = (session: Session, bytes: Uint8Array) => void;
 
-/** Registry of RPC handlers keyed by message type, with legacy flat-name aliases. */
+/** Registry of RPC handlers keyed by message type. */
 export class HandlerRegistry {
   private readonly handlers = new Map<string, RpcHandler>();
-  private readonly aliases = new Map<string, string>();
 
   /**
    * @param logger Optional operational logger. When present, every dispatched RPC is logged at
@@ -50,14 +49,8 @@ export class HandlerRegistry {
     return this;
   }
 
-  /** Map a legacy flat name to a canonical type so both names resolve to the same handler. */
-  registerAlias(alias: string, canonical: string): this {
-    this.aliases.set(alias, canonical);
-    return this;
-  }
-
   get(type: string): RpcHandler | undefined {
-    return this.handlers.get(type) ?? this.handlers.get(this.aliases.get(type) ?? "");
+    return this.handlers.get(type);
   }
 }
 

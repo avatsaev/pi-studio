@@ -9,8 +9,7 @@
 # - Publishes the library packages to npm in dependency order (protocol/relay have no
 #   workspace deps and go first; client depends on protocol+relay; ui-library has no workspace
 #   deps; workbench (the application as a library) consumes protocol/client/ui-library and
-#   precedes web-client, which consumes it; web-client is a static-asset dependency of
-#   cli, built and published before it; server/cli depend on the others and go last).
+#   precedes web-client, which consumes it; server/cli depend on the others and go last).
 #
 # Usage:
 #   npm run publish                 # bump patch + publish everything below

@@ -1,7 +1,7 @@
 # Task 002 — Drop `legacyRespondToPermissionSchema` from the protocol
 
 - **Sprint:** sprints/sprint-148-shims-and-packaging
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/protocol
 - **Priority:** P3

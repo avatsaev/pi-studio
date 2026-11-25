@@ -48,10 +48,8 @@ const { values: flags } = parseArgs({
     "daemon-port": { type: "string", default: "16767" },
     "other-port": { type: "string", default: "16768" },
     "http-port": { type: "string", default: "16800" },
-    "ui-port": { type: "string", default: "16173" },
     base: { type: "string", default: "0.0.9001" },
     image: { type: "string", default: "debian:bookworm-slim" },
-    pause: { type: "string", default: "" },
     out: { type: "string" },
     keep: { type: "boolean", default: false },
   },
@@ -63,8 +61,6 @@ const CONTAINER = `${P}-daemon`;
 const daemonPort = Number(flags["daemon-port"]);
 const otherPort = Number(flags["other-port"]);
 const httpPort = Number(flags["http-port"]);
-const uiPort = Number(flags["ui-port"]);
-const pauseKeys = new Set(flags.pause.split(",").filter(Boolean));
 const PASSWORD = `${P}-pw`;
 const LISTEN = `127.0.0.1:${daemonPort}`;
 const OTHER_LISTEN = `127.0.0.1:${otherPort}`;
@@ -333,40 +329,6 @@ async function listeningAddresses(port) {
   return found;
 }
 
-/**
- * `--pause <key>`: serves the web UI from the container, prints where it is, and waits for the
- * `continue` file, so a person with a browser can look at the state the run is in.
- */
-async function pause(key) {
-  if (!pauseKeys.has(key)) return;
-  await docker([
-    "exec",
-    "-d",
-    "-w",
-    "/work",
-    CONTAINER,
-    CURRENT,
-    "ui",
-    "--ui-port",
-    String(uiPort),
-    "--daemon-host",
-    LISTEN,
-  ]);
-  const flag = path.join(scratch, "continue");
-  log(
-    `\nPAUSED at "${key}": http://127.0.0.1:${uiPort}/?host=ws%3A%2F%2F${LISTEN}&connect=1 ` +
-      `(daemon password ${PASSWORD}); create ${flag} to go on`,
-  );
-  await waitFor("the continue file", () => existsSync(flag), {
-    timeoutMs: 3_600_000,
-    intervalMs: 1000,
-  });
-  rmSync(flag);
-  for (const p of (await psList()).filter((q) => /pi-studio.* ui --ui-port/.test(q.args))) {
-    await dbash(`kill ${p.pid}`, { allowFail: true });
-  }
-}
-
 let sdk;
 let A; // direct client 1
 let B; // direct client 2
@@ -393,7 +355,7 @@ async function cleanup() {
 
 let failed = false;
 try {
-  await Promise.all([daemonPort, otherPort, httpPort, uiPort].map(freePort));
+  await Promise.all([daemonPort, otherPort, httpPort].map(freePort));
   sdk = await loadSdk(repo);
 
   await scenario(
@@ -623,7 +585,6 @@ try {
         `the daemon has children (agent, terminal shell): ${oldTree.length - 1}`,
       );
 
-      await pause("offer");
       const marks = [A, B].map((c) => c.mark());
       const t0 = Date.now();
       const applied = await A.pi.applyDaemonUpdate();
@@ -818,7 +779,6 @@ try {
         manual.skippedVersion === V3 && JSON.parse(await skipFile()).version === V3,
         "the skip stays until a newer release exists",
       );
-      await pause("skipped");
 
       release(V4);
       const newerMarks = [A, B].map((c) => c.mark());

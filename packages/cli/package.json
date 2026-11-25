@@ -33,7 +33,6 @@
     "@av-pi-studio/protocol": "^0.0.132",
     "@av-pi-studio/relay": "^0.0.132",
     "@av-pi-studio/server": "^0.0.132",
-    "@av-pi-studio/web-client": "^0.0.132",
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@inquirer/prompts": "^8.5.2",
     "bcryptjs": "^3.0.3",

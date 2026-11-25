@@ -11,7 +11,6 @@ import { defaultGitRunner, type GitRunner } from "./git-detect.js";
 /**
  * GitHub PR operations via the `gh` CLI (features/git-checkout.md § GitHub operations, § Auto-merge
  * request shape, § Auto-archive on merge). New GitHub RPCs are namespaced `checkout.github.*`.
- * `checkout.github.set_auto_merge` is feature-gated by `features.checkoutGithubSetAutoMerge`.
  */
 
 export interface GhRunResult {
@@ -41,8 +40,6 @@ export interface GitHubServiceDeps {
   ghRunner?: GhRunner;
   gitRunner?: GitRunner;
   generate?: (task: GenerationTask, opts?: GenerateOpts) => Promise<string>;
-  /** Whether the daemon advertises `features.checkoutGithubSetAutoMerge`. */
-  setAutoMergeEnabled: boolean;
   /** Archive a workspace (auto-archive-on-merge coupling). */
   archiveWorkspace?: (workspaceId: string) => Promise<void>;
 }
@@ -92,24 +89,16 @@ export class GitHubService {
       ...(await this.search(String(ctx.message.query ?? ""), String(ctx.message.cwd ?? "."))),
     }));
 
-    // Feature-gated dotted RPC: only registered when the daemon advertises the feature. An old
-    // daemon simply has no handler → the client hides the affordance instead of failing silently.
-    if (this.deps.setAutoMergeEnabled) {
-      registry.register("checkout.github.set_auto_merge.request", async (ctx) => {
-        const cwd = String(ctx.message.cwd ?? "");
-        const enabled = Boolean(ctx.message.enabled);
-        const requestId = ctx.message.requestId as string | undefined;
-        const result = await this.setAutoMerge(
-          cwd,
-          enabled,
-          ctx.message.mergeMethod as MergeMethod,
-        );
-        return {
-          type: "checkout.github.set_auto_merge.response",
-          payload: { cwd, enabled, success: result.success, error: result.error, requestId },
-        };
-      });
-    }
+    registry.register("checkout.github.set_auto_merge.request", async (ctx) => {
+      const cwd = String(ctx.message.cwd ?? "");
+      const enabled = Boolean(ctx.message.enabled);
+      const requestId = ctx.message.requestId as string | undefined;
+      const result = await this.setAutoMerge(cwd, enabled, ctx.message.mergeMethod as MergeMethod);
+      return {
+        type: "checkout.github.set_auto_merge.response",
+        payload: { cwd, enabled, success: result.success, error: result.error, requestId },
+      };
+    });
   }
 
   /** True when `gh` reports an authenticated session. */
