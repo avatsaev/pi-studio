@@ -6,6 +6,7 @@ import { PiAgentClient } from "./providers/pi/agent.js";
 import type { PiRpcTransport, PiTransportSpawnArgs } from "./providers/pi/rpc-transport.js";
 import { SessionOperationsService } from "./session-operations.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 
 /**
  * One Pi process per agent, and no RPC left hanging by a close (sprint-149/task-004). Real
@@ -166,11 +167,15 @@ describe("one spawn per agent", () => {
 
   it("spawns one process for two concurrent first sends; the loser is refused as busy", async () => {
     const { service, processes } = await setup(resumable());
-    const send = () => service.handleSendPrompt({ agentId: "agent-1", prompt: "hi" }, () => []);
+    const calls = agentCalls(service);
+    const send = () => calls.send({ agentId: "agent-1", prompt: "hi" });
 
     const results = await Promise.allSettled([send(), send()]);
+    await service.turnSettled("agent-1");
 
     expect(results.map((r) => r.status).toSorted()).toEqual(["fulfilled", "rejected"]);
+    const refusals = results.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+    expect(refusals).toEqual([new Error("busy: agent agent-1 is running")]);
     expect(processes).toHaveLength(1);
   });
 
@@ -178,9 +183,10 @@ describe("one spawn per agent", () => {
     const { service, processes, deps } = await setup(resumable());
 
     await Promise.all([
-      service.handleSendPrompt({ agentId: "agent-1", prompt: "hi" }, () => []),
+      agentCalls(service).send({ agentId: "agent-1", prompt: "hi" }),
       ensureSession(deps, "agent-1"),
     ]);
+    await service.turnSettled("agent-1");
 
     expect(processes).toHaveLength(1);
   });
@@ -198,11 +204,11 @@ describe("one spawn per agent", () => {
 describe("a replaced or failed process is closed", () => {
   it("closes the old process when resume replaces a live session", async () => {
     const { service, ops, manager, processes } = await setup(null);
-    const created = (await service.handleCreate(
-      { config: { provider: "pi", cwd: "/work" }, initialPrompt: "first" },
-      () => [],
-    )) as { payload: { agentId: string } };
-    const agentId = created.payload.agentId;
+    const created = await agentCalls(service).createSettled({
+      config: { provider: "pi", cwd: "/work" },
+      initialPrompt: "first",
+    });
+    const { agentId } = created.payload;
     expect(processes).toHaveLength(1);
     expect(processes[0]?.closed).toBe(false);
 
@@ -250,19 +256,20 @@ describe("closing mid-turn", () => {
   /** A draft whose first prompt never ends; resolves once Pi has the prompt. */
   async function startHangingTurn() {
     const ctx = await setup(record(), [{ hangs: true }]);
-    const send = ctx.service.handleSendPrompt({ agentId: "agent-1", prompt: "work" }, () => []);
+    await agentCalls(ctx.service).send({ agentId: "agent-1", prompt: "work" });
     await vi.waitFor(() => expect(ctx.processes[0]?.notifies).toContain("prompt"));
     expect(ctx.manager.get("agent-1")?.record.lastStatus).toBe("running");
-    return { ...ctx, send };
+    return ctx;
   }
 
-  it("archive interrupts, ends the turn as canceled, and resolves the send", async () => {
-    const { manager, processes, send, error } = await startHangingTurn();
+  it("archive interrupts, ends the turn as canceled, and releases the agent", async () => {
+    const { service, manager, processes, error } = await startHangingTurn();
     const timeline = manager.timelines.get("agent-1")!;
 
     await manager.archiveAgent("agent-1");
+    await service.turnSettled("agent-1");
 
-    await expect(send).resolves.toMatchObject({ type: "agent_prompt_response" });
+    expect(service.hasTurn("agent-1")).toBe(false);
     expect(processes[0]?.notifies).toContain("abort");
     expect(processes[0]?.closed).toBe(true);
     expect(manager.get("agent-1")?.record.lastStatus).toBe("closed");
@@ -270,13 +277,14 @@ describe("closing mid-turn", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("delete ends the turn, resolves the send, and writes nothing back", async () => {
-    const { manager, send, saves, error } = await startHangingTurn();
+  it("delete ends the turn, releases the agent, and writes nothing back", async () => {
+    const { service, manager, saves, error } = await startHangingTurn();
     const savesBefore = saves.length;
 
     await manager.deleteAgent("agent-1");
+    await service.turnSettled("agent-1");
 
-    await expect(send).resolves.toMatchObject({ type: "agent_prompt_response" });
+    expect(service.hasTurn("agent-1")).toBe(false);
     expect(manager.get("agent-1")).toBeUndefined();
     expect(saves).toHaveLength(savesBefore);
     expect(error).not.toHaveBeenCalled();

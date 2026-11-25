@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStreamEvent, AgentTodo, AgentTodosSnapshot } from "@av-pi-studio/protocol";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import type { AgentClient, AgentSession, AgentTodoList } from "./provider-contract.js";
 import { AgentTodosService } from "./agent-todos/agent-todos-service.js";
 import { AgentManager } from "./agent-manager.js";
@@ -55,11 +56,21 @@ function makeSetup(): {
  * delegation test below needs a live `session` to exercise, whether from this spawn or a later
  * `manager.attachSession(agentId, sessionStub(...))` override. */
 async function createAgent(service: AgentService): Promise<string> {
-  const result = (await service.handleCreate(
-    { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" }, initialPrompt: "hi" },
-    () => [],
-  )) as Record<string, unknown>;
-  return (result.payload as Record<string, unknown>).agentId as string;
+  const result = await agentCalls(service).createSettled({
+    requestId: randomUUID(),
+    config: { provider: "mock", cwd: "/work" },
+    initialPrompt: "hi",
+  });
+  return result.payload.agentId;
+}
+
+/** A deferred draft: the record exists and no provider process was spawned. */
+async function createDraft(service: AgentService): Promise<string> {
+  const result = await agentCalls(service).create({
+    requestId: randomUUID(),
+    config: { provider: "mock", cwd: "/work" },
+  });
+  return result.payload.agentId;
 }
 
 describe("unknown agent / unsupported provider", () => {
@@ -470,11 +481,7 @@ describe("delegation to optional AgentSession methods", () => {
     // Deferred-draft creation: no `initialPrompt` means `handleCreate` persists the record but
     // never spawns a provider process (`agent-service.ts` `handleCreate`'s deferred branch) —
     // `managed.session` stays `null` exactly like a real "New chat" tab before anything is sent.
-    const created = (await service.handleCreate(
-      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const agentId = await createDraft(service);
     expect(manager.get(agentId)?.session).toBeNull();
     saved.length = 0; // drop the initial creation write
 
@@ -642,11 +649,7 @@ describe("delegation to optional AgentSession methods", () => {
 
   it("agent_set_thinking_request on a still-unspawned deferred draft pins the level, broadcasts, and responds — no throw (sprint-070)", async () => {
     const { service, ops, manager, broadcasts, saved } = makeSetup();
-    const created = (await service.handleCreate(
-      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const agentId = await createDraft(service);
     expect(manager.get(agentId)?.session).toBeNull();
     saved.length = 0;
 
@@ -696,11 +699,7 @@ describe("delegation to optional AgentSession methods", () => {
 
   it("agent_thinking_levels_request on a draft throws 'no live session' (drafts answer from the catalogue client-side)", async () => {
     const { service, ops, manager } = makeSetup();
-    const created = (await service.handleCreate(
-      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const agentId = await createDraft(service);
     expect(manager.get(agentId)?.session).toBeNull();
     await expect(ops.handleThinkingLevels({ agentId })).rejects.toThrow(/no live session/);
   });
@@ -716,11 +715,7 @@ describe("delegation to optional AgentSession methods", () => {
     // never spawns a provider process (`agent-service.ts` `handleCreate`'s deferred branch) —
     // `managed.session` stays `null` exactly like a real "New chat" tab before anything is sent,
     // which is exactly the flow the `/` picker's first open needs to work in.
-    const created = (await service.handleCreate(
-      { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" } },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const agentId = await createDraft(service);
     expect(manager.get(agentId)?.session).toBeNull();
 
     const result = (await ops.handleListCommands({ agentId })) as Record<string, unknown>;

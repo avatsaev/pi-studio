@@ -65,7 +65,7 @@ describe("module loading under Bun", () => {
 describe("BunPtyBackend (real TTY)", () => {
   const backend = new BunPtyBackend({
     resolveExecutable: (bin) => (bin === "sh" ? "/bin/sh" : bin),
-    killTree: () => {},
+    killTree: (_pid, _signal, then) => then?.(),
   });
 
   it("spawns /bin/sh on a real PTY, echoes input, resizes and reports the exit code", async () => {

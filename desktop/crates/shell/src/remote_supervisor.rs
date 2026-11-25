@@ -367,6 +367,8 @@ impl RemoteSupervisor {
             Answer::Running { .. } => RemoteState::Running,
             Answer::Stopped | Answer::Failed(Failure::BadOutput) => failed(RemoteFailReason::BadOutput),
             Answer::Failed(Failure::NotHealthy) => failed(RemoteFailReason::NotHealthy),
+            Answer::Failed(Failure::UnprotectedBind) => failed(RemoteFailReason::UnprotectedBind),
+            Answer::Failed(Failure::ConfigUnreadable) => failed_with(RemoteFailReason::ConfigUnreadable, &scripts::config_file(folder)),
         }
     }
 

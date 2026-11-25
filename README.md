@@ -117,7 +117,7 @@ issued (e.g. one leaked), mint a fresh keypair: `pi-studio daemon rotate-key`.
 Any connected client can update a daemon that was installed with `npm i -g @av-pi-studio/cli` or that is the
 single binary (the desktop app's, or one downloaded from a `daemon-v*` release): the web UI shows a "Daemon X"
 pill when a newer version is available (npm for the package, the `daemon-updates` release of this repository for
-the binary; checked at start and every 6 h; Settings → Daemon has "Check now" and a switch, or set
+the binary; checked at start, every 6 h, and when a client connects whose last check is over 10 minutes old; Settings → Daemon has "Check now" and a switch, or set
 `PI_STUDIO_UPDATE_AUTOCHECK=false`). The desktop app's Daemons screen offers Update for a local or SSH daemon that
 is stopped or too old; it installs the binary the app was built with. The update installs the new
 version, restarts the daemon on the same address, and puts the previous version back if the new one does not

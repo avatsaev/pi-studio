@@ -94,12 +94,15 @@ export class ProviderAuthService {
 
   private readonly flows = new Map<string, Flow>();
   private readonly flowIdBySession = new WeakMap<Session, string>();
+  /** Set by {@link close}: no flow starts after it. */
+  private closed = false;
 
   constructor(deps: ProviderAuthServiceDeps) {
     this.runtime = deps.runtime;
     this.logger = deps.logger;
     this.ttlMs = deps.ttlMs ?? DEFAULT_FLOW_TTL_MS;
-    this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+    // Unref'd: a flow's time-to-live alone never keeps the process alive.
+    this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref());
     this.clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle));
     this.subscriptions = deps.subscriptions;
   }
@@ -145,6 +148,7 @@ export class ProviderAuthService {
     } catch {
       return { ok: false, error: "provider_auth_unavailable" };
     }
+    if (this.closed) return { ok: false, error: "shutting_down" };
     const info = infos.find((p) => p.id === provider);
     if (!info) return { ok: false, error: "unknown_provider" };
     if (!info.authTypes.includes(authType)) return { ok: false, error: "unsupported_auth_type" };
@@ -212,6 +216,16 @@ export class ProviderAuthService {
     const flow = this.flows.get(flowId);
     if (flow && flow.session === session) this.abortFlow(flow, "cancelled");
     return { ok: true };
+  }
+
+  /**
+   * Ends every flow for good (the daemon is shutting down): each is aborted and settles with a
+   * terminal `done` (`error: "shutting_down"`), which clears its timer and drops its
+   * subscription; a login still resolving its provider list starts no flow.
+   */
+  close(): void {
+    this.closed = true;
+    for (const flow of this.flows.values()) this.abortFlow(flow, "shutting_down");
   }
 
   async logout(
@@ -313,10 +327,10 @@ export class ProviderAuthService {
   }
 
   /** Abort the flow's controller and settle it with a terminal `done ok:false`. Used by explicit
-   *  `cancel`, TTL expiry, and — via the `SessionSubscriptions` disposer `login` registers, which
-   *  fires on socket disconnect — session close. A no-op if the flow already reached a terminal
-   *  state. */
-  private abortFlow(flow: Flow, reason: "cancelled" | "timeout"): void {
+   *  `cancel`, TTL expiry, `close` (shutdown) and — via the `SessionSubscriptions` disposer `login`
+   *  registers, which fires on socket disconnect — session close. A no-op if the flow already
+   *  reached a terminal state. */
+  private abortFlow(flow: Flow, reason: "cancelled" | "timeout" | "shutting_down"): void {
     if (flow.terminal) return;
     flow.abort.abort();
     this.settleFlow(flow, { ok: false, error: reason });

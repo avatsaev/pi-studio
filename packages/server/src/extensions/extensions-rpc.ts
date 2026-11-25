@@ -1,5 +1,6 @@
 import type { ExtensionPacksListResponse, ExtensionPacksSetResponse } from "@av-pi-studio/protocol";
 
+import { ConfigUnreadableError } from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { CURATED_PACKS, selectEntries } from "./curated-packs.js";
@@ -101,7 +102,20 @@ export function registerExtensionsHandlers(
         };
       }
 
-      await service.setSelectedPacks(packs);
+      try {
+        await service.setSelectedPacks(packs);
+      } catch (err) {
+        if (!(err instanceof ConfigUnreadableError)) throw err;
+        // The selection was not kept (the damaged file is left alone): a domain failure, no sync.
+        logger?.error({ err: err.message }, "extension_packs_set_request: config.json unreadable");
+        const described = await service.describe();
+        return {
+          type: "extension_packs_set_response",
+          ...toListFields(described),
+          ok: false,
+          error: err.message,
+        };
+      }
       const report = await service.sync("selection");
       const described = await service.describe();
       return {

@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import {
+  ConfigUnreadableError,
   isUnprotectedBind,
   loadConfig,
   UNPROTECTED_BIND_CODE,
@@ -86,6 +87,29 @@ function resolvePairing(home: string, hostArg: string | undefined): ResolvedPair
 }
 
 /**
+ * Run `run`; when it throws {@link ConfigUnreadableError} (a `config.json` that cannot be used),
+ * report it and exit with an error: the message on stderr, or with `json` one
+ * `{ up: false, host, port, error: "config_unreadable" }` line. Nothing has been spawned or
+ * written at that point; every other error propagates.
+ */
+export async function reportingConfigErrors(
+  ctx: CliContext,
+  hostArg: string | undefined,
+  json: boolean | undefined,
+  run: () => number | Promise<number>,
+): Promise<number> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof ConfigUnreadableError)) throw error;
+    const { host, port } = parseHost(hostArg);
+    if (json) ctx.sink.write(JSON.stringify({ up: false, host, port, error: error.code }));
+    else ctx.sink.error(error.message);
+    return EXIT_ERROR;
+  }
+}
+
+/**
  * Render the pairing QR + link for the daemon at `home`. Returns an exit code. With `json` it
  * writes one `{ pairingUrl, relay }` / `{ error: "no_keypair" }` line instead (no QR, no prose).
  */
@@ -125,12 +149,24 @@ export async function printPairing(
  * `startOpts.json` (only `daemon start|restart` pass it) it writes exactly one JSON line instead:
  * `{ up, started, host, port, pairingUrl, relay }`, `{ up: false, host, port, error: "not_healthy" }`,
  * `{ up: false, host, port, error: "unprotected_bind" }` (non-loopback host, no password),
+ * `{ up: false, host, port, error: "config_unreadable" }` (`config.json` damaged; nothing is spawned
+ * and the message goes to stderr in text mode),
  * or, when healthy but no keypair file exists, `{ up: true, started, host, port, error: "no_keypair" }`.
  */
 export async function ensureLocalDaemonAndPair(
   ctx: CliContext,
   opts: GlobalOptions,
   startOpts: { sleep?: (ms: number) => Promise<void>; json?: boolean } = {},
+): Promise<number> {
+  return reportingConfigErrors(ctx, opts.host, startOpts.json === true, () =>
+    startAndPair(ctx, opts, startOpts),
+  );
+}
+
+async function startAndPair(
+  ctx: CliContext,
+  opts: GlobalOptions,
+  startOpts: { sleep?: (ms: number) => Promise<void>; json?: boolean },
 ): Promise<number> {
   const json = startOpts.json === true;
   const runtime = runtimeOf(ctx);
@@ -228,7 +264,17 @@ export function registerDaemonCommands(
     .command("restart")
     .description("restart the local daemon")
     .action(async () => {
-      const { error } = await stopDaemon(resolveCtxHome(ctx, g()), runtimeOf(ctx));
+      const home = resolveCtxHome(ctx, g());
+      // A damaged config.json refuses the start: say so before the running daemon is stopped.
+      const unusable = await reportingConfigErrors(ctx, g().host, g().json, () => {
+        loadConfig(daemonPaths(home).config);
+        return EXIT_OK;
+      });
+      if (unusable !== EXIT_OK) {
+        setExit(unusable);
+        return;
+      }
+      const { error } = await stopDaemon(home, runtimeOf(ctx));
       if (error) {
         // Starting now would find the old daemon still answering and report it as running.
         const { host, port } = parseHost(g().host);
@@ -244,16 +290,25 @@ export function registerDaemonCommands(
     .command("pair")
     .description("render the pairing QR code / link")
     .action(async () => {
-      setExit(await printPairing(ctx, resolveCtxHome(ctx, g()), g().host, g().json));
+      const home = resolveCtxHome(ctx, g());
+      setExit(
+        await reportingConfigErrors(ctx, g().host, g().json, () =>
+          printPairing(ctx, home, g().host, g().json),
+        ),
+      );
     });
 
   daemon
     .command("set-password <password>")
     .description("set the daemon password (bcrypt-hashed into config.json)")
-    .action((password: string) => {
-      setDaemonPassword(resolveCtxHome(ctx, g()), password, runtimeOf(ctx));
-      ctx.sink.write("password set; restart the daemon to enforce it.");
-      setExit(EXIT_OK);
+    .action(async (password: string) => {
+      setExit(
+        await reportingConfigErrors(ctx, g().host, g().json, () => {
+          setDaemonPassword(resolveCtxHome(ctx, g()), password, runtimeOf(ctx));
+          ctx.sink.write("password set; restart the daemon to enforce it.");
+          return EXIT_OK;
+        }),
+      );
     });
 
   daemon
@@ -273,7 +328,7 @@ export function registerDaemonCommands(
       ctx.sink.write(
         rotated
           ? "keypair rotated — every previously-issued pairing link/QR is now invalid; re-pair all clients."
-          : "no existing keypair found — a new one will be generated.",
+          : "no existing keypair found — a new one was created.",
       );
       setExit(await ensureLocalDaemonAndPair(ctx, g()));
     });

@@ -142,3 +142,41 @@ describe("session store — setTimeline (sprint-072/task-001, fork resync)", () 
     expect(useSessionStore.getState().sessions["s1"]?.timeline).toBe(EMPTY_TIMELINE);
   });
 });
+
+describe("session store — applyStatusSignal (sprint-152/task-003)", () => {
+  it("moves the status through the one rule", () => {
+    useSessionStore.getState().hydrate(hydrated());
+    useSessionStore.getState().applyStatusSignal("s1", { source: "accepted" });
+    expect(useSessionStore.getState().sessions["s1"]?.status).toBe("running");
+    useSessionStore.getState().applyStatusSignal("s1", { source: "update", status: "error" });
+    expect(useSessionStore.getState().sessions["s1"]?.status).toBe("error");
+  });
+
+  it("writes nothing when the status does not change", () => {
+    useSessionStore.getState().hydrate(hydrated({ status: "running" }));
+    const before = useSessionStore.getState().sessions;
+    useSessionStore
+      .getState()
+      .applyStatusSignal("s1", { source: "stream", event: { kind: "assistant_message" } });
+    useSessionStore.getState().applyStatusSignal("s1", { source: "update", status: "running" });
+    expect(useSessionStore.getState().sessions).toBe(before);
+  });
+
+  it("applyStatusSignalByAgentId resolves the owning session; an unknown agent is a no-op", () => {
+    useSessionStore.getState().hydrate(hydrated({ id: "s1", agentId: "a1" }));
+    useSessionStore.getState().hydrate(hydrated({ id: "s2", agentId: "a2" }));
+    useSessionStore
+      .getState()
+      .applyStatusSignalByAgentId("a2", { source: "update", status: "running" });
+    expect(useSessionStore.getState().sessions["s1"]?.status).toBe("idle");
+    expect(useSessionStore.getState().sessions["s2"]?.status).toBe("running");
+    const before = useSessionStore.getState().sessions;
+    useSessionStore.getState().applyStatusSignalByAgentId("nope", { source: "accepted" });
+    expect(useSessionStore.getState().sessions).toBe(before);
+  });
+
+  it("an unknown session is a no-op", () => {
+    useSessionStore.getState().applyStatusSignal("nope", { source: "accepted" });
+    expect(useSessionStore.getState().sessions["nope"]).toBeUndefined();
+  });
+});

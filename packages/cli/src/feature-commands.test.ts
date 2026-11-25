@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { DaemonClient, Transport } from "@av-pi-studio/client";
+import { DaemonClient, WORKTREE_TIMEOUT_MS, type Transport } from "@av-pi-studio/client";
 
 import { type CliContext, connectOptionsFrom } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -138,5 +138,28 @@ describe("registerFeatureCommands", () => {
     const names = program.commands.map((c) => c.name());
     expect(names).toEqual(expect.arrayContaining(["terminal", "provider", "worktree", "open"]));
     for (const gone of ["chat", "loop", "schedule"]) expect(names).not.toContain(gone);
+  });
+
+  it("worktree create and archive wait for the SDK's worktree timeout, not the default", async () => {
+    const { ctx } = await harness();
+    const spy = vi.spyOn(DaemonClient.prototype, "request");
+    try {
+      const program = new Command();
+      registerFeatureCommands(program, ctx, () => {});
+      await program.parseAsync(["worktree", "create", "x"], { from: "user" });
+      await program.parseAsync(["worktree", "archive", "x"], { from: "user" });
+      expect(spy).toHaveBeenCalledWith(
+        FEATURE_RPC.worktreeCreate,
+        expect.anything(),
+        WORKTREE_TIMEOUT_MS,
+      );
+      expect(spy).toHaveBeenCalledWith(
+        FEATURE_RPC.worktreeArchive,
+        expect.anything(),
+        WORKTREE_TIMEOUT_MS,
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

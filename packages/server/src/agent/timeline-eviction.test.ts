@@ -4,6 +4,7 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import { HandlerRegistry } from "../ws/router.js";
 import { AgentManager, PARENT_AGENT_ID_LABEL } from "./agent-manager.js";
 import { AgentService, timelineFor } from "./agent-service.js";
@@ -134,6 +135,16 @@ async function setup(records: AgentRecord[]): Promise<{
   return { manager, service, client, fetch };
 }
 
+/** Whether the provider has started the agent's turn: its `turn_started` row is on the timeline. */
+function turnHasStarted(manager: AgentManager, agentId: string): boolean {
+  return (
+    manager.timelines
+      .get(agentId)
+      ?.allRows()
+      .some((row) => row.event.kind === "turn_started") ?? false
+  );
+}
+
 describe("archive", () => {
   it("drops the agent's store, and a fetch for the archived agent rebuilds its history", async () => {
     const { manager, fetch } = await setup([record(PARENT_ID)]);
@@ -183,11 +194,12 @@ describe("delete", () => {
     const { manager, service } = await setup([record(PARENT_ID)]);
     manager.attachSession(PARENT_ID, new DyingSession());
 
-    const send = service.handleSendPrompt({ agentId: PARENT_ID, prompt: "go" }, () => []);
-    await expect.poll(() => manager.timelines.size).toBe(1);
+    await agentCalls(service).send({ agentId: PARENT_ID, prompt: "go" });
+    await expect.poll(() => turnHasStarted(manager, PARENT_ID)).toBe(true);
+    expect(manager.timelines.size).toBe(1);
 
     await manager.deleteAgent(PARENT_ID);
-    await send;
+    await service.turnSettled(PARENT_ID);
 
     expect(manager.timelines.size).toBe(0);
   });
@@ -196,11 +208,12 @@ describe("delete", () => {
     const { manager, service } = await setup([record(PARENT_ID)]);
     manager.attachSession(PARENT_ID, new DyingSession());
 
-    const send = service.handleSendPrompt({ agentId: PARENT_ID, prompt: "go" }, () => []);
-    await expect.poll(() => manager.timelines.size).toBe(1);
+    await agentCalls(service).send({ agentId: PARENT_ID, prompt: "go" });
+    await expect.poll(() => turnHasStarted(manager, PARENT_ID)).toBe(true);
+    expect(manager.timelines.size).toBe(1);
 
     await manager.archiveAgent(PARENT_ID);
-    await send;
+    await service.turnSettled(PARENT_ID);
 
     expect(manager.timelines.size).toBe(0);
   });

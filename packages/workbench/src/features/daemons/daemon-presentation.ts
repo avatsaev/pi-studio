@@ -44,6 +44,10 @@ const UPDATE: LocalAction = { kind: "update", label: "Update", call: "update" };
 
 type LocalFailReason = Extract<LocalDaemonState, { state: "failed" }>["reason"];
 
+/** The daemon's refusals to start: the same words for a local daemon and a host's. */
+const UNPROTECTED_BIND_LABEL = "Not started: no password on a network address";
+const CONFIG_UNREADABLE_LABEL = "Not started: the configuration file is damaged";
+
 const FAILED_LABELS: Record<LocalFailReason, string> = {
   not_healthy: "Started, but not answering",
   timeout: "Did not start in time",
@@ -52,6 +56,8 @@ const FAILED_LABELS: Record<LocalFailReason, string> = {
   download_failed: "The download failed",
   checksum_mismatch: "The file did not match its checksum and was deleted",
   install_failed: "Installing the daemon failed",
+  unprotected_bind: UNPROTECTED_BIND_LABEL,
+  config_unreadable: CONFIG_UNREADABLE_LABEL,
 };
 
 /** The failures of getting the daemon onto the machine; Retry runs the install again. */
@@ -157,6 +163,8 @@ const REMOTE_FAILED_LABELS: Record<RemoteFailReason, string> = {
   checksum_mismatch: "The file did not match its checksum and was deleted",
   send_failed: "Sending the daemon to the host failed",
   install_failed: "Installing the daemon on the host failed",
+  unprotected_bind: UNPROTECTED_BIND_LABEL,
+  config_unreadable: CONFIG_UNREADABLE_LABEL,
 };
 
 /** The failures of getting the daemon onto the host; Retry runs the install again. */
@@ -290,6 +298,14 @@ const ERROR_VIEWS: Record<DaemonFailure, Omit<DaemonErrorView, "isError"> & { is
   download_failed: { message: "The download failed." },
   checksum_mismatch: { message: "The file did not match its checksum and was deleted." },
   install_failed: { message: "Installing the daemon failed." },
+  unprotected_bind: {
+    message: "The daemon did not start: it would listen beyond its machine with no password.",
+    detail: "Set a password or make it listen on 127.0.0.1 only, then retry.",
+  },
+  config_unreadable: {
+    message: "The daemon did not start: its configuration file is damaged.",
+    detail: "Repair or remove the file, then retry.",
+  },
   secret_missing: {
     message: "The saved password or pairing link for this daemon was not found.",
     detail: "Edit the daemon and enter it again.",

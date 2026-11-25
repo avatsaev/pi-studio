@@ -138,6 +138,11 @@ pub fn program(folder: &str) -> String {
     format!("{folder}/bin/current/{PROGRAM}")
 }
 
+/// The daemon's `config.json` on the host: in the host's folder.
+pub fn config_file(folder: &str) -> String {
+    format!("{folder}/config.json")
+}
+
 /// `<folder>/bin/tmp/<name>`: where the archive of one install is sent (`.tar.gz` after it) and unpacked.
 pub fn temp_base(folder: &str, name: &str) -> String {
     format!("{folder}/bin/tmp/{name}")

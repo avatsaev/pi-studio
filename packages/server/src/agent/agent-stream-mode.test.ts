@@ -1,10 +1,11 @@
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
+import { agentCalls } from "../test-support/answer-then-run.js";
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
-import { MockAgentClient, type MockAgentSession } from "./providers/mock/mock-provider.js";
+import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import { SessionOperationsService } from "./session-operations.js";
 
 /**
@@ -71,20 +72,20 @@ async function createAgent(
   service: AgentService,
   sessions: () => Iterable<Session>,
 ): Promise<string> {
-  const result = (await service.handleCreate(
-    { requestId: "r", config: { provider: "mock", cwd: "/w" }, initialPrompt: "hi" },
-    sessions,
-  )) as Record<string, unknown>;
-  return (result.payload as Record<string, unknown>).agentId as string;
+  const result = await agentCalls(service, sessions).createSettled({
+    requestId: "r",
+    config: { provider: "mock", cwd: "/w" },
+    initialPrompt: "hi",
+  });
+  return result.payload.agentId;
 }
 
 describe("agent stream mode", () => {
   it("sends a quiet session no agent_stream frame during a turn, and a normal session all of them", async () => {
-    const { quiet, loud, sessions, service, manager } = setup();
+    const { quiet, loud, sessions, service } = setup();
     const agentId = await createAgent(service, sessions);
-    const session = manager.get(agentId)!.session as MockAgentSession;
 
-    await service.runTurn(agentId, session, "#tool shell", sessions);
+    await agentCalls(service, sessions).sendSettled({ agentId, prompt: "#tool shell" });
 
     expect(streamKinds(quiet)).toEqual([]);
     // Ephemeral partials, sequenced events and the user_message all reached the other session.
@@ -105,9 +106,8 @@ describe("agent stream mode", () => {
   it("still appends to the timeline what the quiet session did not receive", async () => {
     const { quiet, sessions, service, manager } = setup();
     const agentId = await createAgent(service, sessions);
-    const session = manager.get(agentId)!.session as MockAgentSession;
 
-    await service.runTurn(agentId, session, "hello", sessions);
+    await agentCalls(service, sessions).sendSettled({ agentId, prompt: "hello" });
 
     expect(streamKinds(quiet)).toEqual([]);
     const kinds = manager.timelines
@@ -119,10 +119,9 @@ describe("agent stream mode", () => {
   });
 
   it("applies to the optimistic user_message and queue_update of steer and follow-up", async () => {
-    const { quiet, loud, sessions, service, ops, manager } = setup();
+    const { quiet, loud, sessions, service, ops } = setup();
     const agentId = await createAgent(service, sessions);
-    const session = manager.get(agentId)!.session as MockAgentSession;
-    await service.runTurn(agentId, session, "first", sessions);
+    await agentCalls(service, sessions).sendSettled({ agentId, prompt: "first" });
     quiet.received.length = 0;
     loud.received.length = 0;
 
@@ -133,10 +132,10 @@ describe("agent stream mode", () => {
   });
 
   it("treats a session without a mode as a normal one", async () => {
-    const { loud, sessions, service, manager } = setup();
+    const { loud, sessions, service } = setup();
     expect(loud.agentStreams).toBeUndefined();
     const agentId = await createAgent(service, sessions);
-    await service.runTurn(agentId, manager.get(agentId)!.session!, "hi", sessions);
+    await agentCalls(service, sessions).sendSettled({ agentId, prompt: "hi" });
     expect(streamKinds(loud).length).toBeGreaterThan(0);
   });
 });

@@ -4,6 +4,7 @@ import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import type { Session } from "../ws/session.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
@@ -379,7 +380,7 @@ describe("agent_compact_request — synthetic terminal", () => {
 });
 
 describe("compaction during a turn (automatic path)", () => {
-  it("runTurn records compaction events — including failed — and the agent still ends idle", async () => {
+  it("a turn records compaction events — including failed — and the agent still ends idle", async () => {
     const rec = record();
     const { manager, agentId } = await setup(rec);
     const session = new ScriptedSession();
@@ -406,7 +407,7 @@ describe("compaction during a turn (automatic path)", () => {
       now: () => NOW,
     });
 
-    await service.runTurn(agentId, session, "go", () => []);
+    await agentCalls(service).sendSettled({ agentId, prompt: "go" });
 
     expect(compactionRows(manager, agentId).map((e) => e.kind === "compaction" && e.phase)).toEqual(
       ["started", "failed"],

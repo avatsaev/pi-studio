@@ -14,6 +14,8 @@ import type { PasswordAuth } from "../auth/password-auth.js";
 import { WS_BEARER_SUBPROTOCOL_PREFIX } from "../auth/password-auth.js";
 import { type CapabilityStore, createInMemoryCapabilityStore } from "./capability-store.js";
 import type { Logger } from "../logging/logger.js";
+import { HELLO_TIMEOUT_MS, MAX_FRAME_BYTES, PING_INTERVAL_MS } from "./limits.js";
+import { watchLiveness } from "./liveness.js";
 import { Session } from "./session.js";
 
 /**
@@ -52,13 +54,28 @@ export interface WebSocketServerDeps {
   onMessage?: (session: Session, frame: SessionFrame) => void;
   /** Operational logger: upgrade rejections (warn), handshake failures (warn), session close (info). */
   logger?: Logger;
+  /** How long a connection may stay open without a valid `hello` before it is closed with 1008.
+   *  Default {@link HELLO_TIMEOUT_MS}; tests shorten it. */
+  helloTimeoutMs?: number;
+  /** How often every socket is pinged; one that showed no life since the previous ping is
+   *  terminated. Default {@link PING_INTERVAL_MS}; tests shorten it. */
+  pingIntervalMs?: number;
 }
 
 export interface WebSocketServerHandle {
   readonly wss: WebSocketServer;
   readonly sessions: Set<Session>;
+  /** Answer every later upgrade with `503` (the daemon is shutting down). Idempotent. */
+  stopAccepting(): void;
+  /**
+   * Stop accepting, close every socket with 1001 and resolve when they are gone. A socket that
+   * has not completed the close handshake after {@link SOCKET_CLOSE_GRACE_MS} is terminated.
+   */
   close(): Promise<void>;
 }
+
+/** How long `close()` waits for clients to answer the close frame before it terminates them. */
+export const SOCKET_CLOSE_GRACE_MS = 1_000;
 
 function defaultFeatures(): Record<string, boolean> {
   return Object.fromEntries(Object.values(SERVER_FEATURES).map((key) => [key, true]));
@@ -70,9 +87,12 @@ export function createWebSocketServer(
 ): WebSocketServerHandle {
   const store = deps.capabilityStore ?? createInMemoryCapabilityStore();
   const sessions = new Set<Session>();
+  let accepting = true;
 
   const wss = new WebSocketServer({
     noServer: true,
+    // A frame above this closes the socket with 1009 while it is read, before it is buffered.
+    maxPayload: MAX_FRAME_BYTES,
     // Echo the bearer subprotocol back so a browser client's offered protocol is accepted.
     handleProtocols: (protocols) => {
       for (const proto of protocols) {
@@ -82,7 +102,18 @@ export function createWebSocketServer(
     },
   });
 
+  const stopLiveness = watchLiveness(wss, deps.pingIntervalMs ?? PING_INTERVAL_MS, deps.logger);
+
   httpServer.on("upgrade", (req, socket, head) => {
+    if (!accepting) {
+      deps.logger?.info(
+        { remoteAddress: req.socket.remoteAddress },
+        "ws upgrade refused: daemon shutting down",
+      );
+      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     if (deps.hostCheck && !deps.hostCheck(req.headers.host)) {
       deps.logger?.warn(
         { host: req.headers.host, remoteAddress: req.socket.remoteAddress },
@@ -117,6 +148,24 @@ export function createWebSocketServer(
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     let session: Session | null = null;
     const connectedAt = Date.now();
+
+    // A socket that never identifies itself is not held for ever.
+    const helloTimer = setTimeout(() => {
+      deps.logger?.warn(
+        { remoteAddress: _req.socket.remoteAddress },
+        "ws handshake failed: no hello before the timeout",
+      );
+      ws.close(1008, "hello timeout");
+    }, deps.helloTimeoutMs ?? HELLO_TIMEOUT_MS);
+
+    // `ws` reports a frame over `maxPayload` (and any protocol violation) as an `error` event after
+    // it has started the close; without a listener that event would throw.
+    ws.on("error", (err: Error) => {
+      deps.logger?.warn(
+        { err: err.message, remoteAddress: _req.socket.remoteAddress },
+        "ws socket error; closing",
+      );
+    });
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (session === null) {
@@ -165,7 +214,9 @@ export function createWebSocketServer(
           socket: ws,
           appVersion: hello.data.appVersion,
           remoteAddress: _req.socket.remoteAddress,
+          ...(deps.logger ? { logger: deps.logger } : {}),
         });
+        clearTimeout(helloTimer);
         sessions.add(session);
 
         const payload = serverInfoPayloadSchema.parse({
@@ -186,12 +237,17 @@ export function createWebSocketServer(
         return;
       }
 
-      // Post-handshake frames → router (task-005).
-      if (isBinary) deps.onMessage?.(session, { binary: new Uint8Array(data) });
-      else deps.onMessage?.(session, { text: data.toString("utf8") });
+      // Post-handshake frames → router (task-005). A binary frame is handed over as a view of the
+      // received buffer: the decoders copy a payload they keep, so nothing outlives the call.
+      if (isBinary) {
+        deps.onMessage?.(session, {
+          binary: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        });
+      } else deps.onMessage?.(session, { text: data.toString("utf8") });
     });
 
     ws.on("close", (code) => {
+      clearTimeout(helloTimer);
       if (session) {
         sessions.delete(session);
         try {
@@ -218,9 +274,25 @@ export function createWebSocketServer(
   return {
     wss,
     sessions,
+    stopAccepting(): void {
+      accepting = false;
+    },
     async close(): Promise<void> {
-      for (const session of sessions) session.close(1001, "server shutting down");
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      accepting = false;
+      stopLiveness();
+      const { promise: closed, resolve } = Promise.withResolvers<void>();
+      // `wss.close` settles only once every client socket is gone, and a client that never answers
+      // the close frame stays for `ws`'s own 30 s closing timeout: terminate those after the grace.
+      wss.close(() => resolve());
+      for (const ws of wss.clients) ws.close(1001, "server shutting down");
+      const grace = setTimeout(() => {
+        for (const ws of wss.clients) ws.terminate();
+      }, SOCKET_CLOSE_GRACE_MS);
+      try {
+        await closed;
+      } finally {
+        clearTimeout(grace);
+      }
     },
   };
 }

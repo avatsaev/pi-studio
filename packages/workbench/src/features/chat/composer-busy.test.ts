@@ -11,9 +11,9 @@ describe("isComposerBusy", () => {
   });
 
   it("once running, tracks `steering` alone — `sending` can no longer lock or unlock the composer", () => {
-    // A dialog-blocked turn: `sending` may still be true (the original send() RPC has not
-    // settled) or may have already flipped false (a client-side RpcTimeoutError rejected it,
-    // sprint-068/task-002) — the composer's busy state must not depend on either.
+    // The send's request is answered at acceptance, at which point the session becomes `running`
+    // (`composer-send.ts`): a Steer is offered and only a steer in flight locks it. A turn blocked
+    // on a pending extension dialog stays `running` for as long as it takes.
     expect(isComposerBusy(true, true, false)).toBe(false);
     expect(isComposerBusy(true, false, false)).toBe(false);
     expect(isComposerBusy(true, true, true)).toBe(true);

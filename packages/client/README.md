@@ -49,7 +49,8 @@ const { agentId } = await client.createAgent({
 
 const agent = client.agent(agentId);
 agent.timeline.subscribe((event) => console.log(event.kind, event));
-await agent.send("Add a health-check endpoint");
+await agent.send("Add a health-check endpoint"); // resolves { agentId } once the daemon accepts it
+await agent.waitForIdle(); // resolves { status: "idle" | "error" | "closed" } when the turn ends
 ```
 
 ## `DaemonClient`
@@ -108,7 +109,7 @@ const client = new PiStudioClient(daemonClient);
 | Member | Description |
 |---|---|
 | `createAgent(req)` | `create_agent_request` RPC |
-| `agent(agentId)` | Scoped actions for an existing agent (`send`, `interrupt`, `update`, `resume`, `archive`, `delete`, `onUpdate`, `timeline.fetch`/`.subscribe`) |
+| `agent(agentId)` | Scoped actions for an existing agent (`send` — answers at acceptance, `waitForIdle`, `interrupt`, `update`, `resume`, `archive`, `delete`, `onUpdate`, `timeline.fetch`/`.subscribe`) |
 | `workspace(workspaceId)` | Scoped actions for a workspace |
 | `providers` | `listProviders()`, `listModels(provider)`, `refreshSnapshot()` |
 | `onAgentUpdate(handler)` / `onWorkspaceUpdate(handler)` | Subscribe to broadcasts across all agents/workspaces |

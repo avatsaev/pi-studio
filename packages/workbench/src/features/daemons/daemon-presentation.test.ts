@@ -29,6 +29,8 @@ const ALL_LOCAL_STATES: LocalDaemonState[] = [
   { state: "failed", reason: "download_failed" },
   { state: "failed", reason: "checksum_mismatch" },
   { state: "failed", reason: "spawn_failed" },
+  { state: "failed", reason: "unprotected_bind" },
+  { state: "failed", reason: "config_unreadable", output: "/home/me/.pi-studio/config.json" },
 ];
 
 function kinds(state: LocalDaemonState): string[] {
@@ -118,6 +120,8 @@ describe("remoteStateView", () => {
       "bad_output",
       "exec_failed",
       "no_shell",
+      "unprotected_bind",
+      "config_unreadable",
     ] as const) {
       expect(actions({ state: "failed", reason }), reason).toEqual(["retry:start"]);
     }
@@ -134,6 +138,8 @@ describe("remoteStateView", () => {
       "checksum_mismatch",
       "send_failed",
       "install_failed",
+      "unprotected_bind",
+      "config_unreadable",
     ] as const) {
       const view = remoteStateView({ state: "failed", reason });
       expect(view.label.length, reason).toBeGreaterThan(0);
@@ -147,6 +153,31 @@ describe("remoteStateView", () => {
   it("words a checksum failure without saying where it was found: the app's own download fails it too", () => {
     expect(remoteStateView({ state: "failed", reason: "checksum_mismatch" }).label).toBe(
       "The file did not match its checksum and was deleted",
+    );
+  });
+
+  it("says why a host's daemon refused to start, in words of its own, and never the raw code", () => {
+    const reasons = [
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "exec_failed",
+      "no_shell",
+      "download_failed",
+      "checksum_mismatch",
+      "send_failed",
+      "install_failed",
+      "unprotected_bind",
+      "config_unreadable",
+    ] as const;
+    const labels = reasons.map((reason) => remoteStateView({ state: "failed", reason }).label);
+    expect(new Set(labels).size).toBe(reasons.length);
+    for (const label of labels) expect(label).not.toMatch(/_/);
+    expect(remoteStateView({ state: "failed", reason: "unprotected_bind" }).label).toBe(
+      "Not started: no password on a network address",
+    );
+    expect(remoteStateView({ state: "failed", reason: "config_unreadable" }).label).toBe(
+      "Not started: the configuration file is damaged",
     );
   });
 });
@@ -233,6 +264,8 @@ describe("localStateView", () => {
       "download_failed",
       "checksum_mismatch",
       "install_failed",
+      "unprotected_bind",
+      "config_unreadable",
     ] as const) {
       expect(localStateView({ state: "failed", reason }).actions, reason).toEqual([
         { kind: "retry", label: "Retry", call: "start" },
@@ -290,6 +323,38 @@ describe("localStateView", () => {
     expect(localStateView({ state: "downloading", received: 1, total: 2 }).tone).toBe("busy");
     expect(localStateView({ state: "installing" }).tone).toBe("busy");
   });
+
+  it("says why a daemon refused to start, in words of its own, and offers Retry that starts", () => {
+    const unprotected = localStateView({ state: "failed", reason: "unprotected_bind" });
+    const damaged = localStateView({
+      state: "failed",
+      reason: "config_unreadable",
+      output: "/home/me/.pi-studio/config.json",
+    });
+    expect(unprotected.label).toBe("Not started: no password on a network address");
+    expect(damaged.label).toBe("Not started: the configuration file is damaged");
+    for (const view of [unprotected, damaged]) {
+      expect(view.tone).toBe("error");
+      expect(view.actions).toEqual([{ kind: "retry", label: "Retry", call: "start" }]);
+    }
+  });
+
+  it("shows no raw code as the label of any failure", () => {
+    const reasons = [
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "spawn_failed",
+      "download_failed",
+      "checksum_mismatch",
+      "install_failed",
+      "unprotected_bind",
+      "config_unreadable",
+    ] as const;
+    const labels = reasons.map((reason) => localStateView({ state: "failed", reason }).label);
+    expect(new Set(labels).size).toBe(reasons.length);
+    for (const label of labels) expect(label).not.toMatch(/_/);
+  });
 });
 
 describe("daemonErrorView", () => {
@@ -325,6 +390,8 @@ describe("daemonErrorView", () => {
         "download_failed",
         "checksum_mismatch",
         "install_failed",
+        "unprotected_bind",
+        "config_unreadable",
         "secret_missing",
         "secret_unavailable",
         "secret_store_failed",

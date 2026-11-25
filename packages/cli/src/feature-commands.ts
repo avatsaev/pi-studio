@@ -1,4 +1,4 @@
-import type { DaemonClient } from "@av-pi-studio/client";
+import { type DaemonClient, WORKTREE_TIMEOUT_MS } from "@av-pi-studio/client";
 import type { Command } from "commander";
 
 import { type CliContext, type GlobalOptions, EXIT_OK, withDaemon } from "./cli-core.js";
@@ -48,16 +48,19 @@ const objectRender: RenderFn = (payload) =>
 
 // ─── Generic dispatch ─────────────────────────────────────────────────────────
 
-/** Run a single RPC and render its payload, returning an exit code. */
+/** Run a single RPC and render its payload, returning an exit code. `timeoutMs` overrides the
+ *  connection's default RPC timeout for a request that is slow by nature (see the SDK's named
+ *  `*_TIMEOUT_MS` constants). */
 export async function featureRpc(
   ctx: CliContext,
   opts: GlobalOptions,
   type: string,
   params: Record<string, unknown>,
   render: RenderFn,
+  timeoutMs?: number,
 ): Promise<number> {
   return withDaemon(ctx, opts, async (client: DaemonClient) => {
-    const payload = await client.request(type, params);
+    const payload = await client.request(type, params, timeoutMs);
     ctx.sink.write(opts.json ? renderJson(payload) : render(payload));
     return EXIT_OK;
   });
@@ -71,8 +74,12 @@ export function registerFeatureCommands(
   setExit: (code: number) => void,
 ): void {
   const g = (): GlobalOptions => program.opts<GlobalOptions>();
-  const run = (type: string, params: Record<string, unknown>, render: RenderFn) =>
-    featureRpc(ctx, g(), type, params, render).then(setExit);
+  const run = (
+    type: string,
+    params: Record<string, unknown>,
+    render: RenderFn,
+    timeoutMs?: number,
+  ) => featureRpc(ctx, g(), type, params, render, timeoutMs).then(setExit);
 
   // ── terminal ──
   const terminal = program.command("terminal").description("workspace terminals");
@@ -131,7 +138,12 @@ export function registerFeatureCommands(
     .option("--workspace <id>", "workspace id")
     .description("create a worktree")
     .action((name: string, o: { workspace?: string }) =>
-      run(FEATURE_RPC.worktreeCreate, { name, workspaceId: o.workspace }, objectRender),
+      run(
+        FEATURE_RPC.worktreeCreate,
+        { name, workspaceId: o.workspace },
+        objectRender,
+        WORKTREE_TIMEOUT_MS,
+      ),
     );
   worktree
     .command("ls")
@@ -142,7 +154,9 @@ export function registerFeatureCommands(
   worktree
     .command("archive <name>")
     .description("archive a worktree")
-    .action((name: string) => run(FEATURE_RPC.worktreeArchive, { name }, ack("archived")));
+    .action((name: string) =>
+      run(FEATURE_RPC.worktreeArchive, { name }, ack("archived"), WORKTREE_TIMEOUT_MS),
+    );
 
   // ── open project (top-level `open` + positional `<path>`) ──
   program

@@ -19,7 +19,7 @@ All are optional.
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt in to dialing out to a relay — see [E2EE relay](/configuration/relay) |
 | `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay `host:port` to dial |
 | `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` to reach the relay |
-| `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Check for a newer daemon (npm, or the `daemon-updates` release for the single binary) at start and every 6 h (`config.json` `daemon.update.autoCheck`); `false` or `0` turns the automatic check off, "Check now" still works. The environment wins over `config.json` |
+| `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Check for a newer daemon (npm, or the `daemon-updates` release for the single binary) at start, every 6 h, and when a client connects whose last check is over 10 minutes old (`config.json` `daemon.update.autoCheck`); `false` or `0` turns the automatic check off, "Check now" still works. The environment wins over `config.json` |
 | `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection and decides whether the daemon can update itself. The Docker image sets `docker`; the single binary is detected as `binary` |
 | `PI_STUDIO_DAEMON_UPDATE_URL` | the `daemon-updates` release's `latest.json` | Where a single-binary daemon reads the newest release; for tests and private release channels |
 

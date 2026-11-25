@@ -1,12 +1,12 @@
-import { type Server } from "node:http";
-import { request } from "node:http";
-import { type AddressInfo } from "node:net";
+import { once } from "node:events";
+import { createServer, request, type Server } from "node:http";
+import { connect, type AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SERVER_VERSION } from "../version.js";
 import { createHostChecker } from "./host-allowlist.js";
-import { createHttpServer } from "./http-server.js";
+import { closeHttpServer, createHttpServer } from "./http-server.js";
 
 interface Resp {
   status: number;
@@ -118,5 +118,51 @@ describe("HTTP server pipeline", () => {
     const res = await call(port, { path: "/api/health", headers: { Origin: "https://app.test" } });
     expect(res.status).toBe(200);
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("closeHttpServer", () => {
+  it("does not wait for a request that is still in flight", async () => {
+    const server = createServer(() => {
+      // never answers
+    });
+    const port = await listen(server);
+    const hungUp = Promise.withResolvers<void>();
+    const received = once(server, "request");
+    const req = request({ host: "127.0.0.1", port, path: "/" });
+    req.on("error", () => hungUp.resolve());
+    req.end();
+    await received;
+
+    await closeHttpServer(server);
+
+    await hungUp.promise;
+    expect(server.listening).toBe(false);
+  });
+
+  it("resolves for a server that is not listening", async () => {
+    await closeHttpServer(createHttpServer());
+  });
+});
+
+describe("a connection that never finishes its headers", () => {
+  it("is closed after headersTimeoutMs, and one that does finish is not", async () => {
+    const port = await start({ headersTimeoutMs: 400 });
+
+    const silent = connect(port, "127.0.0.1");
+    const closed = Promise.withResolvers<string>();
+    let received = "";
+    silent.on("data", (chunk) => (received += String(chunk)));
+    silent.on("close", () => closed.resolve(received));
+    const startedAt = Date.now();
+
+    const health = await call(port, { path: "/api/health" });
+    expect(health.status).toBe(200);
+
+    await closed.promise;
+    const elapsed = Date.now() - startedAt;
+    expect(elapsed).toBeGreaterThanOrEqual(300);
+    expect(elapsed).toBeLessThan(4_000);
+    expect(received).toContain("408");
   });
 });

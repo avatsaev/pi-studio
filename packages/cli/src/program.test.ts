@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { Transport } from "@av-pi-studio/client";
+import {
+  DaemonClient,
+  PI_COMMAND_TIMEOUT_MS,
+  SESSION_START_TIMEOUT_MS,
+  type Transport,
+} from "@av-pi-studio/client";
 
+import { AGENT_RPC } from "./agent-commands.js";
 import { buildProgram, globalOptions, run } from "./program.js";
 import { type CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -122,9 +128,47 @@ describe("program", () => {
 
   it("dispatches the top-level `run` command end-to-end", async () => {
     const { ctx, out } = fakeAgentCtx("agent-xyz");
-    const code = await run(["run", "build the thing", "--provider", "pi/m"], ctx);
+    const code = await run(["run", "build the thing", "--provider", "pi/m", "--no-wait"], ctx);
     expect(code).toBe(0);
     expect(out[0]).toBe("agent-xyz");
+  });
+
+  it("`run --no-wait --json` prints the one-line {agentId} shape", async () => {
+    const { ctx, out } = fakeAgentCtx("agent-xyz");
+    expect(await run(["--json", "agent", "run", "go", "--no-wait"], ctx)).toBe(0);
+    expect(out).toEqual(['{"agentId":"agent-xyz"}']);
+  });
+
+  it("rejects a --timeout that is not a positive number, before connecting", async () => {
+    for (const argv of [
+      ["run", "go", "--timeout", "soon"],
+      ["agent", "send", "a1", "go", "--timeout", "0"],
+      ["agent", "wait", "a1", "--timeout", "-3"],
+    ]) {
+      const { ctx, out } = fakeAgentCtx("a1");
+      expect(await run(argv, ctx)).not.toBe(0);
+      expect(out).toEqual([]);
+    }
+  });
+
+  it("`agent stop`, `reload` and `import` use the SDK's named timeouts", async () => {
+    const spy = vi.spyOn(DaemonClient.prototype, "request");
+    try {
+      for (const argv of [
+        ["agent", "stop", "a1"],
+        ["agent", "reload", "a1"],
+        ["agent", "import", "ref"],
+      ]) {
+        expect(await run(argv, fakeAgentCtx("a1").ctx)).toBe(0);
+      }
+      const timeoutOf = (type: string): unknown =>
+        spy.mock.calls.find(([sent]) => sent === type)?.[2];
+      expect(timeoutOf(AGENT_RPC.stop)).toBe(PI_COMMAND_TIMEOUT_MS);
+      expect(timeoutOf(AGENT_RPC.resume)).toBe(SESSION_START_TIMEOUT_MS);
+      expect(timeoutOf(AGENT_RPC.import)).toBe(SESSION_START_TIMEOUT_MS);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("routes the bare `pi-studio <path>` form to open-project", async () => {

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { DaemonClient, Transport } from "@av-pi-studio/client";
+import {
+  type DaemonClient,
+  PI_COMMAND_TIMEOUT_MS,
+  SESSION_START_TIMEOUT_MS,
+  type Transport,
+} from "@av-pi-studio/client";
 
 import {
   AGENT_RPC,
@@ -18,13 +23,17 @@ import {
   lsAgents,
   newAgentSession,
   parseProviderModel,
+  parseTimeoutSeconds,
   runAgent,
   sendAgent,
   sessionStatsAgent,
-  steerAgent,
   setAgentModel,
   setAgentSessionName,
+  settledOutcome,
+  steerAgent,
   switchAgentSession,
+  unsettledOutcome,
+  waitAgent,
 } from "./agent-commands.js";
 import { type CliContext, connectOptionsFrom } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -37,11 +46,13 @@ interface FakeOptions {
   rpcErrors?: Record<string, { message: string; code?: string }>;
 }
 
-function makeFake(options: FakeOptions = {}): {
+interface FakeDaemon {
   transport: Transport;
   requests: Array<{ type: string; msg: Record<string, unknown> }>;
   push: (sessionMessage: Record<string, unknown>) => void;
-} {
+}
+
+function makeFake(options: FakeOptions = {}): FakeDaemon {
   const requests: Array<{ type: string; msg: Record<string, unknown> }> = [];
   let open = false;
   const transport: Transport = {
@@ -113,16 +124,17 @@ function makeFake(options: FakeOptions = {}): {
 
 async function connectedClient(
   transport: Transport,
-): Promise<{ client: DaemonClient; ctx: CliContext; out: string[] }> {
+): Promise<{ client: DaemonClient; ctx: CliContext; out: string[]; err: string[] }> {
   const out: string[] = [];
+  const err: string[] = [];
   const ctx: CliContext = {
     connect: (opts) => connectDaemon(opts),
-    sink: { write: (l) => out.push(l), error: () => {} },
+    sink: { write: (l) => out.push(l), error: (l) => err.push(l) },
     rpcTimeoutMs: 50,
     connectOverrides: { transport, clientId: "cli-test" },
   };
   const { client } = await ctx.connect(connectOptionsFrom(ctx, {}));
-  return { client, ctx, out };
+  return { client, ctx, out, err };
 }
 
 // ─── parseProviderModel ─────────────────────────────────────────────────────────
@@ -161,9 +173,12 @@ describe("agent commands", () => {
   it("run creates+runs an agent and prints its id", async () => {
     const fake = makeFake({ responses: { [AGENT_RPC.create]: { agentId: "agent-123" } } });
     const { client, ctx, out } = await connectedClient(fake.transport);
-    const code = await runAgent(client, ctx, "do the thing", { provider: "pi/sonnet-4" });
+    const code = await runAgent(client, ctx, "do the thing", {
+      provider: "pi/sonnet-4",
+      wait: false,
+    });
     expect(code).toBe(0);
-    expect(out[0]).toBe("agent-123");
+    expect(out).toEqual(["agent-123"]);
     const created = fake.requests.find((r) => r.type === AGENT_RPC.create)!;
     const config = created.msg.config as Record<string, unknown>;
     expect(config.provider).toBe("pi");
@@ -174,7 +189,12 @@ describe("agent commands", () => {
   it("run passes --worktree as worktreeName", async () => {
     const fake = makeFake({ responses: { [AGENT_RPC.create]: { agentId: "a" } } });
     const { client, ctx } = await connectedClient(fake.transport);
-    await runAgent(client, ctx, "x", { provider: "pi/m", worktree: "feature-x", cwd: "/tmp" });
+    await runAgent(client, ctx, "x", {
+      provider: "pi/m",
+      worktree: "feature-x",
+      cwd: "/tmp",
+      wait: false,
+    });
     const created = fake.requests.find((r) => r.type === AGENT_RPC.create)!;
     expect(created.msg.worktreeName).toBe("feature-x");
     expect((created.msg.config as Record<string, unknown>).cwd).toBe("/tmp");
@@ -197,12 +217,13 @@ describe("agent commands", () => {
   });
 
   it("send maps to send_agent_prompt", async () => {
-    const fake = makeFake({ responses: { [AGENT_RPC.send]: {} } });
-    const { client, ctx } = await connectedClient(fake.transport);
-    await sendAgent(client, ctx, "a1", "also add tests", {});
+    const fake = makeFake({ responses: { [AGENT_RPC.send]: { agentId: "a1" } } });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    expect(await sendAgent(client, ctx, "a1", "also add tests", { wait: false })).toBe(0);
     const req = fake.requests.find((r) => r.type === AGENT_RPC.send)!;
     expect(req.msg.agentId).toBe("a1");
     expect(req.msg.prompt).toBe("also add tests");
+    expect(out).toEqual(["a1"]);
   });
 
   it("steer maps to steer_agent_request", async () => {
@@ -323,6 +344,20 @@ describe("agent commands", () => {
     expect(out.join("\n")).toContain("turn completed");
   });
 
+  it("attach --until-idle exits non-zero when the turn failed, and zero when it was canceled", async () => {
+    for (const [kind, expected] of [
+      ["turn_failed", 1],
+      ["turn_canceled", 0],
+    ] as const) {
+      const fake = makeFake();
+      const { client, ctx, out } = await connectedClient(fake.transport);
+      const done = attachAgent(client, ctx, "a1", { untilTurnEnd: true });
+      fake.push({ type: "agent_stream", agentId: "a1", event: { kind, error: "boom" } });
+      expect(await done).toBe(expected);
+      expect(out).toHaveLength(1);
+    }
+  });
+
   it("attach ignores partial tool_call frames in plain and json modes", async () => {
     for (const json of [false, true]) {
       const fake = makeFake();
@@ -362,6 +397,248 @@ describe("agent commands", () => {
     const done = attachAgent(client, ctx, "a1", { signal: controller.signal });
     controller.abort();
     expect(await done).toBe(0);
+  });
+});
+
+// ─── run / send / wait follow the turn (sprint-152) ─────────────────────────────
+
+/** A daemon that accepts create/send for agent `a1` and reports it `running` when asked. */
+function acceptingFake(
+  listing: unknown = { agents: [{ agentId: "a1", status: "running" }] },
+): FakeDaemon {
+  return makeFake({
+    responses: {
+      [AGENT_RPC.create]: { agentId: "a1" },
+      [AGENT_RPC.send]: { agentId: "a1" },
+      [AGENT_RPC.list]: listing,
+    },
+  });
+}
+
+/** Resolves once the command went to wait: its status read is on the wire. */
+const untilWaiting = (fake: FakeDaemon): Promise<void> =>
+  vi.waitFor(() => expect(fake.requests.map((r) => r.type)).toContain(AGENT_RPC.list));
+
+const settle = (status: string) => ({ type: "agent_update", agentId: "a1", status });
+const failedRow = (error: string) => ({
+  type: "agent_stream",
+  agentId: "a1",
+  event: { kind: "turn_failed", error },
+});
+
+describe("run, send and wait follow the turn", () => {
+  it("run prints the id before the turn ends and exits 0 after it", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out, err } = await connectedClient(fake.transport);
+    const done = runAgent(client, ctx, "go", {});
+    await untilWaiting(fake);
+    expect(out).toEqual(["a1"]);
+    expect(await Promise.race([done, Promise.resolve("still waiting")])).toBe("still waiting");
+    fake.push(settle("idle"));
+    expect(await done).toBe(0);
+    expect(out).toEqual(["a1"]);
+    expect(err).toEqual([]);
+  });
+
+  it("a failed turn exits non-zero with the turn_failed reason on stderr", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out, err } = await connectedClient(fake.transport);
+    const done = runAgent(client, ctx, "go", {});
+    await untilWaiting(fake);
+    fake.push(failedRow("provider exploded"));
+    fake.push(settle("error"));
+    expect(await done).toBe(1);
+    expect(out).toEqual(["a1"]);
+    expect(err).toEqual(["error: provider exploded"]);
+  });
+
+  it("an error with no turn_failed row still says so on stderr", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, err } = await connectedClient(fake.transport);
+    const done = runAgent(client, ctx, "go", {});
+    await untilWaiting(fake);
+    fake.push(settle("error"));
+    expect(await done).toBe(1);
+    expect(err).toEqual(["error: agent a1 ended with status error"]);
+  });
+
+  it("run --json prints exactly one line at the end: idle, then a failure", async () => {
+    for (const [events, expected] of [
+      [[settle("idle")], { agentId: "a1", status: "idle" }],
+      [[failedRow("boom"), settle("error")], { agentId: "a1", status: "error", error: "boom" }],
+    ] as const) {
+      const fake = acceptingFake();
+      const { client, ctx, out } = await connectedClient(fake.transport);
+      const done = runAgent(client, ctx, "go", { json: true });
+      await untilWaiting(fake);
+      for (const event of events) fake.push(event);
+      await done;
+      expect(out).toHaveLength(1);
+      expect(out[0]).not.toContain("\n");
+      expect(JSON.parse(out[0]!)).toEqual(expected);
+    }
+  });
+
+  it("run --no-wait returns at once with exit 0 and never reads the agent's status", async () => {
+    for (const json of [false, true]) {
+      const fake = acceptingFake();
+      const { client, ctx, out } = await connectedClient(fake.transport);
+      expect(await runAgent(client, ctx, "go", { wait: false, json })).toBe(0);
+      expect(out).toEqual([json ? '{"agentId":"a1"}' : "a1"]);
+      expect(fake.requests.map((r) => r.type)).toEqual([AGENT_RPC.create]);
+    }
+  });
+
+  it("--timeout ends the wait non-zero, leaves the turn running and reports it", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out, err } = await connectedClient(fake.transport);
+    vi.useFakeTimers();
+    try {
+      const done = runAgent(client, ctx, "go", { json: true, timeoutSeconds: 20 });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(await done).toBe(1);
+      expect(JSON.parse(out[0]!)).toEqual({ agentId: "a1", error: "timeout" });
+      expect(out).toHaveLength(1);
+      expect(err[0]).toContain("keeps running");
+      expect(fake.requests.map((r) => r.type)).not.toContain(AGENT_RPC.stop);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Ctrl-C ends the wait only: non-zero, says so on stderr, the turn is not stopped", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out, err } = await connectedClient(fake.transport);
+    const controller = new AbortController();
+    const done = runAgent(client, ctx, "go", { json: true, signal: controller.signal });
+    await untilWaiting(fake);
+    controller.abort();
+    expect(await done).toBe(1);
+    expect(JSON.parse(out[0]!)).toEqual({ agentId: "a1", error: "interrupted" });
+    expect(err).toEqual(["interrupted: stopped waiting for agent a1; the turn keeps running"]);
+    expect(fake.requests.map((r) => r.type)).not.toContain(AGENT_RPC.stop);
+  });
+
+  it("send prints the id, waits for the turn and exits with its outcome", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const done = sendAgent(client, ctx, "a1", "more", {});
+    await untilWaiting(fake);
+    expect(out).toEqual(["a1"]);
+    fake.push(settle("idle"));
+    expect(await done).toBe(0);
+
+    const failing = acceptingFake();
+    const second = await connectedClient(failing.transport);
+    const failed = sendAgent(second.client, second.ctx, "a1", "more", { json: true });
+    await untilWaiting(failing);
+    failing.push(failedRow("no key"));
+    failing.push(settle("error"));
+    expect(await failed).toBe(1);
+    expect(JSON.parse(second.out[0]!)).toEqual({ agentId: "a1", status: "error", error: "no key" });
+  });
+
+  it("send --no-wait returns at once with the same two shapes as run", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    expect(await sendAgent(client, ctx, "a1", "more", { wait: false, json: true })).toBe(0);
+    expect(out).toEqual(['{"agentId":"a1"}']);
+  });
+
+  it("a refused send throws the daemon's message and starts no wait", async () => {
+    const fake = makeFake({
+      rpcErrors: {
+        [AGENT_RPC.send]: { message: "busy: agent a1 is running", code: "handler_error" },
+      },
+    });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    await expect(sendAgent(client, ctx, "a1", "more", {})).rejects.toThrow(/^busy: agent a1/);
+    expect(out).toEqual([]);
+    expect(fake.requests.map((r) => r.type)).toEqual([AGENT_RPC.send]);
+  });
+
+  it("an agent archived mid-wait is closed: non-zero", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out, err } = await connectedClient(fake.transport);
+    const done = runAgent(client, ctx, "go", { json: true });
+    await untilWaiting(fake);
+    fake.push({ type: "agent_archived", agentId: "a1" });
+    expect(await done).toBe(1);
+    expect(JSON.parse(out[0]!)).toEqual({
+      agentId: "a1",
+      status: "closed",
+      error: "agent a1 is closed",
+    });
+    expect(err).toEqual(["error: agent a1 is closed"]);
+  });
+
+  it("wait on an idle agent returns at once", async () => {
+    const fake = acceptingFake({ agents: [{ agentId: "a1", status: "idle" }] });
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    expect(await waitAgent(client, ctx, "a1", {})).toBe(0);
+    expect(out).toEqual(["idle"]);
+  });
+
+  it("wait on a running agent returns when its turn ends; --json prints one line", async () => {
+    const fake = acceptingFake();
+    const { client, ctx, out } = await connectedClient(fake.transport);
+    const done = waitAgent(client, ctx, "a1", { json: true });
+    await untilWaiting(fake);
+    expect(await Promise.race([done, Promise.resolve("still waiting")])).toBe("still waiting");
+    fake.push(settle("idle"));
+    expect(await done).toBe(0);
+    expect(out).toEqual(['{"agentId":"a1","status":"idle"}']);
+  });
+
+  it("wait exits non-zero for an agent that failed or is unknown", async () => {
+    const failed = acceptingFake({ agents: [{ agentId: "a1", status: "error" }] });
+    const one = await connectedClient(failed.transport);
+    expect(await waitAgent(one.client, one.ctx, "a1", {})).toBe(1);
+
+    const unknown = acceptingFake({ agents: [] });
+    const two = await connectedClient(unknown.transport);
+    expect(await waitAgent(two.client, two.ctx, "a1", {})).toBe(1);
+    expect(two.err).toEqual(["error: agent a1 is closed"]);
+  });
+
+  it("wait --timeout ends a wait on a running agent non-zero", async () => {
+    const running = acceptingFake();
+    const { client, ctx, err } = await connectedClient(running.transport);
+    vi.useFakeTimers();
+    try {
+      const done = waitAgent(client, ctx, "a1", { timeoutSeconds: 20 });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(await done).toBe(1);
+      expect(err[0]).toContain("still running after 20 s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("wait outcomes and --timeout parsing", () => {
+  it("parseTimeoutSeconds takes a positive number only", () => {
+    expect(parseTimeoutSeconds("90")).toBe(90);
+    expect(parseTimeoutSeconds("0.5")).toBe(0.5);
+    for (const bad of ["0", "-1", "soon", "", "Infinity"]) {
+      expect(() => parseTimeoutSeconds(bad)).toThrow("positive number of seconds");
+    }
+  });
+
+  it("settledOutcome: only idle exits 0", () => {
+    expect(settledOutcome("a1", "idle", undefined)).toEqual({
+      code: 0,
+      report: { agentId: "a1", status: "idle" },
+    });
+    expect(settledOutcome("a1", "error", "boom").code).toBe(1);
+    expect(settledOutcome("a1", "closed", undefined).code).toBe(1);
+  });
+
+  it("unsettledOutcome keeps the connection's own message for other failures", () => {
+    expect(unsettledOutcome("a1", new Error("the connection closed")).report).toEqual({
+      agentId: "a1",
+      error: "the connection closed",
+    });
   });
 });
 
@@ -570,5 +847,27 @@ describe("agent slash-command operations", () => {
     const code = await listAgentCommands(client, ctx, "a1", {});
     expect(code).toBe(0);
     expect(out[0]).toBe("(no results)");
+  });
+});
+
+describe("requests that are slow by nature use the SDK's named timeouts", () => {
+  it("session starts and Pi commands do not run on the 30 s default", async () => {
+    const fake = makeFake();
+    const { client, ctx } = await connectedClient(fake.transport);
+    const spy = vi.spyOn(client, "request");
+    await newAgentSession(client, ctx, "a1", {});
+    await switchAgentSession(client, ctx, "a1", "/tmp/s.jsonl", {});
+    await forkAgent(client, ctx, "a1", "e1", {});
+    await forkMessagesAgent(client, ctx, "a1", {});
+    await cloneAgentSession(client, ctx, "a1", {});
+    await listAgentCommands(client, ctx, "a1", {});
+    const timeoutOf = (type: string): unknown =>
+      spy.mock.calls.find(([sent]) => sent === type)?.[2];
+    expect(timeoutOf(AGENT_RPC.newSession)).toBe(PI_COMMAND_TIMEOUT_MS);
+    expect(timeoutOf(AGENT_RPC.switchSession)).toBe(PI_COMMAND_TIMEOUT_MS);
+    expect(timeoutOf(AGENT_RPC.fork)).toBe(SESSION_START_TIMEOUT_MS);
+    expect(timeoutOf(AGENT_RPC.forkMessages)).toBe(SESSION_START_TIMEOUT_MS);
+    expect(timeoutOf(AGENT_RPC.clone)).toBe(SESSION_START_TIMEOUT_MS);
+    expect(timeoutOf(AGENT_RPC.listCommands)).toBe(SESSION_START_TIMEOUT_MS);
   });
 });

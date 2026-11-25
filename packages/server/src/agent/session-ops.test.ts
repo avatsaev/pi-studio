@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import type { AgentClient, AgentSession } from "./provider-contract.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService, spawnOrResumeSession } from "./agent-service.js";
@@ -46,11 +47,12 @@ function makeSetup(): {
 }
 
 async function createAgent(service: AgentService, prompt?: string): Promise<string> {
-  const result = (await service.handleCreate(
-    { requestId: randomUUID(), config: { provider: "mock", cwd: "/work" }, initialPrompt: prompt },
-    () => [],
-  )) as Record<string, unknown>;
-  return (result.payload as Record<string, unknown>).agentId as string;
+  const result = await agentCalls(service).createSettled({
+    requestId: randomUUID(),
+    config: { provider: "mock", cwd: "/work" },
+    initialPrompt: prompt,
+  });
+  return result.payload.agentId;
 }
 
 describe("interrupt", () => {
@@ -245,11 +247,9 @@ describe("send prompt", () => {
     };
     managedAgent.session = null;
 
-    const result = (await service.handleSendPrompt(
-      { agentId, prompt: "second" },
-      () => [],
-    )) as Record<string, unknown>;
-    expect(result.status).toBe("idle");
+    const result = await agentCalls(service).sendSettled({ agentId, prompt: "second" });
+    expect(result.payload.agentId).toBe(agentId);
+    expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
     const resumed = manager.get(agentId)?.session;
     expect(resumed).not.toBeNull();
     // Regression: lazy resume on send must also carry the record's cwd.
@@ -263,17 +263,15 @@ describe("send prompt", () => {
     managedAgent.record = { ...managedAgent.record, persistence: undefined };
     managedAgent.session = null;
 
-    const result = (await service.handleSendPrompt(
-      { agentId, prompt: "second" },
-      () => [],
-    )) as Record<string, unknown>;
-    expect(result.status).toBe("idle");
+    const result = await agentCalls(service).sendSettled({ agentId, prompt: "second" });
+    expect(result.payload.agentId).toBe(agentId);
+    expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
     expect(manager.get(agentId)?.session).not.toBeNull();
   });
 
   // Regression (real repro): a provider auth failure (403 "Authentication failed: Please make sure
   // your API Key is valid.") ended the turn at status "error". Every later send in that same
-  // conversation was then rejected before the turn even started — `runTurn` opens with
+  // conversation was then rejected before the turn even started — the turn opens with
   // `setStatus(running)`, and `error → running` was not an allowed transition — so the UI rendered
   // "failed to send" instantly and forever, even after the user fixed the key.
   it("accepts a new prompt after a turn failed, so a provider error does not wedge the conversation", async () => {
@@ -281,12 +279,11 @@ describe("send prompt", () => {
     const agentId = await createAgent(service, "first");
     await manager.setStatus(agentId, "error");
 
-    const result = (await service.handleSendPrompt(
-      { agentId, prompt: "retry after fixing the api key" },
-      () => [],
-    )) as Record<string, unknown>;
+    await agentCalls(service).sendSettled({
+      agentId,
+      prompt: "retry after fixing the api key",
+    });
 
-    expect(result.status).toBe("idle");
     expect(manager.get(agentId)?.record.lastStatus).toBe("idle");
   });
 
@@ -306,8 +303,12 @@ describe("send prompt", () => {
       run: () => Promise.reject(boom),
     } as unknown as AgentSession;
 
-    await expect(service.handleSendPrompt({ agentId, prompt: "go" }, () => [])).rejects.toBe(boom);
+    await agentCalls(service).sendSettled({ agentId, prompt: "go" });
 
+    expect(manager.timelines.get(agentId)?.allRows().at(-1)?.event).toEqual({
+      kind: "turn_failed",
+      error: boom.message,
+    });
     expect(manager.get(agentId)?.record.lastStatus).toBe("error");
     // …and the conversation is still usable: the next send is accepted rather than rejected.
     await manager.setStatus(agentId, "running");
@@ -351,22 +352,20 @@ describe("send prompt", () => {
     });
 
     // Deferred draft: created with a pinned model but no `initialPrompt`, so no process spawns.
-    const created = (await service.handleCreate(
-      {
-        requestId: "req-draft",
-        config: {
-          provider: "mock",
-          cwd: "/work",
-          model: "picked-model",
-          modelProvider: "anthropic",
-        },
+    const calls = agentCalls(service);
+    const created = await calls.create({
+      requestId: "req-draft",
+      config: {
+        provider: "mock",
+        cwd: "/work",
+        model: "picked-model",
+        modelProvider: "anthropic",
       },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    });
+    const { agentId } = created.payload;
     expect(manager.get(agentId)?.session).toBeNull();
 
-    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+    await calls.sendSettled({ agentId, prompt: "go" });
 
     // `createSession` (not `resumeSession`) was used for the first spawn, and the pinned model
     // was replayed onto it — neither `createSession` nor `resumeSession` consult
@@ -404,11 +403,11 @@ describe("send prompt", () => {
     const deps = { manager, resolveClient: () => fakeClient };
     const service = new AgentService({ ...deps, broadcast: () => {}, now: () => NOW });
 
-    const created = (await service.handleCreate(
-      { requestId: "req", config: { provider: "mock", cwd: "/work", systemPrompt: "SHOW IMAGES" } },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const created = await agentCalls(service).create({
+      requestId: "req",
+      config: { provider: "mock", cwd: "/work", systemPrompt: "SHOW IMAGES" },
+    });
+    const { agentId } = created.payload;
     await spawnOrResumeSession(deps, agentId); // first spawn persists the handle
     await spawnOrResumeSession(deps, agentId); // e.g. after a daemon restart
 
@@ -454,22 +453,20 @@ describe("send prompt", () => {
       now: () => NOW,
     });
 
-    const created = (await service.handleCreate(
-      {
-        requestId: "req-draft",
-        config: {
-          provider: "mock",
-          cwd: "/work",
-          model: "picked-model",
-          modelProvider: "anthropic",
-          thinkingOptionId: "high",
-        },
+    const rpc = agentCalls(service);
+    const created = await rpc.create({
+      requestId: "req-draft",
+      config: {
+        provider: "mock",
+        cwd: "/work",
+        model: "picked-model",
+        modelProvider: "anthropic",
+        thinkingOptionId: "high",
       },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    });
+    const { agentId } = created.payload;
 
-    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+    await rpc.sendSettled({ agentId, prompt: "go" });
 
     // Model replay first, thinking second — Pi clamps thinking against the model.
     expect(calls).toEqual(["set_model", "set_thinking:high"]);
@@ -515,16 +512,14 @@ describe("send prompt", () => {
       now: () => NOW,
     });
 
-    const created = (await service.handleCreate(
-      {
-        requestId: "req-draft",
-        config: { provider: "mock", cwd: "/work", model: "m", modelProvider: "anthropic" },
-      },
-      () => [],
-    )) as Record<string, unknown>;
-    const agentId = (created.payload as Record<string, unknown>).agentId as string;
+    const rpc = agentCalls(service);
+    const created = await rpc.create({
+      requestId: "req-draft",
+      config: { provider: "mock", cwd: "/work", model: "m", modelProvider: "anthropic" },
+    });
+    const { agentId } = created.payload;
 
-    await service.handleSendPrompt({ agentId, prompt: "go" }, () => []);
+    await rpc.sendSettled({ agentId, prompt: "go" });
 
     expect(calls).toEqual(["set_model"]);
   });

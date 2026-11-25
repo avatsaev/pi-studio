@@ -1,7 +1,7 @@
 {
   "type": "rpc_error",
   "direction": "server_to_client",
-  "description": "Error reply to a request. code is unknown_message_type or handler_error.",
+  "description": "Error reply to a request. code is an open string: today unknown_message_type (no handler), handler_error (the handler threw; message is its text), shutting_down (the daemon is stopping and takes no new request) and too_many_requests (the session already has 64 requests in flight, so this one did not run; send it again later). Treat an unknown code as a generic failure.",
   "since": "0.0.115",
   "stage": 1,
   "requiresFeature": null,

@@ -1,9 +1,6 @@
-import { spawn } from "node:child_process";
-
-import treeKill from "tree-kill";
-
 import type { PersistedConfig } from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
+import { redactSource } from "../resources/spawn-runner.js";
 import { piCommand } from "../runtime/self.js";
 import { SERVER_VERSION } from "../version.js";
 import {
@@ -44,8 +41,9 @@ export interface SyncReport {
   }[];
 }
 
-/** Injectable process seam — tests pass a fake; production spawns the bundled pi. The seam owns
- *  the per-package timeout and the process-tree kill; the executor only interprets the result. */
+/** Injectable process seam — tests pass a fake; production spawns the bundled pi through the
+ *  daemon's `InstallProcesses` (`install-processes.ts`), which owns the per-package timeout, the
+ *  process-tree kill and the stop at shutdown. The executor only interprets the result. */
 export interface InstallSpawn {
   (args: {
     command: string[];
@@ -53,60 +51,21 @@ export interface InstallSpawn {
     timeoutMs: number;
     /** Working directory for the child; omitted = the daemon's own cwd. */
     cwd?: string;
-  }): Promise<{
-    exitCode: number | null;
-    stderr: string;
-    /** Tail of stdout (bounded). Only the `skills` CLI needs it — it reports failures there. */
-    stdout?: string;
-    timedOut?: boolean;
-  }>;
+  }): Promise<InstallSpawnResult>;
+}
+
+export interface InstallSpawnResult {
+  exitCode: number | null;
+  /** The tail of stderr (bounded by the seam), raw: every consumer redacts before it stores, logs
+   *  or sends any of it. */
+  stderr: string;
+  /** Tail of stdout (bounded). Only the `skills` CLI needs it — it reports failures there. */
+  stdout?: string;
+  timedOut?: boolean;
 }
 
 const INSTALL_TIMEOUT_MS = 180_000;
 const STDERR_TAIL_MAX = 2048;
-const STDOUT_TAIL_MAX = 16_384;
-
-/** The production seam: spawns `command`, captures stderr (unbounded here — the executor bounds
- *  what it stores), and kills the whole process tree on timeout rather than just the direct child,
- *  so a `pi install` that itself forked a build/postinstall step doesn't linger. */
-export const defaultInstallSpawn: InstallSpawn = ({ command, env, timeoutMs, cwd }) =>
-  new Promise((resolve, reject) => {
-    const [bin, ...args] = command;
-    const child = spawn(bin as string, args, { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
-
-    let stderr = "";
-    let stdout = "";
-    let timedOut = false;
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (child.pid !== undefined) treeKill(child.pid, "SIGKILL", () => undefined);
-      else child.kill("SIGKILL");
-    }, timeoutMs);
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    // Drained (an unread pipe would block the child) but kept bounded: only the tail matters.
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout = (stdout + chunk.toString("utf8")).slice(-STDOUT_TAIL_MAX);
-    });
-
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    child.on("exit", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ exitCode: code, stderr, stdout, timedOut });
-    });
-  });
 
 /** Maps a spawn result (non-zero exit / timeout) or a caught throw to the reason taxonomy.
  *  Best-effort and cosmetic — misclassification never affects whether the run continues, whether
@@ -132,11 +91,14 @@ function recordFailure(
   message: string,
   at: string,
 ): void {
+  // The state key stays the raw identity (the planner looks failures up by it); everything stored
+  // as a value, and the report that goes to clients, carries only redacted text.
+  const source = redactSource(action.source);
   const attempts = (piHomeState.failures[action.identity]?.attempts ?? 0) + 1;
-  piHomeState.failures[action.identity] = { source: action.source, reason, message, attempts, at };
+  piHomeState.failures[action.identity] = { source, reason, message, attempts, at };
   report.failures.push({
-    identity: action.identity,
-    source: action.source,
+    identity: redactSource(action.identity),
+    source,
     pack: action.pack,
     reason,
     message,
@@ -146,6 +108,12 @@ function recordFailure(
 function deriveOutcome(report: Pick<SyncReport, "installed" | "failures">): SyncReport["outcome"] {
   if (report.failures.length === 0) return "ok";
   return report.installed.length > 0 ? "partial" : "failed";
+}
+
+/** What a failure keeps of a child's output or a thrown error: credential-redacted FIRST (a cut
+ *  could otherwise leave a credential's tail unrecognisable), then the last `STDERR_TAIL_MAX`. */
+function failureText(text: string): string {
+  return redactSource(text).slice(-STDERR_TAIL_MAX);
 }
 
 /** A `process.env` snapshot with `undefined` entries dropped, so callers get a plain
@@ -182,7 +150,11 @@ export async function executePlan(
      *  derivation below so a caller mistake in this value can never redirect installs). */
     piHomeKey: string;
     config: PersistedConfig;
-    spawn?: InstallSpawn;
+    spawn: InstallSpawn;
+    /** Aborted when the daemon stops: the run ends after the package in flight (whose child the
+     *  seam kills), that package is not recorded as a failure, and `executePlan` rejects with the
+     *  abort reason instead of returning a report. */
+    signal?: AbortSignal;
     logger: Logger;
     now?: () => Date;
   },
@@ -210,15 +182,15 @@ export async function executePlan(
   const piHomeState: PiHomeState = state.piHomes[deps.piHomeKey] ?? { offered: {}, failures: {} };
   state.piHomes[deps.piHomeKey] = piHomeState;
 
-  const spawnFn = deps.spawn ?? defaultInstallSpawn;
   const env = piSpawnEnv(deps.config);
 
   const report: SyncReport = { at: "", outcome: "ok", installed: [], failures: [] };
 
   for (const action of plan.actions) {
+    if (deps.signal?.aborted) break; // a stop between two packages: the next one is not started
     const at = now().toISOString();
     try {
-      const result = await spawnFn({
+      const result = await deps.spawn({
         command: [...base, "install", action.source],
         env,
         timeoutMs: INSTALL_TIMEOUT_MS,
@@ -230,29 +202,28 @@ export async function executePlan(
           at,
         };
         delete piHomeState.failures[action.identity];
-        report.installed.push(action.identity);
+        report.installed.push(redactSource(action.identity));
         deps.logger.info(
-          { identity: action.identity, source: action.source },
+          { identity: redactSource(action.identity), source: redactSource(action.source) },
           "installed recommended extension",
         );
       } else {
+        if (deps.signal?.aborted) break; // killed by the stop: not a verdict on the package
         const reason = classify(result);
-        const message =
-          result.stderr.length > STDERR_TAIL_MAX
-            ? result.stderr.slice(-STDERR_TAIL_MAX)
-            : result.stderr;
+        const message = failureText(result.stderr);
         recordFailure(piHomeState, report, action, reason, message, at);
         deps.logger.warn(
-          { identity: action.identity, source: action.source, reason },
+          { identity: redactSource(action.identity), source: redactSource(action.source), reason },
           "failed to install recommended extension",
         );
       }
     } catch (error) {
+      if (deps.signal?.aborted) break; // the seam refused or lost the child at the stop
       const reason = classify(error);
-      const message = error instanceof Error ? error.message : String(error);
+      const message = failureText(error instanceof Error ? error.message : String(error));
       recordFailure(piHomeState, report, action, reason, message, at);
       deps.logger.warn(
-        { identity: action.identity, source: action.source, reason },
+        { identity: redactSource(action.identity), source: redactSource(action.source), reason },
         "failed to install recommended extension",
       );
     } finally {
@@ -260,6 +231,7 @@ export async function executePlan(
     }
   }
 
+  deps.signal?.throwIfAborted();
   report.at = now().toISOString();
   report.outcome = deriveOutcome(report);
   return report;
@@ -273,11 +245,11 @@ export async function executePlan(
  */
 export async function updateInstalledExtensions(deps: {
   config: PersistedConfig;
-  spawn?: InstallSpawn;
+  spawn: InstallSpawn;
 }): Promise<void> {
   const command = piCommand(["update", "--extensions"]);
   if (!command) throw new Error("no bundled pi CLI resolvable");
-  const result = await (deps.spawn ?? defaultInstallSpawn)({
+  const result = await deps.spawn({
     command,
     env: piSpawnEnv(deps.config),
     timeoutMs: INSTALL_TIMEOUT_MS,
@@ -285,7 +257,7 @@ export async function updateInstalledExtensions(deps: {
   if (result.timedOut === true) throw new Error("pi update --extensions timed out");
   if (result.exitCode !== 0) {
     throw new Error(
-      `pi update --extensions exited ${result.exitCode}: ${result.stderr.slice(-STDERR_TAIL_MAX)}`,
+      `pi update --extensions exited ${result.exitCode}: ${failureText(result.stderr)}`,
     );
   }
 }

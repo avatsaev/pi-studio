@@ -105,14 +105,14 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 | Command                                              | Description                                    |
 | ---------------------------------------------------- | ----------------------------------------------- |
-| `agent run --provider pi/<model> "prompt"`           | Create an agent and run the first turn         |
+| `agent run --provider pi/<model> "prompt" [--no-wait] [--timeout <seconds>]` | Create an agent, run the first turn and wait for it |
 | `agent ls`                                           | List all agents                                |
 | `agent attach <agentId>`                             | Stream an agent's live events                  |
-| `agent send <agentId> "prompt"`                      | Send a follow-up prompt                        |
+| `agent send <agentId> "prompt" [--no-wait] [--timeout <seconds>]` | Send a follow-up prompt and wait for the turn |
 | `agent steer <agentId> "message"`                    | Steer a running turn (after current tool calls) |
 | `agent follow-up <agentId> "message"`                | Queue a message for after the agent stops      |
 | `agent stop <agentId>`                               | Interrupt the current turn                     |
-| `agent wait <agentId>`                               | Block until the agent goes idle or closes      |
+| `agent wait <agentId> [--timeout <seconds>]`         | Wait for the agent's turn to end (exit 0 when idle) |
 | `agent logs <agentId> [-n <limit>]`                  | Print paged timeline history                   |
 | `agent inspect <agentId>`                            | Print the full agent record                    |
 | `agent update <agentId>`                             | Update model/thinking/title                    |
@@ -123,6 +123,15 @@ no `--host`, the CLI targets `ws://127.0.0.1:6767`.
 
 `run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
 (`pi-studio ls`, `pi-studio run …`).
+
+`run`, `send` and `wait` follow the turn: `run` and `send` print the agent id at once, then wait for
+the turn to end and exit 0 when the agent goes idle, non-zero when the turn failed (the reason goes to
+stderr), the agent is closed, `--timeout <seconds>` runs out, or you press Ctrl-C (which only stops
+waiting; the turn keeps running). `--no-wait` returns as soon as the daemon accepted the prompt.
+With `--json` they print exactly one line at the end: `{"agentId", "status", "error"?}` (`status` is
+`idle`, `error` or `closed`; a timeout or Ctrl-C gives `{"agentId", "error": "timeout"}` /
+`"interrupted"`; `--no-wait` gives `{"agentId"}`). The answer text is not printed: use `agent logs`
+or `agent attach`. `agent attach <agentId> --until-idle` also exits non-zero when the turn failed.
 
 Session management mirrors Pi's own slash commands — `agent session` (/session), `compact`,
 `new-session`, `resume-session`, `fork`, `fork-messages`, `clone`, `name`, `export`, `model`,
@@ -175,7 +184,7 @@ does the same thing.
 With the global `--json` flag, `daemon start`, `restart`, `pair` and `stop` each print exactly one
 line of JSON and nothing else (no QR): `start`/`restart` →
 `{"up":true,"started":true|false,"host","port","pairingUrl","relay"}` (failure:
-`{"up":false,"host","port","error":"not_healthy"}`, `"error":"unprotected_bind"` (a non-loopback `-H` host and no password: nothing is spawned), or `"error":"no_keypair"` with `up:true` when
+`{"up":false,"host","port","error":"not_healthy"}`, `"error":"unprotected_bind"` (a non-loopback `-H` host and no password: nothing is spawned), `"error":"config_unreadable"` (`config.json` is damaged or fails its schema: nothing is spawned or stopped, and the file is left as it is; `daemon pair` and `extensions list --local` refuse the same way, and `daemon set-password` refuses a file that is not valid JSON), or `"error":"no_keypair"` with `up:true` when
 the daemon is healthy but has no key file yet), `pair` → `{"pairingUrl","relay"}` (failure
 `{"error":"no_keypair"}`), `stop` → `{"stopped":true|false}`. Failures exit non-zero. `relay` is the
 relay endpoint the link routes through, or `null`. `pairingUrl` is a credential on relay links.
@@ -237,7 +246,7 @@ address; it is for tests and self-hosted mirrors and is never set by a release.
 A daemon installed this way can also be updated from a connected client: the web UI's "Daemon X" pill
 installs inside the daemon and restarts it itself, without this command, while the desktop app's Daemons
 screen runs this command (over SSH as `pi-studio -H 127.0.0.1:<port> update`, so the restart targets that
-host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 10 s for the old
+host's daemon) and then starts the daemon. `daemon stop` and `daemon restart` wait up to 15 s for the old
 process to exit and report `still_running` if it does not.
 
 ### Feature groups

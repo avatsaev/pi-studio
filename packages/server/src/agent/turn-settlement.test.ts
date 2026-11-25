@@ -3,16 +3,16 @@ import { randomUUID } from "node:crypto";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentRecord } from "../persistence/entity-schemas.js";
+import { agentCalls } from "../test-support/answer-then-run.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { MOCK_CAPABILITIES } from "./providers/mock/mock-provider.js";
 import type { AgentClient, AgentSession, Unsubscribe } from "./provider-contract.js";
 
 /**
- * `runTurn` regression (sprint-041-agent-turn-settlement, task-002): proves the actual reported
+ * A turn regression (sprint-041-agent-turn-settlement, task-002): proves the actual reported
  * failure — an interim (retried/continued) run's terminal-shaped event used to resolve
- * `session.run()` early, tearing down `runTurn`'s subscription (`unsubscribe()`), flipping status
+ * `session.run()` early, tearing down the turn's subscription (`unsubscribe()`), flipping status
  * to `idle`, and archiving mid-turn — is closed now that a fixed provider only resolves `run()` at
  * the true settlement (task-001).
  */
@@ -108,35 +108,33 @@ function makeService(session: AgentSession) {
   return { service, manager, broadcasts, archiveAgent };
 }
 
-describe("sprint-041 regression: runTurn stays subscribed and settles once across a retried turn", () => {
+function timelineKinds(manager: AgentManager, agentId: string): string[] {
+  return (
+    manager.timelines
+      .get(agentId)
+      ?.allRows()
+      .map((row) => row.event.kind) ?? []
+  );
+}
+
+describe("sprint-041 regression: a turn stays subscribed and settles once across a retried turn", () => {
   it("no premature idle status, no lost post-interim rows, exactly one autoArchive — all gated on the true terminal", async () => {
     const session = new RetryAgentSession();
     const { service, manager, broadcasts, archiveAgent } = makeService(session);
 
-    const record: AgentRecord = {
-      id: randomUUID(),
-      provider: "mock",
-      cwd: "/work",
-      createdAt: NOW,
-      updatedAt: NOW,
-      labels: {},
-      lastStatus: "initializing",
+    const { payload } = await agentCalls(service).create({
       config: { provider: "mock", cwd: "/work" },
-    };
-    await manager.add(record);
-    await manager.setStatus(record.id, "idle");
-    manager.attachSession(record.id, session);
-
-    const running = service.runTurn(record.id, session, "do it", () => [], {
+      initialPrompt: "do it",
       autoArchive: true,
     });
+    const record = { id: payload.agentId };
 
-    // At this point only the interim run's rows have streamed (`RetryAgentSession.run()`
+    // Only the interim run's rows have streamed once the provider has them (`RetryAgentSession.run()`
     // deliberately stays pending). Bug (sprint-041): a wrongly-terminal interim event would have
     // already resolved `run()`, unsubscribed, and flipped status to idle here.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(timelineKinds(manager, record.id)).toContain("assistant_message"),
+    );
     const statusesBeforeSettle = broadcasts
       .filter((b) => b.type === "agent_update")
       .map((b) => b.status);
@@ -145,7 +143,7 @@ describe("sprint-041 regression: runTurn stays subscribed and settles once acros
     expect(manager.get(record.id)?.record.lastStatus).toBe("running");
 
     session.continueAfterRetry();
-    await running;
+    await service.turnSettled(record.id);
 
     // Every row streamed, including the post-interim ("attempt 2") ones — none lost to an early
     // unsubscribe.

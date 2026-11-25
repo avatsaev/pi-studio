@@ -140,14 +140,14 @@ Default action (no subcommand):
 
 | Command                                      | RPC                                 | Description                                                                                              |
 | -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `run --provider pi/<model> "prompt"`         | `create_agent_request`              | Create an agent and run first turn                                                                       |
+| `run --provider pi/<model> "prompt" [--no-wait] [--timeout <s>]` | `create_agent_request` | Create an agent and run first turn; print the id, wait for the turn (see below)                  |
 | `ls`                                         | `list_agents_request`               | List all agents                                                                                          |
-| `attach <agentId>`                           | subscribe `agent_stream`            | Stream live events from an agent                                                                         |
-| `send <agentId> "prompt"`                    | `send_agent_prompt`                 | Send a follow-up prompt                                                                                  |
+| `attach <agentId> [--until-idle]`            | subscribe `agent_stream`            | Stream live events from an agent; `--until-idle` exits 1 on `turn_failed`                                |
+| `send <agentId> "prompt" [--no-wait] [--timeout <s>]` | `send_agent_prompt`        | Send a follow-up prompt; print the id, wait for the turn (see below)                                     |
 | `stop <agentId>`                             | `interrupt_agent`                   | Interrupt the current turn                                                                               |
 | `steer <agentId> "message"`                  | `steer_agent_request`               | Steer a running turn (after current tool calls)                                                          |
 | `follow-up <agentId> "message"`              | `follow_up_agent_request`           | Queue a message for after the agent stops                                                                |
-| `wait <agentId>`                             | `wait_for_agent`                    | Block until idle/closed                                                                                  |
+| `wait <agentId> [--timeout <s>]`             | `list_agents_request` + `agent_update` (SDK `waitForAgentIdle`) | Block until the turn ends: exit 0 idle, 1 error/closed/timeout                                           |
 | `logs <agentId> [-n <limit>]`                | `fetch_agent_timeline_request`      | Print paged timeline history                                                                             |
 | `inspect <agentId>`                          | `inspect_agent_request`             | Print agent record                                                                                       |
 | `archive <agentId>`                          | `archive_agent`                     | Soft-delete                                                                                              |
@@ -202,7 +202,46 @@ Since sprint-149 the daemon also refuses `send_agent_prompt`, new session, switc
 resume with `busy: agent <id> is running` (or `is compacting` / `is changing its session`) while
 the agent has a turn, a compaction or a session operation in flight. `pi-studio agent send` needs no
 code for it: `withDaemon` prints the `RpcError` as `error: busy: … (handler_error)` and exits
-`EXIT_ERROR`; use `agent steer` / `agent follow-up` to reach a running turn.
+`EXIT_ERROR` (nothing was started, so no wait begins); use `agent steer` / `agent follow-up` to
+reach a running turn.
+
+**`run`, `send` and `wait` follow the turn (sprint-152).** `create_agent_request` and
+`send_agent_prompt` answer at acceptance (`{ agentId }`); the turn ends with one `agent_update`
+(`idle` | `error`) and, on a failure, a `turn_failed` stream row with the reason. These commands
+wait for that end with the SDK's `waitForAgentIdle(client, agentId, { timeoutMs, signal })` (the
+CLI holds a `DaemonClient`, not an `AgentHandle`); `AGENT_RPC.wait` / `wait_for_agent` is gone —
+the daemon never had a handler. A script that runs a prompt and then reads the result keeps
+working (the wait is the default; owner's choice, M4 contract point 5). Behaviour, in
+`agent-commands.ts` (`awaitTurn`, `followAccepted`, `settledOutcome`, `unsettledOutcome`):
+
+- **Plain output.** `run` and `send` print the agent id at once (stdout), then wait. `wait` prints
+  the status (`idle`) on success. Failures print one line on stderr (`error: <reason>`).
+- **Exit code.** 0 when the agent settles `idle`; 1 when it settles `error` (reason = the last
+  `turn_failed` row seen on this connection, installed before the request; without one,
+  `agent <id> ended with status error`), is `closed` (archived/deleted, or not in the listing —
+  an unknown id), the wait times out, Ctrl-C ends it, or the connection drops.
+- **`--json`.** Exactly one compact line (`renderJsonLine`), at the end, nothing before it:
+  `{agentId, status: "idle"|"error"|"closed", error?}`; `{agentId, error: "timeout"}`;
+  `{agentId, error: "interrupted"}`; `{agentId, error: <message>}` for any other failure;
+  `--no-wait` prints `{agentId}`. `wait` prints the same shapes. The stderr line is printed too.
+- **`--no-wait`** (`run`, `send`): return exit 0 once the daemon accepted, never reads the status.
+- **`--timeout <seconds>`** (`run`, `send`, `wait`; positive number, `parseTimeoutSeconds` rejects
+  the rest at parse time; default none): the wait ends non-zero with `error: "timeout"`; the turn
+  keeps running (nothing is cancelled).
+- **Ctrl-C** during the wait (`interruptSignal`, a `process.once("SIGINT")` held only while
+  waiting) ends the wait only — exit 1, `interrupted: stopped waiting for agent <id>; the turn
+  keeps running` on stderr; the turn is not stopped (`agent stop` does that). `WaitOptions.signal`
+  is the test seam.
+- `attach --until-idle` exits 1 when the turn ended in `turn_failed` (0 for completed or canceled).
+
+The answer text is not printed (out of scope): use `agent logs` or `attach`.
+
+**Slow requests use the SDK's named timeouts** (imported from `@av-pi-studio/client`, never a local
+number; the raw `client.request(type, params, timeoutMs)` third argument): `SESSION_START_TIMEOUT_MS`
+(150 s) for `agent reload`, `import`, `fork`, `fork-messages`, `clone`, `commands`;
+`PI_COMMAND_TIMEOUT_MS` (90 s) for `agent stop`, `new-session`, `resume-session`;
+`COMPACT_TIMEOUT_MS` for `compact`; `WORKTREE_TIMEOUT_MS` (10 min) for `worktree create` / `archive`
+(`featureRpc` and `simpleAgentRpc` take an optional `timeoutMs`).
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
@@ -232,12 +271,12 @@ the file both the CLI and every future agent spawn read, before any agent needs 
 | Command                                   | Description                                                                                                                  |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `daemon start`                            | Spawn a local daemon (if not already running), persist any `PI_STUDIO_RELAY_*` env vars into `config.json`, print pairing QR |
-| `daemon stop`                             | Send SIGTERM to the local daemon, then wait up to 10 s for the process to exit                                              |
+| `daemon stop`                             | Send SIGTERM to the local daemon, then wait up to 15 s for the process to exit                                              |
 | `daemon restart`                          | Stop (waiting for the old process to exit), then start the local daemon                                                      |
 | `daemon status`                           | Print health + PID                                                                                                           |
 | `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
 | `daemon pair`                             | Print the pairing URL / QR for an already-running daemon                                                                     |
-| `daemon rotate-key`                       | Mint a fresh pairing keypair (stop → delete key → restart → print new QR); revokes every previously-issued pairing link |
+| `daemon rotate-key`                       | Mint a fresh pairing keypair (stop → write new key atomically → restart → print new QR); revokes every previously-issued pairing link |
 | `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR                                 |
 
 `ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
@@ -259,9 +298,9 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 
 | Command | Success (exit 0) | Failure (exit 1) |
 | --- | --- | --- |
-| `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}`; healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
+| `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}` or `"error":"config_unreadable"` (damaged `config.json`, nothing spawned); healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
 | `pair` | `{"pairingUrl","relay"}` | `{"error":"no_keypair"}` |
-| `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 10 s) |
+| `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 15 s) |
 | `restart` when the old daemon did not exit | — | `{"up":false,"host","port","error":"still_running"}` |
 
 `DaemonRuntime` (`daemon-control.ts`; every member injectable, tests pass fakes):
@@ -277,7 +316,7 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 
 Free functions: `waitForDaemon(runtime, host, port, opts)` polls health until up or timeout;
 `stopDaemon(home, runtime)` (async) → `StopResult { stopped, error?: "still_running" }`: no pid file
-→ `{stopped:false}`; SIGTERM, then `waitForExit(pid, STOP_TIMEOUT_MS = 10 000)`; a pid file whose
+→ `{stopped:false}`; SIGTERM, then `waitForExit(pid, STOP_TIMEOUT_MS)` (the daemon's `SHUTDOWN_DEADLINE_MS` + 5 s = 15 s, imported from `@av-pi-studio/server/shutdown`, a pure module; the desktop app's `STOP_TIMEOUT` of 20 s must exceed it); a pid file whose
 process is gone (the signal failed and one liveness check says gone) is removed and reported as not
 running; a process that survives the wait, or cannot be signalled but exists, is
 `{stopped:false, error:"still_running"}`; after a confirmed exit the pid file is removed when it
@@ -296,21 +335,35 @@ a plain `daemon start` can't force a config file into existence or clobber an al
 relay config. Mirrors `setDaemonPassword`'s read-merge-write shape; only the fields whose env var is
 actually present get overwritten.
 
-Both `setDaemonPassword` and `persistRelayEnvOverrides` write `config.json` through a shared
-`writeConfigFile` helper that enforces owner-only `0600` (the file can carry the daemon password
-hash) — including an explicit `chmod` to re-tighten configs written before this was enforced.
+`setDaemonPassword` and `persistRelayEnvOverrides` both go through `updateConfigFile`: it reads the
+raw `config.json` with the server's `readRawConfig`, edits the `daemon` object, and writes with the
+shared `writeConfigFile`, which is **atomic and owner-only**: a temp file in the same directory
+created `0600`, fsync, rename (so a config written before the `0600` rule is replaced by a `0600`
+file too). A `config.json` that exists but is not valid JSON or not an object makes
+`readRawConfig` throw `ConfigUnreadableError` (`code: "config_unreadable"`); nothing is written, the
+file stays byte-identical, and a missing file is still created.
 
-`rotateDaemonKeypair(home)` (`daemon-control.ts`) — deletes `$PI_STUDIO_HOME/daemon-keypair.json`;
-returns whether a key was actually removed. Credential revocation, not housekeeping: a pairing
+**Damaged `config.json`.** `reportingConfigErrors(ctx, hostArg, json, run)` (`daemon-commands.ts`,
+also used by `extensions list --local`) turns a `ConfigUnreadableError` into the error message on
+stderr, or with `--json` one `{up:false, host, port, error:"config_unreadable"}` line, and exit 1. It
+wraps `ensureLocalDaemonAndPair` (so `daemon start`, `restart`, `onboard`, `rotate-key`'s start and
+the bare default action), `daemon pair` and `daemon set-password`. `daemon restart` loads the config
+*before* it stops the running daemon, so a refused start never leaves the machine with no daemon.
+Every check runs before a daemon is spawned: `persistRelayEnvOverrides` and the unprotected-bind
+pre-check read the file first, and a schema failure surfaces from the same `loadConfig`.
+
+`rotateDaemonKeypair(home)` (`daemon-control.ts`) — replaces `$PI_STUDIO_HOME/daemon-keypair.json` with
+a new pair (`generateDaemonKeypair` + `writeDaemonKeypair` from the server package: temp file created
+0600 in the same directory, fsync, rename), so the file is never missing or half-written; returns
+whether a key existed before. Credential revocation, not housekeeping: a pairing
 link's `offer=` key IS the credential on a relay-routed connection (`connection-store.ts` ignores
 the password field in that mode), and the relay rendezvous id is
 `deriveRelaySessionId(publicKey)` — deterministic for the life of the key. A leaked pairing
 link/QR therefore grants access forever until the key behind it is replaced, which is what
 `daemon rotate-key` exists for. The command stops the daemon FIRST (a live daemon holds the old key
-in memory and keeps answering on the old relay session id, so deleting the file under it would
-revoke nothing), deletes the key, then goes through `ensureLocalDaemonAndPair` — the daemon mints a
-fresh identity on boot (`server/src/daemon/bootstrap.ts#resolveDaemonKeypair` regenerates when the
-file is missing/unreadable) and the new QR is printed. Deliberately touches nothing in
+in memory and keeps answering on the old relay session id, so replacing the file under it would
+revoke nothing), writes the new key, then goes through `ensureLocalDaemonAndPair` — the daemon reads
+the new pair on boot and the new QR is printed. Deliberately touches nothing in
 `config.json`: the password hash and relay config survive a rotation.
 
 ### `extensions` group (`extensions-commands.ts`)
@@ -322,10 +375,11 @@ file is missing/unreadable) and the new QR is printed. Deliberately touches noth
 | `extensions select [packs...]`    | `extension_packs_set_request` (with `packs`)                  | Replace the selection (`core` always implicit), then sync                                        |
 | `extensions sync`                 | `extension_packs_set_request` (no `packs` key)                | Sync now without changing the selection — the ungated manual path, works with `autoSync: false`  |
 
-`select`/`sync` use `client.request(type, params, EXTENSIONS_SYNC_TIMEOUT_MS)` directly
-(`EXTENSIONS_SYNC_TIMEOUT_MS = 600_000`), **not** `runRpc` (no timeout slot) and not `withDaemon`'s
-default `rpcTimeoutMs` — the response arrives only after the daemon's triggered sync completes,
-which can exceed the SDK's 30 s default on a first-run install of five packages. Report rendering
+`select`/`sync` use `client.request(type, params, EXTENSION_PACKS_SYNC_TIMEOUT_MS)` directly
+(the SDK's named 15 min constant, imported from `@av-pi-studio/client`), **not** `runRpc` (no
+timeout slot) and not `withDaemon`'s default `rpcTimeoutMs` — the response arrives only after the
+daemon's triggered sync completes, which can exceed the SDK's 30 s default on a first-run install of
+five packages. Report rendering
 (`renderSyncReport`) and exit-code mapping (`exitCodeForSetResponse`) are pure, unit-tested
 functions: `ok`/`noop` ⇒ `EXIT_OK`; `partial`/`failed`/`skipped`, or a rejected `ok: false`
 response, ⇒ `EXIT_ERROR` — no carve-out for "expected" failures, successful installs are always
@@ -571,7 +625,7 @@ browser/mobile client can scan/paste it to connect directly (`workbench`'s
 branches to `createRelayTransport` when it carries a relay offer).
 
 `readDaemonPublicKey(home)` reads the keypair from `$PI_STUDIO_HOME/daemon-keypair.json` (same file
-`@av-pi-studio/server`'s `bootstrap.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).
+`@av-pi-studio/server`'s `daemon/identity-files.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).
 
 ---
 
@@ -642,6 +696,9 @@ branches to `createRelayTransport` when it carries a relay offer).
   binary's `binary-update.ts`/`binary-layout.ts`/`binary-helper.ts`): pure functions, `npm` child
   processes, the manifest download and the link switch, never the daemon's lifecycle, a WS server, or
   daemon state.
+- **`daemon-control.ts` imports one constant from `@av-pi-studio/server/shutdown`.** That path is a
+  `package.json` `exports` entry for `daemon/shutdown.ts` (it imports only a logger type), so the CLI's
+  stop wait is derived from the daemon's `SHUTDOWN_DEADLINE_MS` without loading the rest of `daemon/`.
 - **Interactive prompt rendering is lazy too.** `auth-interaction.ts` is on `program.ts`'s static
   import path (so it loads on every CLI start), but `@inquirer/prompts` sits behind an
   `await import()` taken only when a prompt is about to render — verified with a `node:module`
@@ -664,8 +721,8 @@ branches to `createRelayTransport` when it carries a relay offer).
 The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
-- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
-- `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 10 s (exit 1). The app reads `stopped` only and ignores the rest.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — `config_unreadable` — a `config.json` that is not valid JSON or fails its schema, checked before anything is spawned or stopped — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1. `daemon pair` and `extensions list --local` print the same `config_unreadable` line under `--json`, and `daemon set-password` does for a file that is not valid JSON (it reads the raw file and does not check the schema).
+- `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 15 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 
 The app reads the last non-empty line of standard output as JSON **whatever the exit code** (a down daemon or a failed start exits 1 and the line still says why), within a limit per command (`--version` and `status` 5 s, `start` and `restart` 90 s, `stop` 15 s). It discards `pairingUrl`. `daemon start` always listens on 6767 (`PI_STUDIO_LISTEN` does not apply). Fields may be added. The listed ones must not be removed, renamed or retyped without changing the desktop app too (`desktop/docs/architecture.md` § The registry and the local daemon).

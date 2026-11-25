@@ -20,7 +20,7 @@ export interface ViewerSettingsRpcDeps {
   home: string;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   getActiveSessions: () => Iterable<Session>;
-  logger?: Logger;
+  logger: Logger;
 }
 
 /** `ctx.message` is an unvalidated `Record<string, unknown>` (`ws/router.ts`), so the handler
@@ -85,7 +85,7 @@ export function registerViewerSettingsHandlers(
       // it to the patch it sent. Only a client bypassing the protocol schema
       // (`patch: Record<string, viewerSettingsPatchEntrySchema>`) can reach this path.
       if (!isViewerSettingsPatch(patch)) {
-        logger?.warn({ patch }, "viewer_settings_set_request: rejecting malformed patch");
+        logger.warn({ patch }, "viewer_settings_set_request: rejecting malformed patch");
         const settings = await loadViewerSettings(home, logger);
         return { type: "viewer_settings_set_response", payload: { settings } };
       }

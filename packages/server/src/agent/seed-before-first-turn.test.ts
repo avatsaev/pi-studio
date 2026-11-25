@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { agentCalls } from "../test-support/answer-then-run.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import type { PersistenceHandle } from "./provider-contract.js";
@@ -87,7 +88,7 @@ describe("a send before any timeline fetch on a recovered agent", () => {
   it("keeps the earlier history ahead of the new turn", async () => {
     const { service, registry, client } = await recoveredAgent();
 
-    await service.handleSendPrompt({ agentId: AGENT_ID, prompt: "new question" }, () => []);
+    await agentCalls(service).sendSettled({ agentId: AGENT_ID, prompt: "new question" });
 
     const fetch = registry.get("fetch_agent_timeline_request")!;
     const response = (await fetch({

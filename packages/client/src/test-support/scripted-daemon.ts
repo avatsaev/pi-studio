@@ -19,6 +19,12 @@ export interface ScriptedDaemon {
   push: (sessionMessage: Record<string, unknown>) => void;
   /** Simulate the socket dying mid-session (distinct from a clean RPC response). */
   drop: (reason?: string) => void;
+  /**
+   * End an agent's running turn the way the daemon does: its status becomes `idle` or `error`, and
+   * the one `agent_update` that says so is pushed. For `holdTurns` daemons, where no turn settles
+   * by itself.
+   */
+  settle: (agentId: string, status: "idle" | "error") => void;
 }
 
 const DAEMON_UPDATE_STATUS = {
@@ -28,10 +34,21 @@ const DAEMON_UPDATE_STATUS = {
   state: { kind: "available", version: "0.0.131" },
 };
 
-export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }): ScriptedDaemon {
+/**
+ * `holdTurns`: an accepted prompt (`create_agent_request` with an `initialPrompt`, or
+ * `send_agent_prompt`) leaves its agent `running` until the test calls `settle()`. Without it the
+ * turn streams its rows and settles `idle` by itself.
+ */
+export function makeScriptedDaemon(opts?: {
+  features?: Record<string, boolean>;
+  holdTurns?: boolean;
+}): ScriptedDaemon {
   const sent: Array<Record<string, unknown>> = [];
   let agentSeq = 0;
   const features = opts?.features ?? { providersSnapshot: true, providerAuth: true };
+  const holdTurns = opts?.holdTurns ?? false;
+  /** Each agent's status as the daemon would report it (`list_agents_request`). */
+  const statuses = new Map<string, string>();
 
   const transport: Transport = {
     onMessage: null,
@@ -71,6 +88,26 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
     queueMicrotask(() => transport.onMessage?.(JSON.stringify({ type: "session", message })));
   }
 
+  function settle(agentId: string, status: "idle" | "error"): void {
+    statuses.set(agentId, status);
+    reply({ type: "agent_update", agentId, status });
+  }
+
+  /** What follows the answer to an accepted prompt: `running` is announced, the turn's rows
+   *  stream, and unless the turn is held it settles `idle`. */
+  function runTurn(agentId: string): void {
+    reply({ type: "agent_update", agentId, status: "running" });
+    reply({ type: "agent_stream", agentId, event: { kind: "turn_started" } });
+    if (holdTurns) return;
+    reply({
+      type: "agent_stream",
+      agentId,
+      event: { kind: "assistant_message", text: "hello from mock" },
+    });
+    reply({ type: "agent_stream", agentId, event: { kind: "turn_completed" } });
+    settle(agentId, "idle");
+  }
+
   function respond(msg: Record<string, unknown>): void {
     const requestId = msg.requestId as string;
     // The `provider_auth_*` family is driven manually by each test via `fake.push()` — real
@@ -90,22 +127,51 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         return;
       case "create_agent_request": {
         const agentId = `agent-${++agentSeq}`;
+        // Like the daemon, acceptance makes the agent `running` before the answer goes out.
+        statuses.set(agentId, msg.initialPrompt ? "running" : "idle");
         reply({ type: "create_agent_response", requestId, payload: { agentId } });
-        // Simulate a streamed turn for the new agent.
-        if (msg.initialPrompt) {
+        if (msg.initialPrompt) runTurn(agentId);
+        return;
+      }
+      case "send_agent_prompt": {
+        const agentId = String(msg.agentId);
+        // Refusals are `rpc_error`s as the daemon's router sends them: code `handler_error`,
+        // the reason in the message.
+        if (!statuses.has(agentId)) {
           reply({
-            type: "agent_stream",
-            agentId,
-            event: { kind: "turn_started" },
+            type: "rpc_error",
+            requestId,
+            code: "handler_error",
+            message: `unknown agent: ${agentId}`,
           });
-          reply({
-            type: "agent_stream",
-            agentId,
-            event: { kind: "assistant_message", text: "hello from mock" },
-          });
-          reply({ type: "agent_stream", agentId, event: { kind: "turn_completed" } });
-          reply({ type: "agent_update", agentId, status: "idle" });
+          return;
         }
+        if (statuses.get(agentId) === "running") {
+          reply({
+            type: "rpc_error",
+            requestId,
+            code: "handler_error",
+            message: `busy: agent ${agentId} has a turn running`,
+          });
+          return;
+        }
+        statuses.set(agentId, "running");
+        reply({ type: "agent_prompt_response", requestId, payload: { agentId } });
+        runTurn(agentId);
+        return;
+      }
+      case "list_agents_request": {
+        // Flat `agents` on the message, as the daemon answers (no schema, no `payload` wrapper).
+        reply({
+          type: "list_agents_response",
+          requestId,
+          agents: [...statuses].map(([agentId, status]) => ({
+            agentId,
+            status,
+            cwd: "/w",
+            labels: {},
+          })),
+        });
         return;
       }
       case "fetch_agent_timeline_request": {
@@ -406,6 +472,7 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
     features,
     push: (sessionMessage) => reply(sessionMessage),
     drop: (reason = "test drop") => transport.onClose?.(1006, reason),
+    settle,
   };
 }
 
@@ -418,6 +485,7 @@ export interface ScriptedFacade {
 /** Builds a connected `PiStudioClient` over `makeScriptedDaemon`. */
 export async function makeFacade(opts?: {
   features?: Record<string, boolean>;
+  holdTurns?: boolean;
 }): Promise<ScriptedFacade> {
   const fake = makeScriptedDaemon(opts);
   const daemon = new DaemonClient({

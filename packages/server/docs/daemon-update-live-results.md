@@ -5,6 +5,104 @@ in its README) and `scripts/binary-update-check/` (the single binary in a Node-l
 there). Spec: `swe/features/self-update.md` § Acceptance criteria and § TODO(verify).
 Each run is dated; the newest is first.
 
+## 2026-11-25 — update check on connect (sprint 156 task 004, live in task 005)
+
+Built `dist` of a worktree of `da95c870`, throwaway `PI_STUDIO_HOME` / `HOME` in `/tmp`, daemon on 127.0.0.1:47446, source install
+(`installKind: source`, so an offer reads `cannot_update(source)` with the version), auto-check **on**. The release channel was a
+local HTTP stand-in for npm's registry (`npm_config_registry`, `npm_config_fetch_retries=0`, so one `npm view` is one request) that
+answered 503 until told to serve `9.9.9`; the "SSH-style" path was a Node TCP relay (127.0.0.1:47445 → 47446), a plain forward like
+`ssh -L`. The binary channel (`PI_STUDIO_DAEMON_UPDATE_URL`) was not run: the code path past `lookupLatest` is shared, only the
+probe differs (unit-tested).
+
+| Time (UTC) | Event | Registry requests |
+|---|---|---|
+| 14:20:59 | daemon starts; its start-up automatic check gets 503 | 1 (503); the daemon logs one `info` line, `update: check found no release` (`by: automatic`, `failure: offline`); no client sees it (state `idle`) |
+| 14:21:14, 14:21:19 | client A direct, client B through the relay connect (15 and 20 s after the attempt) | none (inside the ten minutes); both read `idle` |
+| 14:21:24 | channel switched to serve `9.9.9` | none: nothing asks |
+| 14:31:11.29 | client C connects through the relay, 10 min 12 s after the last attempt | **1** (200) at +90 ms: C gets a `daemon_update_status` push at +111 ms with `cannot_update`, `reason: source`, `version: 9.9.9`, `checkedAt` set |
+| 14:31:17, 14:31:23 | client D (relay) and client E (direct) connect | none; both are told `9.9.9` by the stored result at hello |
+
+Three requests in 12 minutes in all. The first connect after the window needed no timer and no client action beyond the
+connection; a client on the forwarded socket sees the same as a direct one. The log has no line for the successful check (only a
+failed automatic check leaves one).
+
+## 2026-11-25 — ordered, bounded shutdown under load; both recipes re-run
+
+Sprint 153 task 006. Built `dist` of the working tree at `c6f04ddb` (daemon, CLI), throwaway
+`PI_STUDIO_HOME` / `PI_STUDIO_PI_HOME` in `/tmp`, port 47401, only the `litellm` API key copied, a real
+Pi turn on `pi/global.anthropic.claude-sonnet-5-5`. The recipes ran from a clean worktree of `HEAD`
+(`npm ci && npm run build`), which was removed afterwards with every container, network, image and
+scratch folder they made.
+
+### Shutdown (`pi-studio daemon stop`, SIGTERM)
+
+Load for every row: a Pi turn running a 600 s `bash` tool call, a terminal running `sleep 300`, a second
+terminal running `yes` whose client had stopped reading (3.7–4.1 MB in the daemon's socket send queue),
+and — where noted — an install in flight (`extensions sync` → `pi` → `npm install`, plus a preview
+`git clone`).
+
+| # | Check | Seen |
+|---|---|---|
+| 1 | Stop under load | `daemon stop` exit 0, `daemon stopped`, **1.5 s** wall (1.8 s on the first run; CLI start-up included). Log: agents closed at +20 ms, terminals at +40 ms, the in-flight install request failed with `the daemon is shutting down` at +60 ms, the stalled client dropped (1006) at +1.06 s, the 1 s grace of the `sockets` step. PID file gone, port free, no process left that names the home (scanned `/proc/*/cmdline` and `environ`; the Pi's `sleep` tool call and the `npm install` child were gone too) |
+| 1b | Terminal that ignores HUP/TERM/INT (`trap '' HUP TERM INT; sleep 302`) | exit 0 after **3.1–3.3 s** (SIGKILL after the 2 s grace: log `terminal ignored SIGTERM: killed`), PID file gone. **Found a leftover here, fixed** (below) |
+| 2 | Second SIGTERM during the stop | sent 0.5 s and 1.0 s in: the daemon exited **code 1, 30 ms later**; no process left. The PID file stays, naming the dead process (a hard exit skips the `always` step): `daemon stop` answers `no running daemon found` and removes it, and a start over it works (checked with a planted stale PID) |
+| 3 | Second daemon, same port, same home | exit **1 after 357 ms**, `cannot bind — address already in use`; the first daemon's PID file identical before and after (same content, inode and mtime), the first still answers `/api/health` |
+| 4 | Requests during the stop | a client connected before the SIGTERM got `rpc_error` `shutting_down` for `list_terminals_request`, `create_terminal_request` and `list_agents_request` in every one of 12 rounds across a 1.7 s window (stubborn terminal), `ping` still answered, a new upgrade got HTTP **503**. Once the `sockets` step has begun the connection is closing and nothing is answered any more |
+
+### Bug found by check 1: a terminal's `nohup` job outlived the daemon
+
+A foreground process that ignores SIGHUP (`nohup sleep 301`, or the fully stubborn `trap '' HUP TERM INT`
+case) was left running, reparented to init, after `daemon stop` exited 0, although the 3.2 s stop
+reported success. Cause: `killTree()` (`tree-kill`) walks the process tree asynchronously (`ps -o pid
+--ppid`), but the backends then signalled the shell synchronously: the shell died first, its child was
+reparented out of the walk, and the walk found nothing. Reproduced without the daemon on the old
+`dist` (`NodePtyBackend.kill()` left `sleep 303`). Fix (`terminal/pty-backend.ts`,
+`terminal/bun-pty-backend.ts`): `killTree(pid, signal, then)` runs `then` after the tree is signalled,
+and the three backends signal the shell there. Regression test: `pty-backend.test.ts` (`PtyProcess.kill`,
+both real backends; it fails 2/2 on the old code, passes on the new). Re-run against the source daemon
+(`vite-node`, since `dist` was not rebuilt): `nohup sleep 301` and the fully stubborn case both leave
+nothing behind, 1.1 s and 3.1 s. Note: `dist` of this working tree still has the old code.
+
+### `scripts/daemon-update-check/` — all ten scenarios pass (74 `PASS` lines)
+
+Two stale spots of the recipe itself, fixed in `lib.mjs` / `run.mjs` (not in the daemon):
+
+1. Setup failed at once, `pi-studio --version = 0.0.132` (expected `0.0.9001`): since the compiled
+   version constant (`dist/version.generated.js`, sprint 139) `--version` and `/api/health` no longer
+   read `package.json`, which is all the recipe rewrote per version. It now rewrites that file in the
+   staged tarballs too, as the release does.
+2. Scenario 8 failed, `no env, config true: … found idle`: scenario 5's rollback now remembers the
+   rolled-back version (`skippedVersion`, every install kind, milestone 6) and an automatic check never
+   offers it. The expectation is now: the check ran (`checkedAt`), state `idle`, `skippedVersion = N+2`.
+   (The older observation below, that a rollback is offered again by the next check, is therefore
+   history for the automatic check; "Check now" still offers it.)
+
+What the shutdown contributed in the update: apply N → N+1 with an agent, a terminal and three clients
+(two direct, one through the relay): the old daemon's `pi`, shell and daemon all gone, helper log
+`the old daemon exited` **0.4 s** after the helper started, new daemon on the same address, clients
+reconnected 5–6 s after the apply, `lastResult = updated`. Rollback (N+2 broken → N+1), the read-only
+folders, the switch and the registry-stopped scenarios behave as in the 2026-11-24 run.
+
+### `scripts/binary-update-check/` — all eight scenarios pass (100 `PASS` lines)
+
+No change needed. In (a) the old daemon (with an agent `__pi --mode rpc` and a terminal) exited
+**2.2 s** after the helper started, `current → versions/0.0.9002` 1 ms later, the new daemon answered 0.5 s
+after that, nothing of the old tree was left; (b) three failed starts, rolled back and skipped; (e) the
+command-line update restarted the daemon on the same address.
+
+### Not checked
+
+- The stop through the relay transport and in the desktop app (CLI and direct clients only).
+- Windows and macOS shutdown (this host is Linux x64).
+- The Bun-compiled daemon's terminal kill (`bun-pty-backend.ts` has the same change; its Bun test stub
+  `packages/server/bun-tests/bun-pty-backend.bun_test.ts` was updated for the new `killTree` signature,
+  not run).
+- Pre-existing quirks seen on the way, not changed: `pi-studio terminal send-keys` sends the raw text
+  but the daemon's `terminal_input` decodes base64 (the keys arrive as garbage and the request never
+  answers, so it times out), and `terminal capture` prints `text` while the reply carries `screen`;
+  the `skills_install_request` writes the owner's `~/.agents/skills` and `.skill-lock.json`
+  whatever `PI_STUDIO_HOME` is (one such call during this run was undone by hand).
+
 ## 2026-11-24 — single binary: all eight scenarios pass
 
 **Setup.** Host: Node 24.22.2 (drives the SDK clients and the release channel only), Docker 29.10.0, Bun

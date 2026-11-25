@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { SERVER_VERSION } from "../version.js";
+import { HELLO_TIMEOUT_MS } from "../ws/limits.js";
 import { createHostChecker, type HostnamesSetting } from "./host-allowlist.js";
 
 /**
@@ -17,6 +18,8 @@ export const HEALTH_PATH = "/api/health";
 export interface HttpServerDeps {
   hostnames?: HostnamesSetting;
   healthPath?: string;
+  /** How long a connection may take to send its request headers (the WebSocket upgrade included). */
+  headersTimeoutMs?: number;
 }
 
 /** Build the `(req, res)` listener implementing the pipeline above. */
@@ -47,7 +50,29 @@ export function createRequestListener(
   };
 }
 
-/** Create (but do not start) the daemon HTTP server. */
+/**
+ * Create (but do not start) the daemon HTTP server. A connection that never finishes its request
+ * headers is closed after `headersTimeoutMs` (default `HELLO_TIMEOUT_MS`, the same time a WebSocket
+ * gets to say `hello`); Node's own default is 60 s, checked only every 30 s, so a silent TCP
+ * connection otherwise lives for over a minute.
+ */
 export function createHttpServer(deps: HttpServerDeps = {}): Server {
-  return createServer(createRequestListener(deps));
+  const headersTimeout = deps.headersTimeoutMs ?? HELLO_TIMEOUT_MS;
+  return createServer(
+    { headersTimeout, connectionsCheckingInterval: Math.max(250, Math.floor(headersTimeout / 4)) },
+    createRequestListener(deps),
+  );
+}
+
+/**
+ * Stop listening and drop every connection that is not an upgraded WebSocket (those belong to the
+ * socket server): idle keep-alive sockets and requests still in flight are closed instead of being
+ * waited for, so this settles at once. Resolves when the server is closed (also when it was not
+ * listening).
+ */
+export function closeHttpServer(server: Server): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  server.close(() => resolve());
+  server.closeAllConnections();
+  return promise;
 }

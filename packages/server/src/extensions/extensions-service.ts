@@ -1,6 +1,10 @@
 import { join } from "node:path";
 
-import { persistExtensionPacks, type PersistedConfig } from "../config/daemon-config.js";
+import {
+  ConfigUnreadableError,
+  persistExtensionPacks,
+  type PersistedConfig,
+} from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
 import { createLimiter } from "../util/concurrency.js";
 import { CURATED_PACKS, selectEntries } from "./curated-packs.js";
@@ -11,6 +15,7 @@ import {
   saveExtensionsState,
   type PiHomeState,
 } from "./extensions-state.js";
+import { InstallProcesses, shuttingDownError } from "./install-processes.js";
 import { attachLastErrors, planSync, type DescribedEntry } from "./sync-planner.js";
 import { executePlan, type InstallSpawn, type SyncReport } from "./sync-executor.js";
 
@@ -40,13 +45,19 @@ export class ExtensionsService {
   private readonly home: string;
   private readonly config: PersistedConfig;
   private readonly logger: Logger;
-  private readonly spawn: InstallSpawn | undefined;
+  /** The seam installs run through: the injected one (tests), else this service's own
+   *  {@link processes}. The update pipeline's `pi update --extensions` uses it too. */
+  readonly installSpawn: InstallSpawn;
+  /** The live install children of the default seam; {@link close} stops them. */
+  private readonly processes: InstallProcesses;
   /** Where `setSelectedPacks` persists — defaults to `<home>/config.json`, mirroring bootstrap's
    *  own default, so tests that don't care about persistence never need to pass one. */
   private readonly configPath: string;
   // In-process mutex (concurrency-1 limiter): a sync requested while one runs waits for it, then
   // gets its own fresh run — never the same report, since config may have changed in between.
   private readonly mutex = createLimiter(1);
+  /** Aborted by {@link close}: queued syncs reject and the running one stops after its package. */
+  private readonly stopping = new AbortController();
 
   constructor(deps: {
     home: string;
@@ -58,7 +69,8 @@ export class ExtensionsService {
     this.home = deps.home;
     this.config = deps.config;
     this.logger = deps.logger;
-    this.spawn = deps.spawn;
+    this.processes = new InstallProcesses({ logger: deps.logger });
+    this.installSpawn = deps.spawn ?? this.processes.spawn;
     this.configPath = deps.configPath ?? join(deps.home, "config.json");
   }
 
@@ -67,17 +79,36 @@ export class ExtensionsService {
   }
 
   /**
+   * Stops for good (the daemon is shutting down): a sync still queued, or requested later, rejects;
+   * the running one ends after the install in flight, whose child is killed (SIGTERM, then SIGKILL
+   * after a grace) and which is not recorded as a failure. Resolves once no sync is running.
+   */
+  async close(): Promise<void> {
+    this.stopping.abort(shuttingDownError());
+    await Promise.all([this.processes.stop(), this.mutex(() => undefined)]);
+  }
+
+  /**
    * Updates the service's own selection view *and* persists it, in that order — an
    * in-memory-correct daemon must survive a disk write failure (logged, never thrown; the running
    * daemon keeps serving the new selection even if the write failed). `core` is never stored (it
    * is implicit); dedupes and preserves caller order otherwise.
+   *
+   * The one exception is a `config.json` that cannot be read ({@link ConfigUnreadableError}): it is
+   * not written over, the previous selection is restored and the error is thrown, so the caller can
+   * tell the user the choice was not kept.
    */
   async setSelectedPacks(packs: readonly string[]): Promise<void> {
     const deduped = [...new Set(packs.filter((p) => p !== "core"))];
+    const previous = this.config.daemon.extensions.packs;
     this.config.daemon.extensions.packs = deduped;
     try {
       await persistExtensionPacks(this.configPath, deduped);
     } catch (err) {
+      if (err instanceof ConfigUnreadableError) {
+        this.config.daemon.extensions.packs = previous;
+        throw err;
+      }
       this.logger.error(
         { err: (err as Error)?.message ?? String(err) },
         "failed to persist extension pack selection to config.json",
@@ -127,6 +158,7 @@ export class ExtensionsService {
   }
 
   private async runSync(reason: SyncReason): Promise<SyncReport> {
+    this.stopping.signal.throwIfAborted();
     // `autoSync: false` gates bootstrap/selection entirely — Pi-Studio never touches pi's settings.
     // `manual` is the deliberate escape hatch (`extensions sync` must work even with the switch
     // off); no plan is even computed here, so no lastSync write either — nothing was attempted.
@@ -183,7 +215,8 @@ export class ExtensionsService {
       home: this.home,
       piHomeKey,
       config: this.config,
-      spawn: this.spawn,
+      spawn: this.installSpawn,
+      signal: this.stopping.signal,
       logger: this.logger,
     });
 

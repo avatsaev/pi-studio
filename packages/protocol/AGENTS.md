@@ -65,7 +65,9 @@ fixtures/external-clients/                Published external-client wire fixture
 | `pingSchema` / `Ping` | schema + type | JSON liveness ping (Client→Server) |
 | `pongSchema` / `Pong` | schema + type | JSON liveness pong (Server→Client) |
 | `createAgentRequestSchema` / `CreateAgentRequest` | schema + type | Create-or-run-agent RPC request |
-| `createAgentResponseSchema` / `CreateAgentResponse` | schema + type | Response with `agentId` |
+| `createAgentResponseSchema` / `CreateAgentResponse` | schema + type | Response with `agentId`. Contract: the answer means the request was **accepted**, not that the turn finished; the outcome arrives as `agent_stream` rows and one `agent_update` |
+| `sendAgentPromptRequestSchema` / `SendAgentPromptRequest` | schema + type | `send_agent_prompt` — `agentId`, `prompt`, optional `clientMessageId`/`images` |
+| `agentPromptResponseSchema` / `AgentPromptResponse` | schema + type | `agent_prompt_response` — `payload: {agentId}`, no `status`; same "accepted, not finished" contract as `create_agent_response` |
 | `agentSessionConfigSchema` / `AgentSessionConfig` | schema + type | Provider/model/mode/run options |
 | `agentUpdateSchema` | schema | Broadcast: agent status/title/labels changed |
 | `agentStatusMessageSchema` | schema | Broadcast: bare agent status transition |
@@ -346,6 +348,13 @@ the contract. **A fixture's shape is the contract for clients outside this repo*
   as is the `ack` upload request), `{create,subscribe,list,rename,capture,kill}_terminal_*` and the
   `terminals_update` broadcast. Most have no Zod schema (Layer B is their only guard);
   `file_upload_complete` is validated by `fileUploadCompleteSchema`.
+- Create and send (`since` 0.0.134, additive, `formatVersion` stays 2): `create_agent_request` /
+  `create_agent_response` and `send_agent_prompt` / `agent_prompt_response` (`payload.agentId`, no
+  `status`; validated by their Zod schemas). Both answers mean *accepted*, not "the turn finished";
+  Layer B also proves the answer precedes the turn's first `agent_stream` frame and the turn ends in
+  one `agent_update`. The `CHANGELOG.md` entry records the behaviour change that is breaking for a
+  client that waited on the answer. `rpc_error`'s `code` is an open string (`unknown_message_type`,
+  `handler_error`, `shutting_down`, `too_many_requests` today).
 - Binary frames (sprint-096, `since` 0.0.118): ten fixtures (`file_transfer.{begin,begin.download,chunk,end,error}`,
   `terminal.{output,input,resize,snapshot,restore}`; `begin.download` is the 0.0.119 `Begin` with
   `totalBytes`/`mtimeMs`/`offset`/`length`, a second fixture for the `Begin` opcode) in the **`binary/` subdirectory** with their own

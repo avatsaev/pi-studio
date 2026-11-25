@@ -79,6 +79,8 @@ export interface RelayTransportOptions {
 
 export interface RelayTransportHandle {
   readonly sessionId: string;
+  /** Ignore every later `relay_dial` (the daemon is shutting down); open connections stay. */
+  stopAccepting(): void;
   /** Stop redialing, close the control socket and every open data socket. */
   close(): void;
 }
@@ -127,6 +129,7 @@ export function connectRelay(
 
   const connections = new Set<RelayConnection>();
   let closed = false;
+  let accepting = true;
   let controlSocket: WebSocket | null = null;
   let redialTimer: unknown;
   /** Consecutive control-socket failures since the last `relay_registered`. */
@@ -141,6 +144,10 @@ export function connectRelay(
   };
 
   const handleDial = (connectionId: string): void => {
+    if (!accepting) {
+      logger.info({ connectionId }, "relay_dial ignored: daemon shutting down");
+      return;
+    }
     if (connections.size >= limits.maxConnections) {
       logger.warn(
         { connectionId, open: connections.size, max: limits.maxConnections },
@@ -269,7 +276,11 @@ export function connectRelay(
 
   return {
     sessionId,
+    stopAccepting() {
+      accepting = false;
+    },
     close() {
+      accepting = false;
       if (closed) return;
       closed = true;
       timers.clearTimeout(redialTimer);

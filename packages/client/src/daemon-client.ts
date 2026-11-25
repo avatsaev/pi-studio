@@ -38,6 +38,9 @@ export function randomId(): string {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** The RPC timeout a client applies when `rpcTimeoutMs` is not set. A request that needs longer names its own (`request`'s `timeoutMs`). */
+export const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+
 export interface DaemonClientOptions {
   url: string;
   clientId: string;
@@ -60,7 +63,7 @@ export interface DaemonClientOptions {
   capabilities?: Record<string, boolean>;
   /** Inject a transport (tests/relay). Defaults to a direct WebSocket transport. */
   transport?: Transport;
-  /** Default RPC timeout (ms). RPC timeouts are operation errors, NOT socket deaths. */
+  /** Default RPC timeout (ms), `DEFAULT_RPC_TIMEOUT_MS` when omitted. RPC timeouts are operation errors, NOT socket deaths. */
   rpcTimeoutMs?: number;
   /** Optional clock for deterministic tests. */
   now?: () => number;
@@ -119,7 +122,7 @@ export class DaemonClient {
 
   constructor(private readonly options: DaemonClientOptions) {
     this.transport = options.transport ?? createWebSocketTransport();
-    this.rpcTimeoutMs = options.rpcTimeoutMs ?? 30_000;
+    this.rpcTimeoutMs = options.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
     this.now = options.now ?? (() => Date.now());
 
     this.transport.onMessage = (data) => this.handleIncoming(data);

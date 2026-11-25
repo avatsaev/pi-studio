@@ -1,16 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DaemonClient, RpcTimeoutError } from "./daemon-client.js";
+import { DaemonClient, DEFAULT_RPC_TIMEOUT_MS, RpcTimeoutError } from "./daemon-client.js";
 import * as clientIndex from "./index.js";
 import {
   AgentTodosError,
   AgentUiError,
   COMPACT_TIMEOUT_MS,
   detectSkillSource,
+  EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+  importAgentSession,
   INSTALL_SKILLS_TIMEOUT_MS,
+  PI_COMMAND_TIMEOUT_MS,
   PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
   REMOVE_SKILL_TIMEOUT_MS,
+  SESSION_START_TIMEOUT_MS,
   UPDATE_ALL_SKILLS_TIMEOUT_MS,
+  WORKTREE_TIMEOUT_MS,
   isAgentArchived,
   isAgentDeleted,
   isAgentTodosUpdate,
@@ -108,6 +113,94 @@ describe("PiStudioClient — agent create + stream", () => {
     expect(events).toContain("turn_started");
     expect(events).toContain("assistant_message");
     expect(events).toContain("turn_completed");
+  });
+});
+
+describe("PiStudioClient — create and send answer at acceptance", () => {
+  beforeEach(() => {
+    vi.useFakeTimers(); // microtask-only daemon: the fake clock just lets the tests drain it
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("send resolves { agentId } once the prompt is accepted, before its turn settles", async () => {
+    const { client, fake } = await makeFacade({ holdTurns: true });
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+    const statuses: Array<string | undefined> = [];
+    agent.onUpdate((update) => statuses.push(update.status));
+
+    await expect(agent.send("hi", { clientMessageId: "m1" })).resolves.toEqual({ agentId });
+    expect(fake.sent.at(-1)).toMatchObject({
+      type: "send_agent_prompt",
+      agentId,
+      prompt: "hi",
+      clientMessageId: "m1",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statuses).toEqual(["running"]); // the turn is under way, not finished
+
+    fake.settle(agentId, "idle");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statuses).toEqual(["running", "idle"]);
+  });
+
+  it("a send before the previous turn's agent_update is refused as busy; after it, accepted", async () => {
+    const { client, fake } = await makeFacade({ holdTurns: true });
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+    await agent.send("first");
+
+    await expect(agent.send("second")).rejects.toMatchObject({
+      name: "RpcError",
+      message: expect.stringMatching(/^busy:/),
+    });
+
+    fake.settle(agentId, "idle");
+    await expect(agent.send("third")).resolves.toEqual({ agentId });
+  });
+
+  it("createAgent with an initialPrompt answers at acceptance; the agent is running", async () => {
+    const { client } = await makeFacade({ holdTurns: true });
+    const created = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      initialPrompt: "go",
+      labels: {},
+    });
+
+    expect(created).toEqual({ agentId: "agent-1" });
+    await expect(client.agent(created.agentId).send("again")).rejects.toMatchObject({
+      message: expect.stringMatching(/^busy:/),
+    });
+  });
+
+  it("send then waitForIdle resolves idle once the turn has settled", async () => {
+    const { client } = await makeFacade();
+    const { agentId } = await client.createAgent({
+      config: { provider: "mock", cwd: "/w" },
+      labels: {},
+    });
+    const agent = client.agent(agentId);
+
+    await agent.send("hi");
+
+    await expect(agent.waitForIdle()).resolves.toEqual({ status: "idle" });
+  });
+
+  it("send to an unknown agent rejects, nothing started", async () => {
+    const { client } = await makeFacade();
+
+    await expect(client.agent("ghost").send("hi")).rejects.toMatchObject({
+      name: "RpcError",
+      message: "unknown agent: ghost",
+    });
   });
 });
 
@@ -364,7 +457,7 @@ describe("PiStudioClient — extension pack actions (sprint-057)", () => {
     });
   });
 
-  it("opts.timeoutMs reaches request()'s third parameter; omitting it leaves the client default", async () => {
+  it("opts.timeoutMs reaches request()'s third parameter; omitting it names the sync timeout", async () => {
     const { client, daemon } = await makeFacade();
     const spy = vi.spyOn(daemon, "request");
 
@@ -386,7 +479,7 @@ describe("PiStudioClient — extension pack actions (sprint-057)", () => {
     expect(spy).toHaveBeenLastCalledWith(
       "extension_packs_set_request",
       expect.objectContaining({ packs: ["swe"] }),
-      undefined,
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
     );
   });
 
@@ -1396,5 +1489,201 @@ describe("PiStudioClient — agent todos SDK surface (sprint-079/task-008)", () 
     expect(typeof client.onAgentTodosUpdate).toBe("function");
     expect(clientIndex.isAgentTodosUpdate).toBe(isAgentTodosUpdate);
     expect(clientIndex.AgentTodosError).toBe(AgentTodosError);
+  });
+});
+
+/** Spy on the facade's one request path; every request resolves at once with an empty payload. */
+async function spiedFacade() {
+  const { client, daemon } = await makeFacade();
+  const spy = vi.spyOn(daemon, "request").mockResolvedValue({ ok: true, status: {} });
+  return { client, daemon, spy };
+}
+
+/** A facade whose DaemonClient keeps the SDK's default `rpcTimeoutMs`. */
+async function defaultTimeoutFacade() {
+  const fake = makeScriptedDaemon();
+  const daemon = new DaemonClient({
+    url: "ws://mock/ws",
+    clientId: "c1",
+    clientType: "cli",
+    transport: fake.transport,
+  });
+  await daemon.connect();
+  return { client: new PiStudioClient(daemon), daemon, fake };
+}
+
+describe("PiStudioClient — per-request timeouts", () => {
+  const AGENT_ID = "a1";
+
+  type Call = (client: PiStudioClient, daemon: DaemonClient) => Promise<unknown>;
+  const longRequests: Array<[method: string, type: string, call: Call, timeoutMs: number]> = [
+    ["compact", "agent_compact_request", (c) => c.agent(AGENT_ID).compact(), COMPACT_TIMEOUT_MS],
+    ["interrupt", "interrupt_agent", (c) => c.agent(AGENT_ID).interrupt(), PI_COMMAND_TIMEOUT_MS],
+    [
+      "newSession",
+      "agent_new_session_request",
+      (c) => c.agent(AGENT_ID).newSession(),
+      PI_COMMAND_TIMEOUT_MS,
+    ],
+    [
+      "switchSession",
+      "agent_switch_session_request",
+      (c) => c.agent(AGENT_ID).switchSession("/s.jsonl"),
+      PI_COMMAND_TIMEOUT_MS,
+    ],
+    ["resume", "resume_agent", (c) => c.agent(AGENT_ID).resume(), SESSION_START_TIMEOUT_MS],
+    ["fork", "agent_fork_request", (c) => c.agent(AGENT_ID).fork("e1"), SESSION_START_TIMEOUT_MS],
+    [
+      "forkMessages",
+      "agent_fork_messages_request",
+      (c) => c.agent(AGENT_ID).forkMessages(),
+      SESSION_START_TIMEOUT_MS,
+    ],
+    ["clone", "agent_clone_request", (c) => c.agent(AGENT_ID).clone(), SESSION_START_TIMEOUT_MS],
+    [
+      "listCommands",
+      "agent_list_commands_request",
+      (c) => c.agent(AGENT_ID).listCommands(),
+      SESSION_START_TIMEOUT_MS,
+    ],
+    [
+      "importAgentSession",
+      "import_agent_session",
+      (_c, d) => importAgentSession(d, { provider: "pi", cwd: "/w", providerHandleId: "h" }),
+      SESSION_START_TIMEOUT_MS,
+    ],
+    [
+      "setExtensionPacks",
+      "extension_packs_set_request",
+      (c) => c.setExtensionPacks(["swe"]),
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+    ],
+    [
+      "syncExtensionPacks",
+      "extension_packs_set_request",
+      (c) => c.syncExtensionPacks(),
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+    ],
+    [
+      "removeSkill",
+      "skills_remove_request",
+      (c) => c.removeSkill({ path: "/s" }),
+      REMOVE_SKILL_TIMEOUT_MS,
+    ],
+    [
+      "updateAllSkills",
+      "skills_update_all_request",
+      (c) => c.updateAllSkills(),
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+    ],
+    [
+      "previewSkillSource",
+      "skills_preview_request",
+      (c) => c.previewSkillSource("o/r"),
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+    ],
+    [
+      "installSkills",
+      "skills_install_request",
+      (c) => c.installSkills({ source: "o/r", skills: [] }),
+      INSTALL_SKILLS_TIMEOUT_MS,
+    ],
+  ];
+
+  const defaultRequests: Array<[method: string, type: string, call: Call]> = [
+    [
+      "createAgent",
+      "create_agent_request",
+      (c) => c.createAgent({ config: { provider: "mock", cwd: "/w" } }),
+    ],
+    ["send", "send_agent_prompt", (c) => c.agent(AGENT_ID).send("hi")],
+    ["steer", "steer_agent_request", (c) => c.agent(AGENT_ID).steer("hi")],
+    ["setModel", "agent_set_model_request", (c) => c.agent(AGENT_ID).setModel("p", "m")],
+    ["sessionStats", "agent_session_stats_request", (c) => c.agent(AGENT_ID).sessionStats()],
+    ["applyDaemonUpdate", "daemon_update_apply_request", (c) => c.applyDaemonUpdate()],
+    ["logoutProvider", "provider_auth_logout_request", (c) => c.logoutProvider("openai")],
+  ];
+
+  it.each(longRequests)(
+    "%s sends %s with its own timeout",
+    async (_method, type, call, timeoutMs) => {
+      const { client, daemon, spy } = await spiedFacade();
+      await call(client, daemon);
+      expect(spy).toHaveBeenLastCalledWith(type, expect.anything(), timeoutMs);
+    },
+  );
+
+  it.each(defaultRequests)(
+    "%s sends %s with the client's default timeout",
+    async (_method, type, call) => {
+      const { client, daemon, spy } = await spiedFacade();
+      await call(client, daemon);
+      expect(spy.mock.lastCall?.[0]).toBe(type);
+      expect(spy.mock.lastCall?.[2]).toBeUndefined();
+    },
+  );
+
+  it("every named timeout outlasts the 30 s default", () => {
+    for (const timeoutMs of [
+      COMPACT_TIMEOUT_MS,
+      EXTENSION_PACKS_SYNC_TIMEOUT_MS,
+      INSTALL_SKILLS_TIMEOUT_MS,
+      PI_COMMAND_TIMEOUT_MS,
+      PREVIEW_SKILL_SOURCE_TIMEOUT_MS,
+      REMOVE_SKILL_TIMEOUT_MS,
+      SESSION_START_TIMEOUT_MS,
+      UPDATE_ALL_SKILLS_TIMEOUT_MS,
+      WORKTREE_TIMEOUT_MS,
+    ]) {
+      expect(timeoutMs).toBeGreaterThan(DEFAULT_RPC_TIMEOUT_MS);
+    }
+  });
+
+  describe("with the real clock rules", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("a provider login that runs two minutes does not time out", async () => {
+      const { client, fake } = await defaultTimeoutFacade();
+      const login = client.loginProvider("openai", "oauth", { prompt: async () => "x" });
+      await flushProviderAuthMicrotasks();
+      const request = fake.sent.find((m) => m.type === "provider_auth_login_request");
+      fake.push({
+        type: "provider_auth_login_response",
+        requestId: request?.requestId,
+        payload: { ok: true, flowId: "flow-1" },
+      });
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      fake.push({
+        type: "provider_auth_flow_event",
+        flowId: "flow-1",
+        event: { kind: "done", ok: true },
+      });
+      expect(await login).toEqual({ ok: true });
+    });
+
+    it("a request the daemon never answers fails at the default timeout and the socket stays up", async () => {
+      const { client, daemon } = await defaultTimeoutFacade();
+      let settled = false;
+      const outcome = client.listProviderAuth().then(
+        () => {
+          settled = true;
+          return null;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_RPC_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(daemon.state).toBe("open");
+    });
   });
 });

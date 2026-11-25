@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { persistedConfigSchema, type PersistedConfig } from "../config/daemon-config.js";
 import { effectivePiHomeKey } from "../extensions/extensions-state.js";
 import { silentLogger } from "../logging/logger.js";
+import { isAlive, killQuietly, readPid } from "../test-support/process-probe.js";
 
 const BOOTSTRAP_HOME = await mkdtemp(join(tmpdir(), "pi-studio-resource-service-bootstrap-"));
 process.env.HOME = BOOTSTRAP_HOME;
@@ -1013,5 +1014,71 @@ describe("ResourceService.install — local_path (sprint-077/task-005)", () => {
     const result = await service.install(missing);
     expect(result.ok).toBe(false);
     expect(result.results).toEqual([{ target: missing, ok: false, error: "invalid_source" }]);
+  });
+});
+
+describe("ResourceService.close", () => {
+  const SHUTTING_DOWN = "the daemon is shutting down";
+  const leftovers: number[] = [];
+
+  afterEach(() => {
+    for (const pid of leftovers.splice(0)) killQuietly(pid);
+  });
+
+  it("rejects a preview queued behind a running one; the running one has cleaned up when close resolves", async () => {
+    const fixture = await buildFixture();
+    const started = Promise.withResolvers<void>();
+    const childDies = Promise.withResolvers<void>();
+    const service = makeService(fixture, {
+      spawn: async () => {
+        started.resolve();
+        await childDies.promise;
+        return { exitCode: null, stderr: "" }; // the clone's child was killed by the stop
+      },
+    });
+
+    const running = service.preview("owner/repo"); // a `skills_repo` clone into a scratch dir
+    await started.promise;
+    const queued = service.preview("owner/other");
+    const closing = service.close();
+    childDies.resolve();
+
+    const [first] = await Promise.all([
+      running,
+      expect(queued).rejects.toThrow(SHUTTING_DOWN),
+      closing,
+    ]);
+    expect(first).toMatchObject({ ok: false, error: "preview_failed" });
+    const tmpEntries = await readdir(join(fixture.studioHome, "tmp")).catch(() => []);
+    expect(tmpEntries.filter((n) => n.startsWith("preview-"))).toEqual([]);
+  });
+
+  it("rejects a preview and an install requested after close, spawning nothing", async () => {
+    const fixture = await buildFixture();
+    const spawn = vi.fn(() => Promise.resolve({ exitCode: 0, stderr: "" }));
+    const service = makeService(fixture, { spawn });
+
+    await service.close();
+
+    await expect(service.preview("owner/repo")).rejects.toThrow(SHUTTING_DOWN);
+    await expect(service.install("npm:some-pkg")).rejects.toThrow(SHUTTING_DOWN);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("kills a child started through its own seam (a real sleep 60)", async () => {
+    const fixture = await buildFixture();
+    const service = makeService(fixture);
+    const running = service.runSpawn(
+      ["sh", "-c", 'echo $$ > "$1"; exec sleep 60', "sh", join(fixture.home, "pid")],
+      { PATH: process.env.PATH ?? "" },
+      60_000,
+    );
+    const pid = await readPid(join(fixture.home, "pid"));
+    leftovers.push(pid);
+
+    await service.close();
+
+    expect(isAlive(pid)).toBe(false);
+    await expect(running).resolves.toMatchObject({ ok: false, exitCode: null });
   });
 });

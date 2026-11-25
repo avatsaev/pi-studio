@@ -1,5 +1,10 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
+import { loadConfig, persistUpdateAutoCheck } from "../config/daemon-config.js";
 import { silentLogger } from "../logging/logger.js";
 import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
@@ -7,13 +12,16 @@ import { registerDaemonUpdateHandlers } from "./update-rpc.js";
 import { UpdateService, type UpdatePipeline } from "./update-service.js";
 
 /** Drives the real registry + router with a fake session and a service on injected seams. */
-function setup(pipeline: UpdatePipeline = async () => undefined) {
+function setup(
+  pipeline: UpdatePipeline = async () => undefined,
+  persistAutoCheck: (enabled: boolean) => Promise<boolean> = async (enabled) => enabled,
+) {
   const sent: unknown[] = [];
   const session = {
     clientId: "c",
     send: (frame: unknown) => sent.push(frame),
   } as unknown as Session;
-  const persist = vi.fn(async (enabled: boolean) => enabled);
+  const persist = vi.fn(persistAutoCheck);
   const service = new UpdateService({
     currentVersion: "0.0.10",
     detectInstallKind: async () => "npm-global",
@@ -96,5 +104,25 @@ describe("registerDaemonUpdateHandlers", () => {
       type: "rpc_error",
     });
     expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("set_auto_check on a damaged config.json answers an rpc_error naming the file and leaves it alone", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-studio-update-rpc-"));
+    const configPath = join(dir, "config.json");
+    const damaged = '{ "daemon": { "auth": { "password": "$2a$10$hash"';
+    await writeFile(configPath, damaged, "utf8");
+    const { call, service } = setup(undefined, async (enabled) => {
+      await persistUpdateAutoCheck(configPath, enabled);
+      return loadConfig(configPath, {}).daemon.update.autoCheck;
+    });
+
+    expect(await call("daemon_update_set_auto_check_request", { enabled: true })).toMatchObject({
+      type: "rpc_error",
+      code: "handler_error",
+      message: expect.stringContaining(configPath),
+    });
+
+    expect(await readFile(configPath, "utf8")).toBe(damaged);
+    expect(service.status().autoCheck).toBe(false);
   });
 });

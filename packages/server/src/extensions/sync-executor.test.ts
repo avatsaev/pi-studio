@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,7 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { persistedConfigSchema } from "../config/daemon-config.js";
 import { silentLogger } from "../logging/logger.js";
-import { effectivePiHomeKey, loadExtensionsState } from "./extensions-state.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
+import {
+  effectivePiHomeKey,
+  extensionsStatePath,
+  loadExtensionsState,
+} from "./extensions-state.js";
 import type { SyncPlan } from "./sync-planner.js";
 
 // `resolveBundledPiCli` always resolves successfully in this dev environment (the real dependency
@@ -23,8 +28,7 @@ vi.mock("../agent/providers/pi/rpc-transport.js", async (importOriginal) => {
   };
 });
 
-const { classify, defaultInstallSpawn, executePlan, updateInstalledExtensions } =
-  await import("./sync-executor.js");
+const { classify, executePlan, updateInstalledExtensions } = await import("./sync-executor.js");
 type InstallSpawn = import("./sync-executor.js").InstallSpawn;
 
 function tempHome(): Promise<string> {
@@ -349,38 +353,145 @@ describe("executePlan — timeout", () => {
   });
 });
 
-// `defaultInstallSpawn`'s own timeout enforcement drives a real `setTimeout` against a real OS
-// process tree (`tree-kill`); faking timers can't simulate an actual hung child or a real kill
-// signal reaching it, so this one test genuinely needs the platform clock — kept to a
-// millisecond-scale timeout so it stays fast (task-005's own acceptance criterion).
-describe("defaultInstallSpawn — the production seam", () => {
-  it("kills a hung process tree on timeout (real short-lived child, millisecond-scale timeout)", async () => {
-    const result = await defaultInstallSpawn({
-      command: [process.execPath, "-e", "setInterval(() => {}, 1000);"],
-      env: { ...process.env } as Record<string, string>,
-      timeoutMs: 50,
-    });
-    expect(result.timedOut).toBe(true);
-    expect(result.exitCode).not.toBe(0);
-  });
+describe("executePlan — stop", () => {
+  it("an abort during a package ends the run: the killed package is no failure, the next is not started, executePlan rejects", async () => {
+    const home = await tempHome();
+    const stop = new AbortController();
+    const calls: string[] = [];
+    const spawn: InstallSpawn = async ({ command }) => {
+      const identity = command.at(-1) as string;
+      calls.push(identity);
+      if (identity === "npm:b") {
+        // The daemon stops while `b` installs: its child dies and the seam reports a signal exit.
+        stop.abort(new Error("the daemon is shutting down"));
+        return { exitCode: null, stderr: "" };
+      }
+      return { exitCode: 0, stderr: "" };
+    };
 
-  it("resolves with the exit code and captured stderr for a normal short-lived child", async () => {
-    const result = await defaultInstallSpawn({
-      command: [process.execPath, "-e", "process.stderr.write('hi'); process.exit(0);"],
-      env: { ...process.env } as Record<string, string>,
-      timeoutMs: 5000,
-    });
-    expect(result).toMatchObject({ exitCode: 0, stderr: "hi" });
-  });
-
-  it("rejects when the binary cannot be spawned at all", async () => {
     await expect(
-      defaultInstallSpawn({
-        command: ["definitely-not-a-real-binary-xyz-123"],
-        env: {},
-        timeoutMs: 5000,
+      executePlan(planOf(["a", "b", "c"].map(action)), {
+        home,
+        piHomeKey: PI_HOME_KEY,
+        config: CONFIG,
+        spawn,
+        signal: stop.signal,
+        logger: silentLogger(),
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("the daemon is shutting down");
+
+    expect(calls).toEqual(["npm:a", "npm:b"]);
+    const state = await loadExtensionsState(home);
+    if (state === "unreadable") throw new Error("state unreadable");
+    const piHomeState = state.piHomes[PI_HOME_KEY];
+    expect(Object.keys(piHomeState?.offered ?? {})).toEqual(["a"]);
+    expect(piHomeState?.failures).toEqual({});
+  });
+
+  it("a seam that rejects because the daemon stopped records no failure either", async () => {
+    const home = await tempHome();
+    const stop = new AbortController();
+    const spawn: InstallSpawn = async () => {
+      stop.abort(new Error("the daemon is shutting down"));
+      throw new Error("the daemon is shutting down");
+    };
+    await expect(
+      executePlan(planOf([action("a")]), {
+        home,
+        piHomeKey: PI_HOME_KEY,
+        config: CONFIG,
+        spawn,
+        signal: stop.signal,
+        logger: silentLogger(),
+      }),
+    ).rejects.toThrow("the daemon is shutting down");
+    const state = await loadExtensionsState(home);
+    if (state === "unreadable") throw new Error("state unreadable");
+    expect(state.piHomes[PI_HOME_KEY]?.failures).toEqual({});
+  });
+
+  it("an already aborted signal starts no package", async () => {
+    const home = await tempHome();
+    const stop = new AbortController();
+    stop.abort(new Error("the daemon is shutting down"));
+    const spawn = vi.fn<InstallSpawn>();
+    await expect(
+      executePlan(planOf([action("a")]), {
+        home,
+        piHomeKey: PI_HOME_KEY,
+        config: CONFIG,
+        spawn,
+        signal: stop.signal,
+        logger: silentLogger(),
+      }),
+    ).rejects.toThrow("the daemon is shutting down");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+describe("executePlan — credentials never leave the failure path", () => {
+  const URL_SECRET = "hunter2-secret";
+  const QUERY_SECRET = "abc123token";
+  const STDERR =
+    `fatal: unable to access 'https://user:${URL_SECRET}@git.example/repo.git/'\n` +
+    `retry https://registry.example/pkg?token=${QUERY_SECRET}&x=1\n`;
+  const credentialed = {
+    identity: "repo",
+    pack: "core",
+    source: `git:https://user:${URL_SECRET}@git.example/repo.git?token=${QUERY_SECRET}`,
+  };
+
+  async function failWith(spawn: InstallSpawn): Promise<{
+    stateFile: string;
+    logText: string;
+    reportText: string;
+  }> {
+    const home = await tempHome();
+    const { logger, lines } = recordingLogger();
+    const report = await executePlan(planOf([credentialed]), {
+      home,
+      piHomeKey: PI_HOME_KEY,
+      config: CONFIG,
+      spawn,
+      logger,
+    });
+    return {
+      stateFile: await readFile(extensionsStatePath(home), "utf8"),
+      logText: JSON.stringify(lines),
+      reportText: JSON.stringify(report),
+    };
+  }
+
+  function expectNoSecrets(text: string): void {
+    expect(text).not.toContain(URL_SECRET);
+    expect(text).not.toContain(QUERY_SECRET);
+  }
+
+  it("a non-zero exit keeps neither secret in the state file, the log lines or the report", async () => {
+    const { stateFile, logText, reportText } = await failWith(async () => ({
+      exitCode: 1,
+      stderr: STDERR,
+    }));
+    for (const text of [stateFile, logText, reportText]) expectNoSecrets(text);
+    expect(stateFile).toContain("git.example/repo.git/");
+    expect(logText).toContain("failed to install recommended extension");
+  });
+
+  it("a thrown error's text is redacted the same way", async () => {
+    const { stateFile, logText, reportText } = await failWith(async () => {
+      throw new Error(STDERR);
+    });
+    for (const text of [stateFile, logText, reportText]) expectNoSecrets(text);
+    expect(stateFile).toContain("retry https://registry.example/pkg");
+  });
+
+  it("the update step's error is redacted too", async () => {
+    const error = await updateInstalledExtensions({
+      config: CONFIG,
+      spawn: async () => ({ exitCode: 1, stderr: STDERR }),
+    }).catch((e: unknown) => e);
+    if (!(error instanceof Error)) throw new Error("expected a rejection");
+    expectNoSecrets(error.message);
   });
 });
 
@@ -441,7 +552,9 @@ describe("updateInstalledExtensions", () => {
     ).rejects.toThrow(/timed out/);
     forceNoBundledCli = true;
     try {
-      await expect(updateInstalledExtensions({ config: CONFIG })).rejects.toThrow(/no bundled pi/);
+      await expect(
+        updateInstalledExtensions({ config: CONFIG, spawn: vi.fn<InstallSpawn>() }),
+      ).rejects.toThrow(/no bundled pi/);
     } finally {
       forceNoBundledCli = false;
     }

@@ -1,5 +1,4 @@
-import { chmodSync, existsSync } from "node:fs";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
@@ -177,104 +176,139 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Reading config.json
+// ---------------------------------------------------------------------------
+
+/** `code` of {@link ConfigUnreadableError}: what the CLI prints as `error` in `--json` output. */
+export const CONFIG_UNREADABLE_CODE = "config_unreadable";
+
+/**
+ * `config.json` exists but cannot be used: it cannot be read, is not a JSON object, or fails the
+ * schema. Nothing may start from it or write over it, because treating it as empty would run the
+ * daemon without its password and the next write would replace the file. A missing file is not an
+ * error: it is an empty config.
+ */
+export class ConfigUnreadableError extends Error {
+  readonly code = CONFIG_UNREADABLE_CODE;
+
+  constructor(
+    readonly path: string,
+    readonly problem: string,
+  ) {
+    super(
+      `cannot use ${path}: ${problem}. Fix the file or move it aside; it has not been changed.`,
+    );
+    this.name = "ConfigUnreadableError";
+  }
+}
+
+/**
+ * The raw JSON object in `path`; `{}` when the file does not exist. Throws
+ * {@link ConfigUnreadableError} for a file that cannot be read, does not parse, or is not an object.
+ */
+export function readRawConfig(path: string): Record<string, unknown> {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new ConfigUnreadableError(path, `it cannot be read (${(error as Error).message})`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new ConfigUnreadableError(path, `it is not valid JSON (${(error as Error).message})`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new ConfigUnreadableError(path, "it is not a JSON object");
+  }
+  return raw as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // loadConfig
 // ---------------------------------------------------------------------------
 
 /**
- * Load `config.json`: read JSON (or `{}` when missing/corrupt), validate with
- * {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
- * config is structurally invalid (e.g. an `agents.providers` key other than `pi`).
+ * Load `config.json`: read JSON (`{}` when the file is missing), validate with
+ * {@link persistedConfigSchema}, then overlay env vars. Throws {@link ConfigUnreadableError}, naming
+ * the path and the problem, when the file exists but is not valid JSON or fails the schema (e.g. an
+ * `agents.providers` key other than `pi`).
  */
 export function loadConfig(path: string, env: Env = process.env): PersistedConfig {
-  let raw: unknown = {};
-  if (existsSync(path)) {
-    try {
-      raw = JSON.parse(readFileSync(path, "utf8"));
-    } catch {
-      raw = {};
-    }
-  }
-  const result = persistedConfigSchema.safeParse(raw);
+  const result = persistedConfigSchema.safeParse(readRawConfig(path));
   if (!result.success) {
-    throw new Error(
+    throw new ConfigUnreadableError(
+      path,
       result.error.issues.map((i) => `${i.path.join(".") || "config"}: ${i.message}`).join("; "),
     );
   }
-  const parsed = result.data;
-  return overlayEnv(parsed, env);
+  return overlayEnv(result.data, env);
 }
 
 // ---------------------------------------------------------------------------
-// persistExtensionPacks
+// persistExtensionPacks / persistUpdateAutoCheck
 // ---------------------------------------------------------------------------
 
 /**
- * Persist `daemon.extensions.packs` into `configPath`, merging into the RAW file contents — never a
- * loaded (env-overlaid) config. Creates the file/dir when missing. Written 0600: config.json can
- * carry the daemon password hash.
- *
- * Reads the raw JSON (`{}` when the file is missing or unparseable — never throw the caller's RPC
- * away over a corrupt config), sets `daemon.extensions.packs`, writes atomically, then ensures mode
- * `0600` (mode only applies on create, so re-chmod like the CLI does for files written before the
- * rule).
+ * Merge one change into the RAW contents of `configPath` — never a loaded (env-overlaid) config, and
+ * not through {@link persistedConfigSchema}, so unknown keys survive and no default is written. A
+ * missing file is created (with its directory); a file that cannot be read throws
+ * {@link ConfigUnreadableError} and is left byte-identical. Written atomically, then re-chmodded to
+ * `0600` (config.json can carry the password hash; the mode only applies on create, so files written
+ * before the rule are tightened here).
+ */
+async function updateRawConfig(
+  configPath: string,
+  change: (config: Record<string, unknown>) => void,
+): Promise<void> {
+  const config = readRawConfig(configPath);
+  change(config);
+  await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
+  try {
+    chmodSync(configPath, 0o600);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** `parent[key]` when it is a JSON object, else a fresh one (the caller stores it back on `parent`). */
+export function rawObject(parent: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = parent[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Persist `daemon.extensions.packs` into `configPath` (see {@link updateRawConfig}). Throws
+ * {@link ConfigUnreadableError} when the existing file cannot be read.
  */
 export async function persistExtensionPacks(
   configPath: string,
   packs: readonly string[],
 ): Promise<void> {
-  // Read raw JSON: file missing or parse error → treat as {}
-  let config: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    try {
-      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      config = {};
-    }
-  }
-
-  // Merge only daemon.extensions.packs; preserve all other keys
-  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
-  const extensions = (daemon.extensions as Record<string, unknown> | undefined) ?? {};
-  extensions.packs = Array.from(packs);
-  daemon.extensions = extensions;
-  config.daemon = daemon;
-
-  // Write atomically via permissive schema (do NOT round-trip persistedConfigSchema)
-  await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
-
-  // Re-chmod to 0600 (best-effort, mirrors CLI pattern)
-  try {
-    chmodSync(configPath, 0o600);
-  } catch {
-    /* best-effort */
-  }
+  await updateRawConfig(configPath, (config) => {
+    const daemon = rawObject(config, "daemon");
+    const extensions = rawObject(daemon, "extensions");
+    extensions.packs = Array.from(packs);
+    daemon.extensions = extensions;
+    config.daemon = daemon;
+  });
 }
 
 /**
  * Persist `daemon.update.autoCheck` into `configPath` with the same raw read-merge-write as
- * {@link persistExtensionPacks}: unknown keys survive, env overrides are never written.
+ * {@link persistExtensionPacks}: unknown keys survive, env overrides are never written. Throws
+ * {@link ConfigUnreadableError} when the existing file cannot be read.
  */
 export async function persistUpdateAutoCheck(configPath: string, enabled: boolean): Promise<void> {
-  let config: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    try {
-      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      config = {};
-    }
-  }
-
-  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
-  const update = (daemon.update as Record<string, unknown> | undefined) ?? {};
-  update.autoCheck = enabled;
-  daemon.update = update;
-  config.daemon = daemon;
-
-  await atomicWriteJson(configPath, config, z.record(z.string(), z.unknown()));
-
-  try {
-    chmodSync(configPath, 0o600);
-  } catch {
-    /* best-effort */
-  }
+  await updateRawConfig(configPath, (config) => {
+    const daemon = rawObject(config, "daemon");
+    const update = rawObject(daemon, "update");
+    update.autoCheck = enabled;
+    daemon.update = update;
+    config.daemon = daemon;
+  });
 }

@@ -18,7 +18,7 @@ interface BunSubprocess {
   readonly terminal: BunTerminal | undefined;
   /** Resolves with the exit code (128 + signal number when the child was killed by a signal). */
   readonly exited: Promise<number>;
-  kill(): void;
+  kill(signal?: NodeJS.Signals): void;
 }
 
 interface BunSpawnOptions {
@@ -52,7 +52,7 @@ const TERM_NAME = "xterm-256color";
  */
 export interface BunPtyBackendDeps {
   resolveExecutable(bin: string, env?: Record<string, string | undefined>): string;
-  killTree(pid: number | undefined): void;
+  killTree(pid: number | undefined, signal?: NodeJS.Signals, then?: () => void): void;
 }
 
 /** Production backend under Bun: a real PTY via `Bun.spawn(…, { terminal })`. */
@@ -106,13 +106,15 @@ export class BunPtyBackend implements PtyBackend {
           // PTY may have exited between the size change and this call; ignore.
         }
       },
-      kill: () => {
-        this.deps.killTree(proc.pid);
-        try {
-          proc.kill();
-        } catch {
-          // Already exited.
-        }
+      kill: (force) => {
+        const signal = force ? "SIGKILL" : "SIGTERM";
+        this.deps.killTree(proc.pid, signal, () => {
+          try {
+            proc.kill(signal);
+          } catch {
+            // Already exited.
+          }
+        });
       },
       onData: (cb) => {
         dataCbs.push(cb);

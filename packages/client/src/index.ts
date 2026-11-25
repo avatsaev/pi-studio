@@ -21,6 +21,9 @@ export * from "./daemon-client.js";
 // High-level PiStudioClient SDK facade + handles.
 export * from "./pistudio-client.js";
 
+// Waiting for an agent's turn to end (pure settle decisions + the wait itself).
+export * from "./agent-wait.js";
+
 // Extension-UI pure state module (reducer/selectors, sprint-067).
 export * from "./agent-ui-state.js";
 

@@ -72,8 +72,9 @@ src/
                                    `UpdatePipeline` (required dep; production: `createUpdatePipeline` —
                                    install → extensions → helper → pause → shutdown → exit, with
                                    `classifyInstallFailure`/`failureMessage`),
-                                   `setAutoCheck`, a 6 h unref'd timer (injected `UpdateTimer`), and
-                                   `readAndRemoveUpdateResult` for `update-result.json`. Not re-exported
+                                   `setAutoCheck`, a 6 h unref'd timer (injected `UpdateTimer`),
+                                   `checkIfStale()` (the check when a client connects, see "Daemon update
+                                   service"), and `readAndRemoveUpdateResult` for `update-result.json`. Not re-exported
                                    from the package index (daemon-only).
     helper.ts                     The restart helper: `HELPER_SCRIPT` (self-contained `node -e` text),
                                    `compileHelperLogic()` (test entry), `spawnUpdateHelper(params, env?,
@@ -115,40 +116,45 @@ src/
                                    `_unsubscribe_request` adapters (invalid level/tail are domain failures).
   daemon/
     main.ts                       Production entry: `runDaemon()` (bin `pi-studio-daemon`); listen resolved by bootstrap (env → config `daemon.listen` → 127.0.0.1:6767).
-    run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
+    run.ts                        `runDaemon(opts?, host?)` — `startDaemon` + the process-level parts: SIGINT/SIGTERM stop, `uncaughtException` (fatal log, stop, exit 1), `unhandledRejection` (error log, keeps running), fatal-error exit, `onUpdateRestart` exit; `ProcessHost` is the fakeable slice of `process`; exported from the package index for detached starters. See "Daemon shutdown".
     binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
+    identity-files.ts             `resolveServerId`, `resolveDaemonKeypair` (called by `startDaemon`), `generateDaemonKeypair`/`writeDaemonKeypair` (also used by the CLI's `daemon rotate-key`): the `server-id` and `daemon-keypair.json` files, synchronous, written temp-then-rename (key pair 0600). See "Damaged identity files".
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files,
                                    provider auth, optional outbound relay).
                                    `close()` is memoized (a second call returns the first's
-                                   promise): agent sessions (`manager.closeAll()`, 7 s each), PTYs,
-                                   file watchers, status/log services, relay, sockets, http server,
-                                   then `pi-studio.pid` is removed only when it still holds this
-                                   process's PID. shutdown.test.ts covers it.
+                                   promise) and lists its steps through `shutdown.ts` — order in
+                                   "Daemon shutdown" below. shutdown.test.ts covers it.
     dev-bootstrap.ts              DEV handler wiring — in-memory agents + mock provider only, no
                                    auth; a handler subset for local testing that includes file
                                    transfer (`FileTransferService` + upload binary handler) and
                                    terminals (`registerTerminalHandlers` + binary handler), wired as
                                    in bootstrap.ts; also the scripted self-update family
                                    (`PI_STUDIO_DEV_UPDATE`, see "Daemon update service");
-                                   `close()` closes every live agent session, then
-                                   kills every PTY.
+                                   `close()` is memoized and runs the same runner with the steps the
+                                   dev daemon has (no file watch, relay or PID file).
+    shutdown.ts                   `runShutdown(steps, logger)` and `SHUTDOWN_DEADLINE_MS` (10 s) — the
+                                   shutdown runner both bootstraps list their steps through; see
+                                   "Daemon shutdown".
     relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
                                    random?, timers? }) — keeps ONE control socket registered with
                                    protocol 2 (`relay_daemon_register`; 10 s registration answer,
                                    90 s silence) and redials it with backoff (1→30 s ±20 %, a fixed
                                    30 s after close 4107 `replaced`); opens a RelayConnection per
-                                   `relay_dial` (cap 32, extra dials ignored and logged). close()
-                                   also closes every data socket. Opt-in via
+                                   `relay_dial` (cap 32, extra dials ignored and logged).
+                                   `stopAccepting()` ignores every later dial (open connections
+                                   stay); close() also closes every data socket. Opt-in via
                                    config.daemon.relay.enabled (bootstrap.ts only).
     relay-connection.ts           openRelayConnection — one relay data socket per client connection
                                    (protocol 2): dials, sends relay_daemon_attach, waits for
                                    relay_paired, runs createDaemonChannel; RelayConnection (text,
-                                   binary, bufferedAmount, isOpen, close(code), onClose once).
+                                   binary, bufferedAmount, isOpen, close(code), terminate(), onReady once the key
+                                   exchange is done, onClose once).
     relay-sessions.ts             attachRelaySession — one Session per RelayConnection: first text
-                                   record must be a valid hello (else close 1008, same reasons as
+                                   record must be a valid hello within HELLO_TIMEOUT_MS of the key
+                                   exchange (else close 1008, same reasons as
                                    ws-server.ts), capability store by clientId, status/server_info
                                    reply, socket facade (bufferedAmount/isOpen/close), later records
                                    to the injected router; conn close → deps.onSessionClose (the
@@ -174,7 +180,7 @@ src/
                                    forked branch through (skipped for an archived agent).
                                    appendStreamEvent(agentId, timeline, event,
                                    broadcast, sessions) (sprint-074) — the one append-to-timeline +
-                                   `agent_stream` broadcast path, used by `runTurn` and by any
+                                   `agent_stream` broadcast path, used by `beginTurn`/`executeTurn` and by any
                                    operation that subscribes outside a turn (compaction). Ephemeral
                                    branch (sprint-058): a `tool_call` with `partial` and every
                                    `queue_update` are broadcast with a daemon `timestamp`, no `seq`,
@@ -183,7 +189,8 @@ src/
                                    store-less agent from `hydrateTimeline`;
                                    timelineFor({manager, resolveClient}, agentId) (sprint-150/task-001)
                                    — the one way to get a store to append to: seeds first, then
-                                   get-or-create (used by `runTurn` and `handleCompact`;
+                                   get-or-create (used by `acceptPrompt`, so every turn, and
+                                   `handleCompact`;
                                    `timeline-rpc.ts` seeds via `ensureTimelineSeeded`), so a send
                                    before any fetch after a restart keeps the history. Throws for
                                    an agent that is gone or archived (sprint-150/task-004), so an
@@ -230,7 +237,8 @@ src/
       pi-auth-runtime.ts          createPiAuthRuntime(paths) — lazy seam onto Pi's real
                                    ModelRuntime; listProviders/checkAuth(bounded)/login/logout.
       provider-auth-service.ts    ProviderAuthService — flow registry + AuthInteraction bridge;
-                                   owns its SessionSubscriptions entry directly (see below).
+                                   owns its SessionSubscriptions entry directly (see below);
+                                   `close()` (shutdown step `login flows`) ends every flow.
       provider-auth-rpc.ts        registerProviderAuthHandlers — the five provider_auth_* RPCs
                                    (bootstrap.ts only), pure pass-through onto the service.
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
@@ -341,18 +349,44 @@ src/
         mock-provider.test.ts
 
   test-support/
+    answer-then-run.ts            `agentCalls(service, getSessions?)` → `{create, send, createSettled,
+                                   sendSettled}`: calls `handleCreate` / `handleSendPrompt` and runs the
+                                   `afterReply` hooks after the answer, as `routeTextFrame` does
+                                   (the `*Settled` forms also await `service.turnSettled`).
+                                   `answerThenRun(call, onAnswer?)` is the underlying runner.
+    wire-answers.ts               `createdAgentId(answer)`: the typed `payload.agentId` of a
+                                   `create_agent_response` frame, for e2e tests.
     daemon-test-client.ts         Shared raw-`ws` test client (sprint-083): `connectTestClient(port,
                                    {clientType?, appVersion?, capabilities?})` → `{ws, frames, status,
                                    send, rpc, rpcFrame, waitFor, close}`; `listeningPort(server)`,
                                    `messageOf(frame)`, `WireFrame`. Compiled into `dist` (so the
                                    recorder script can import it) but not exported from the barrel.
+    recording-logger.ts           `recordingLogger()` → `{logger, lines}`: a `Logger` that records every line (children share the list).
+    update-check-rig.ts           `updateCheckRig()` → `{seams, clock, registry, asked}`: `updateTestSeams` for the daemon tests of the
+                                   check on connect (a clock and a release channel the test moves, the other probes answered as an
+                                   updatable npm install; `asked.count` = asks of the channel).
+    fake-process-host.ts          `fakeProcessHost()`: a `ProcessHost` that records handlers and exits instead of touching `process`.
+    process-probe.ts              Real-process probes for tests: `isAlive` (zombies count as dead), `readPid`, `killQuietly`, `commandOf`, `descendantsOf`.
 
   ws/
-    ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions.
-    session.ts                    Session — per-connection state, send(), capability checks; read-only
+    ws-server.ts                  WebSocketServer — upgrade, handshake (hello/status), sessions;
+                                   `maxPayload` MAX_FRAME_BYTES, hello timeout (1008), liveness
+                                   pings (`liveness.ts`).
+                                   `stopAccepting()` answers later upgrades `503`; `close()` stops
+                                   the pings, closes every socket with 1001 and terminates any still
+                                   open after `SOCKET_CLOSE_GRACE_MS` (1 s).
+    limits.ts                     HELLO_TIMEOUT_MS (10 s), PING_INTERVAL_MS (30 s), MAX_FRAME_BYTES
+                                   (32 MiB), MAX_INFLIGHT_REQUESTS (64), MAX_SEND_QUEUE_BYTES (16 MiB).
+    liveness.ts                   watchLiveness — the protocol-ping sweep of the direct sockets;
+                                   terminates one that showed no life since the previous ping.
+    session.ts                    Session — per-connection state, send()/sendText()/sendBinary() behind the
+                                   MAX_SEND_QUEUE_BYTES cut-off, capability checks; read-only
                                    connection metadata `connectedAt`, `appVersion` (hello), `remoteAddress`
                                    (direct only), `transport` (`"direct"|"relay"`) — never persisted.
-    router.ts                     HandlerRegistry + frame router (dispatch session messages).
+    router.ts                     HandlerRegistry + frame router (dispatch session messages; at most
+                                   MAX_INFLIGHT_REQUESTS running per session);
+                                   `registry.stopAccepting()` makes every later request an
+                                   `rpc_error` `shutting_down`.
     session-subscriptions.ts      SessionSubscriptions — per-session subscription registry,
                                    disposes all subscriptions on socket close.
     capability-store.ts           CapabilityStore — persist client capability flags by clientId.
@@ -360,6 +394,9 @@ src/
 
   http/
     http-server.ts                HTTP server: `/api/health` and the Host allowlist; everything else is 404.
+                                   `closeHttpServer(server)` stops listening and closes idle and active
+                                   connections instead of waiting for them. A connection that never
+                                   finishes its request headers is closed after `HELLO_TIMEOUT_MS`.
     host-allowlist.ts             Host header validation (prevents DNS rebinding).
     index.ts
 
@@ -368,14 +405,18 @@ src/
     index.ts
 
   config/
-    daemon-config.ts              DaemonConfig — env + config.json merge, listen/home/password/…
+    daemon-config.ts              DaemonConfig — env + config.json merge, listen/home/password/…;
+                                   ConfigUnreadableError, readRawConfig (a damaged file is never read as {}).
     project-config.ts             Per-project config (.pi-studio/config.json).
     index.ts
 
   persistence/
     entity-schemas.ts             Zod schemas for all persisted entities (passthrough, optional).
-    entity-stores.ts              load*/save* functions — JSON file I/O per entity type.
-    atomic-store.ts               AtomicStore — write-to-tmp-then-rename for crash safety.
+    entity-stores.ts              load*/save* functions — JSON file I/O per entity type; every loader
+                                   takes the daemon `Logger` (a damaged file is set aside and logged;
+                                   a registry keeps its valid records; `loadAllAgents` skips an entry it cannot read).
+    atomic-store.ts               atomicWriteJson (temp, fsync, rename; one write per path at a time),
+                                   loadStore (damaged file set aside), quarantineFile.
     index.ts
 
   extensions/                     Preinstalled-extensions sync (features/preinstalled-extensions.md).
@@ -406,17 +447,43 @@ src/
                                     (task-001), shared by extensions-rpc.ts and the CLI's `--local`
                                     path so the two can never render different data for the same
                                     state. Total EntryStatus->wire-string map (build error if
-                                    either side gains an unhandled value).
+                                    either side gains an unhandled value). Redacts `source`,
+                                    `identity` and `lastError.message` on the way out, so text an
+                                    earlier version stored unredacted never reaches a client.
     sync-executor.ts               executePlan — spawns `pi install <spec>` per planned action via
-                                    an injectable InstallSpawn seam; one package failing never
-                                    aborts the run; state persisted after every action. Also
+                                    the required InstallSpawn seam (no default: callers pass
+                                    `InstallProcesses.spawn` or a fake); one package failing never
+                                    aborts the run; state persisted after every action. An aborted
+                                    `signal` (shutdown) stops the loop, does not record the package
+                                    the kill interrupted and rejects with the abort reason. Also
                                     updateInstalledExtensions — bundled `pi update --extensions`
                                     through the same seam/env (the self-update pipeline's step).
+                                    Nothing credential-bearing leaves a failure: the stderr tail
+                                    (last 2 KiB), a thrown error's text, the logged and stored
+                                    `source` and the report's identity/source go through
+                                    `redactSource` (redacted BEFORE the tail is cut). The state key
+                                    and `installedSpec` stay verbatim (the planner compares them
+                                    byte for byte; they come from the bundled manifest).
+    install-processes.ts           InstallProcesses — the production InstallSpawn (`spawn`: child
+                                    via `tree-kill`, bounded stdout tail (16 KiB) and stderr tail
+                                    (64 KiB; a cut tail drops its leading partial token so no
+                                    credential is left split), settles on `close` so the last
+                                    output is never lost) plus a
+                                    registry of the live children. `stop()` refuses new children,
+                                    SIGTERMs each tree, SIGKILLs what is alive after `graceMs` (2 s;
+                                    warn `an install process ignored SIGTERM: killed`) and resolves
+                                    when all exited. `shuttingDownError()` is the rejection every
+                                    queued or refused install gets. Each ExtensionsService and
+                                    ResourceService owns one (an injected `spawn` bypasses it); a
+                                    child started outside it (the update helper) is not touched.
     extensions-service.ts          ExtensionsService — orchestration only: reads settings.json +
                                     state, calls the planner/executor, persists lastSync, logs the
                                     summary line, persists a pack selection (setSelectedPacks). In-
                                     process mutex (createLimiter(1)) serializes concurrent sync()
                                     calls. configPath dep (defaults to <home>/config.json).
+                                    `installSpawn` is the spawn its installs run through (the update
+                                    pipeline reuses it); `close()` aborts the sync in flight and the
+                                    queued ones, stops the install children and waits for the mutex.
     extensions-rpc.ts              registerExtensionsHandlers — extension_packs_list_request /
                                     extension_packs_set_request (bootstrap.ts only). Thin: maps
                                     ExtensionsService.describe()/sync() to wire types via wire.ts;
@@ -431,9 +498,9 @@ src/
   viewers/                        Viewer settings — per-viewer enable/disable state
                                    (docs/MOLVIEWER_DECOUPLING.md § 4.4).
     viewer-settings-state.ts       viewer-settings.json store: viewerSettingsPath/
-                                    loadViewerSettings (soft-fallback — deliberately NOT
-                                    extensions-state.ts's "unreadable" sentinel)/
-                                    saveViewerSettings + the pure applyViewerSettingsPatch merge.
+                                    loadViewerSettings(home, logger) (a damaged file is set aside, then
+                                    all-enabled — deliberately NOT extensions-state.ts's "unreadable"
+                                    sentinel)/saveViewerSettings + the pure applyViewerSettingsPatch merge.
     viewer-settings-rpc.ts         registerViewerSettingsHandlers — viewer_settings_get/_set,
                                     serialized read-modify-write, broadcasts viewer_settings_update
                                     to every active session (including the caller) before
@@ -441,10 +508,15 @@ src/
 
   terminal/
     terminal-manager.ts           TerminalManager — PTY lifecycle, slot assignment, binary broadcast.
+                                  `killAll()` is async: it resolves when every shell has exited,
+                                  SIGKILLing one that ignores SIGTERM after `killGraceMs` (2 s).
     pty-backend.ts                PtyBackend — NodePtyBackend (`node-pty`, loaded by a conditional top-level
                                   `import()`: never under Bun, `undefined` → ChildProcessPtyBackend
                                   fallback if the native binding fails), `createDefaultPtyBackend()`
                                   (Bun → BunPtyBackend, else Node); injectable for tests.
+                                  `PtyProcess.kill(force?)`: SIGTERM, or SIGKILL of the tree when forced; the tree is signalled
+                                  first and the shell itself only in `killTree`'s `then` (a shell that dies
+                                  first reparents a `nohup` job out of the walk, and it outlives the daemon).
     bun-pty-backend.ts            BunPtyBackend — `Bun.spawn(…, { terminal })` real PTY under Bun, with a
                                   local minimal Bun type declaration (no @types/bun) and `isBunRuntime()`;
                                   `resolveExecutable`/`killTree` are injected (no runtime import of
@@ -460,7 +532,7 @@ src/
     index.ts
 
   projects/
-    workspace-registry.ts         WorkspaceRegistry + ProjectRegistry — open/list/archive.
+    workspace-registry.ts         WorkspaceRegistry + ProjectRegistry — open/list/archive; one lock per registry.
     open-project.ts               open_project RPC — resolve git remote, create workspace record.
     git-operations.ts             Git shell helpers (status, branch, commit, diff, …).
     git-detect.ts                 Detect git root + remote from a cwd.
@@ -487,6 +559,8 @@ src/
     file-watch-rpc.ts             registerFileWatchHandlers — file_watch_subscribe/_unsubscribe
                                    RPCs, file_changed push.
     limits.ts                     MAX_INLINE_FILE_READ_BYTES (5 MiB) — file_read_request ceiling.
+    inline-read.ts                readInlineFile — shared file_read_request implementation
+                                   (regular files only, bounded read).
     resolve-path.ts               expandHome — the package's single `~`/`~/` expansion helper
                                    (task-001, sprint-045); every file-path RPC + `file-watch-
                                    service.ts`/`agent/providers/pi/rpc-transport.ts` (re-export)
@@ -568,8 +642,8 @@ src/
                                     the re-list itself fails, which then surfaces instead.
                                     `runSpawn` delegates to `spawn-runner.ts`'s pure function
                                     through the injectable `spawn: InstallSpawn` constructor dep
-                                    (defaults to `extensions/sync-executor.ts`'s
-                                    `defaultInstallSpawn`; tests pass a fake).
+                                    (defaults to the service's own `InstallProcesses.spawn`,
+                                    `extensions/install-processes.ts`; tests pass a fake).
 
                                     `remove({path} | {packageSource})` (sprint-076/task-004):
                                     package row by `path` → `not_removable`; `settings_path` →
@@ -701,12 +775,13 @@ src/
                                     redacted form and spawns with the REAL settings entry.
 
   logging/
-    logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file; optional `tap`).
+    logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file; optional `tap`); `flushLogger(logger)` waits for the file to take every line logged so far.
     log-tap.ts                    `LogTap`: pino destination -> sanitised, 8 KiB-capped 1000-line ring + live listeners.
     index.ts
 
   util/
     concurrency.ts                p-limit wrappers, mutex helpers.
+    settles-within.ts             `settlesWithin(promise, ms)` → whether it settled in time; never rejects, leaves no timer.
     index.ts
 ```
 
@@ -720,25 +795,104 @@ src/
 
 1. Validates `Host` header via `hostCheck` (DNS-rebinding protection).
 2. Checks password via `PasswordAuth` (bcrypt or WS subprotocol bearer token).
-3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket.
+3. Expects first frame to be `hello`; a non-`hello` first frame closes the socket (1008), and so
+   does a socket with no valid `hello` after `HELLO_TIMEOUT_MS` (10 s, `deps.helloTimeoutMs` in
+   tests; the timer starts at connect and is cleared by the hello). The relay path has the same
+   rule (`deps.helloTimeoutMs`), counted from `RelayConnection.onReady` — dialling and pairing have
+   their own limits in `relay-connection.ts`.
 4. Emits `status`/`server_info` after accepting the hello — including `homeDir: os.homedir()`, the
    daemon host's home directory, which every remote client (browser, relay peer, possibly on another
    OS) needs to expand a `~` path against the right machine. The relay handshake path
    (`buildServerInfo` in `daemon/bootstrap.ts`, sent by `relay-sessions.ts`) reports the same value; keep the two in sync.
 5. Calls `deps.onSession(session)` once handshake completes.
-6. Routes subsequent frames to `deps.onMessage(session, frame)`.
+6. Routes subsequent frames to `deps.onMessage(session, frame)`. The server is created with
+   `maxPayload: MAX_FRAME_BYTES` (32 MiB): a larger message closes that socket with 1009 while it is
+   read and the `error` event `ws` raises is logged, never thrown; other sessions go on. The size
+   follows the largest real client frame: upload chunks are 32 KiB, terminal input a few bytes, a
+   file save at most 5 MiB (`MAX_INLINE_FILE_READ_BYTES`; about six times that once JSON-escaped),
+   a prompt carries its images as base64 (no cap in the UI, a 20 MB picture is 27 MB). The relay
+   (100 MiB) and the desktop proxy (128 MiB) carry more on purpose; this limit is the daemon's. A
+   binary frame reaches `onMessage` as a view of the received buffer, not a copy: every binary
+   decoder (`tryDecodeFileTransferFrame`, `tryDecodeTerminalFrame`) `slice()`s the payload it
+   keeps, so no handler holds the view after it returns (a test overwrites the source buffer after
+   each upload frame and checks the file is byte-exact). A new binary handler must do the same.
+7. Liveness (`liveness.ts`, started with the server, stopped by `close()`): every
+   `PING_INTERVAL_MS` (30 s, `deps.pingIntervalMs` in tests) each open socket is sent a
+   protocol-level ping. A socket that showed no life since the previous ping (a pong, a ping of its
+   own or any message, text or binary) is `terminate()`d, so a peer that vanished without closing
+   is gone within two intervals through the normal close path: the session leaves `sessions` and
+   so `daemon_status`, `onSessionClose` disposes its subscriptions, and the close is logged with
+   code 1006. The timer is `unref`'d. A socket the server has stopped reading
+   (`session.pauseReading()` for upload back-pressure, `ws.isPaused`) cannot show life, so it is
+   neither pinged nor judged while it is paused. Relay sockets are not part of it (their own 90 s
+   silence timer, `RELAY_DEFAULTS.silenceTimeoutMs`) and the JSON `ping`/`pong` messages are
+   unchanged. Clients need no code to answer: browsers and Node `ws` (the SDK's `DaemonClient`) do
+   it themselves, and so does each leg of the desktop proxy (`desktop/crates/net`, tungstenite:
+   reading a ping queues the pong, the next read, write or flush of that leg sends it; the pump
+   polls the daemon leg while the page leg keeps up, so only a page that stops reading for two
+   intervals goes unanswered and is reconnected).
+8. Shutdown: `handle.stopAccepting()` answers every later upgrade `503` (checked before the Host
+   check); `handle.close()` also stops accepting, stops the liveness timer, closes every raw
+   socket (`wss.clients`, so one that never said `hello` too) with 1001 and terminates any still
+   open after `SOCKET_CLOSE_GRACE_MS` (1 s) — `wss.close()` alone waits for every client, and `ws`
+   gives a half-open one 30 s.
+9. Slow clients (`Session.queueIsFull`, one choke point): a send first reads the socket's queue
+   (`bufferedAmount`, a direct socket's or a relay data socket's). Above `MAX_SEND_QUEUE_BYTES`
+   (16 MiB, `limits.ts`) the session is closed with 1013 ("send queue full") and `terminate()`d
+   (the relay facade's `terminate` is `RelayConnection.terminate()`), a warn names the client
+   (`clientId`, `clientType`, `sessionId`, `via`, `queuedBytes`; the sessions get the daemon's
+   logger from `ws-server.ts` and `relay-sessions.ts`), and the session sends nothing more. The
+   close frame sits behind the backlog and `terminate` discards it, so the peer sees an abnormal
+   close (1006): the SDK's `ReconnectionManager` reconnects on any close, and the workbench's
+   `use-session-resync.ts` brings its sessions up to date when the connection opens again. The `ws`
+   socket's `bufferedAmount` reads 0 again once its `close`
+   event has fired. It covers every send path because they all end in `send`/`sendText`/
+   `sendBinary`: `broadcast` (exported by `daemon/bootstrap.ts`, also used by `dev-bootstrap.ts`;
+   it serialises the `session` envelope once and calls `sendText`), per-session pushes and
+   replies, terminal Output frames (`terminal-rpc.ts` subscribers call `sendBinary`) and file
+   download chunks. A download paces itself at 1 MiB (`DOWNLOAD_HIGH_WATER_BYTES`) and never
+   reaches the cap. Not done: pausing a terminal's process while its viewer is slow.
+
+Limit tests: `ws-server.test.ts` ("socket limits": silent socket 1008 at a shortened limit, oversize
+frame 1009 with other sessions untouched, binary bytes intact; "liveness", with only the sweep's
+`setInterval` faked: a client that never pongs is terminated within two intervals and leaves
+`daemon_status`, a client that answers survives six intervals, a message counts as life, a paused
+socket is not judged, `close()` clears the timer), `packages/cli/src/ping-liveness-sdk-e2e.test.ts`
+(the SDK's `DaemonClient` on the Node `ws` transport stays connected across six intervals; it lives
+in `cli` because only `cli` depends on both client and server), `router.test.ts` ("requests in
+flight": the 65th request, per-session counting, a failing handler frees its slot),
+`relay-sessions.test.ts` (hello timeout counted from `onReady`, the 65th request on a relay
+connection, a relay session over the send-queue cap is closed 1013 and terminated),
+`relay-connection.test.ts` (`onReady`, `terminate()` after a `close` drops the queue),
+`files/file-transfer.test.ts` (an upload fed views of a buffer that is overwritten afterwards stays
+byte-exact). Slow clients: `ws/session.test.ts` (the cap, once-only cut-off, the log line, a socket
+with no queue never cut), `daemon/broadcast.test.ts` (one `JSON.stringify` per broadcast whatever
+the number of sessions), `daemon/slow-clients-e2e.test.ts` (real sockets: a client that stops
+reading during a 100 MiB broadcast is cut off while a second one gets every event in order; a 40
+MiB download to a slow reader completes below the cap) and
+`packages/cli/src/slow-client-reconnect-sdk-e2e.test.ts` (`DaemonClient` + `ReconnectionManager`
+reconnect after a 1013 close and after the daemon's own cut-off).
 
 `HandlerRegistry` (`router.ts`):
 - `register(type, handler)` — register a handler for a message type.
 - A handler that throws yields a correlated `rpc_error` back to the sender.
+- A session has at most `MAX_INFLIGHT_REQUESTS` (64) handlers running (a `WeakMap` counter in
+  `router.ts`, direct and relay sessions alike; the slot is freed after the reply and its
+  `afterReply` hooks, or when the handler threw). One more is answered `rpc_error` code
+  `too_many_requests` when it has a `requestId` and dropped when it has none; it is not run. No
+  ordering is imposed. `ping`/`pong` are not counted.
 - `ctx.afterReply(fn)` (handler context, sprint-097): `fn` runs after the router has sent the
   handler's reply (also when that send threw; never when the handler threw; a throwing `fn` is only
   logged). Used by `file_download_request` so its binary stream starts after its answer.
 - Unknown types with a `requestId` get an `rpc_error`; without one they are silently ignored.
+- `registry.stopAccepting()` (irreversible; first shutdown step): every later `session` message gets
+  `rpc_error` code `shutting_down` when it has a `requestId` and is dropped when it has none, and no
+  handler runs; a top-level `ping` is still answered and a request already running finishes and
+  replies. The relay sessions route through the same registry, so it covers both transports.
 
 `Session` (`session.ts`):
 - Wraps one WebSocket connection.
-- `session.send(msg)` — sends a JSON-serialised message.
+- `session.send(msg)` — sends a JSON-serialised message; `session.sendText(text)` sends text that is already serialised (a broadcast stringifies once and hands every session the same text); `session.sendBinary(bytes)`. All three first look at the socket's queue: above `MAX_SEND_QUEUE_BYTES` (16 MiB) the session is cut off (socket `close(1013, "send queue full")` then `terminate()`, a warn log naming the client, nothing more is sent), see "Slow clients" under the socket limits.
 - `session.supports(flag)` — checks a `CLIENT_CAPS` flag stored by `CapabilityStore`.
 - `session.clientId`, `session.clientType`, `session.platform` (the hello's optional `platform`, `undefined` when absent or dropped; reported on `daemon_status` client entries; nothing branches on it), `session.agentStreams` (`"all"` | `"none"`, from `hello.agentStreams`, fixed for the connection, set on both the direct and the relay `hello` path; `"none"` receives no `agent_stream` frame — **every** send site of one passes its audience through `agentStreamRecipients(sessions)` in `session.ts` (both branches of `appendStreamEvent` and the two `user_message` sites in `agent-service.ts`, one in `session-operations.ts`'s steer/follow-up); a new `agent_stream` send site must do the same; the event is appended to the timeline regardless; advertised as `agentStreamsMode`; reported on `daemon_status` client entries only when not `"all"`), `session.capabilities`.
 - `session.bufferedAmount` (the socket's unflushed bytes — a direct socket's, or a relay connection's data socket's; `undefined` only for a stand-in socket that cannot say) and `session.isOpen` (`readyState`; a socket with none counts as open): bulk senders pace on them, see `file-transfer.ts` below.
@@ -748,7 +902,8 @@ src/
 
 **`AgentManager`** — the single source of truth for agent state:
 - In-memory `Map<agentId, ManagedAgent>` backed by JSON files.
-- Enforces the lifecycle FSM: `initializing → idle ↔ running → error → closed` via `setStatus()`.
+- Enforces the lifecycle FSM: `initializing → idle ↔ running → error → closed` via `setStatus()`;
+  `initializing → running` is allowed too (a created agent's first prompt never reads `idle`).
 - `updateRecord(id, patch)` merges arbitrary persisted fields (title, labels, config, …) and
   writes them to disk; it does NOT broadcast — each RPC call site (`update_agent`,
   `agent_set_session_name_request`, …) owns its own `agent_update` broadcast shape/timing. This is
@@ -773,26 +928,66 @@ src/
   `spawnSession` on a failed model/thinking replay or when the agent was archived or deleted
   meanwhile. **Archive and delete mid-turn**: both interrupt a `running` turn first
   (`interruptRunningTurn`), then close the session; `close()` ends a running turn as
-  `turn_canceled`, so `run()` and the send RPC resolve. `archiveAgent` has already set status
-  `closed`, `deleteAgent` removes the agent from memory before it closes the session, so
-  `runTurn` finds a closed or missing agent and returns (`info` "turn ended: agent closed")
+  `turn_canceled`, so `run()` resolves and the turn settles. `archiveAgent` has already set status
+  `closed`, `deleteAgent` removes the agent from memory before it closes the session, so the turn
+  finds a closed or missing agent (`agentIsClosed`) and returns (`info` "turn ended: agent closed")
   without a status write, a rethrow or an error log. Tests: `agent/one-process-per-agent.test.ts`.
-- **One turn, compaction or session operation at a time per agent** (sprint-149 task 003):
-  `runExclusive(id, kind, fn)` holds an in-memory claim (`turn` | `compaction` | `session`) while
-  `fn` runs and throws `busy: agent <id> is running | is compacting | is changing its session` for
-  any second claim, before it spawns, subscribes or touches the timeline (the router answers
-  `rpc_error` / `handler_error`; the CLI prints `error: busy: …`). Claimed by `handleSendPrompt`
-  (before its spawn/resume, so two concurrent sends cannot both start a turn and double every
-  event) and `handleCreate`'s eager path, `handleCompact`, and the session operations that replace
-  or fork the provider session: `handleNewSession`, `handleSwitchSession`, `handleFork`,
-  `handleClone`, `handleResume`. Not claimed: steer/follow-up (they target the running turn),
-  interrupt, model and thinking-level changes (`handleSetModel`, `handleSetThinking`,
-  `handleCycleModel`; Pi applies them to the next turn), and reads. `runTurn` itself does not claim
-  (tests call it directly). The workbench sends only when idle and steers while running
+- **One turn, compaction or session operation at a time per agent** (sprint-149 task 003, reshaped
+  by sprint-151/task-003): `AgentManager.claim(id, kind)` takes an in-memory claim (`turn` |
+  `compaction` | `session`) synchronously and returns its release (idempotent; a release frees only
+  its own claim). `runExclusive(id, kind, fn)` is `claim` around `fn`. A second claim throws `busy:
+  agent <id> is running | is compacting | is changing its session` before it spawns, subscribes or
+  touches the timeline (the router answers `rpc_error` / `handler_error`; the CLI prints `error:
+  busy: …`). A prompt's `turn` claim is taken by `handleSendPrompt` and `handleCreate`'s eager path
+  before they answer and held until the turn has settled (`AgentService.claimTurn`; released in
+  `runAccepted`'s `finally`), so a second send is refused with `busy` from the answer until the
+  `idle` / `error` update, and two concurrent sends cannot both start a turn and double every event.
+  The other claimants: `handleCompact`, and the session operations that replace or fork the
+  provider session: `handleNewSession`, `handleSwitchSession`, `handleFork`, `handleClone`,
+  `handleResume`. Not claimed: steer/follow-up (they target the running turn), interrupt, model and
+  thinking-level changes (`handleSetModel`, `handleSetThinking`, `handleCycleModel`; Pi applies
+  them to the next turn), and reads. The workbench sends only when idle and steers while running
   (`Composer.tsx`), so it only sees `busy` in a race; the composer's catch marks the optimistic row
   failed. `SessionOperationsService.handleUpdate` merges title, labels and config into the record
   after its awaits (it re-reads the record), so a concurrent model or thinking-level change is not
   written back over. Tests: `agent/one-turn-at-a-time.test.ts`, `agent-manager.test.ts`.
+- **`create_agent_request` and `send_agent_prompt` answer when the prompt is accepted, not when the
+  turn is over** (sprint-151/task-003; the outcome rules are task-002's). Accepting is: validate
+  (`prompt` must be a string, the agent must exist), `claimTurn` (`busy` when held), then
+  `acceptPrompt`: `timelineFor` and `setStatus(running)`, persisted but not broadcast; if either
+  throws the claim is released and the request fails with nothing started. The answer is
+  `agent_prompt_response {payload:{agentId}}` / `create_agent_response {payload:{agentId}}` (create
+  has already broadcast `agent_update initializing`, as before; a deferred draft answers as before
+  and runs nothing). The handlers take the router's `afterReply` and queue the rest of the turn on
+  it, so it starts after the answer was sent and does not depend on the socket staying open:
+  `runAccepted` = `beginTurn` (`startEpoch`, `agent_update running`, then the canonical
+  `user_message` row — `clientMessageId`, else a new id — through `appendStreamEvent`) →
+  `startSession` (`ensureSession`; for create, `createSession` and the handle persist) →
+  `executeTurn`, with the claim released when it ends. A client therefore never sees a turn frame
+  before the answer. `runAccepted` never rejects (a detached turn cannot become an unhandled
+  rejection); every outcome is a stream row plus the status. A spawn or resume that rejects ends the
+  turn through `failTurn` — one `turn_failed {error}` row (the error's message, capped at 2048
+  characters), status `error`, one `agent_update error`; the failure is logged (`warn`, "turn
+  failure recorded") and not thrown, as no request is left to carry it. `executeTurn` subscribes
+  after the user message and drops a provider `user_message` that carries the recorded id or none
+  (no second row). A `session.run` that rejects records the same `turn_failed` row unless the
+  provider already emitted a `turn_completed`/`turn_failed`/`turn_canceled` for the prompt (then no
+  second one) and settles `error`. Every accepted prompt ends with exactly one `agent_update` `idle`
+  or `error` (`settleTurn`), including a slash command an extension handles inline (Pi's
+  `disposition: "handled"`: no `turn_*` rows, `idle` is the end signal). An agent archived or
+  deleted meanwhile (`agentIsClosed`) gets no row and no settle: its own notice is the signal. A
+  prompt Pi refused is not in Pi's session file, so after a daemon restart its two rows are not
+  rebuilt. **Interrupt while the session is still starting**: `handleInterrupt` calls
+  `AgentService.cancelPendingStart(agentId)` first; while the claim has not handed the prompt to
+  the provider (`TurnClaim.handToProvider`) that ends the turn as one `turn_canceled` row and one
+  `idle`, and the start carries on (its session attaches; the next prompt finds it). Once Pi has the
+  prompt the interrupt reaches `AgentSession.interrupt()` as usual. The no-session self-heal to
+  `idle` and the forced `idle` after an interrupt run only when no turn is in flight
+  (`AgentService.hasTurn`), since a turn in flight settles itself. In-process callers (tests) wait
+  for a turn with `AgentService.turnSettled(agentId)`; `test-support/answer-then-run.ts`
+  (`agentCalls`) calls the handlers and runs the `afterReply` hooks as the router does. Tests:
+  `agent/answer-at-once.test.ts` (through the real router), `prompt-outcome.test.ts`,
+  `create-run.test.ts`, `turn-settlement.test.ts`.
 - `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* PI_KILL_GRACE_MS + 2 s */)` is the daemon-shutdown seam: every live
   session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
   that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
@@ -810,7 +1005,8 @@ src/
   session. Without this, a crash mid-turn permanently wedges that session in the web UI: the
   "working" indicator never clears, and `interrupt_agent` (Stop) is a no-op because there is no
   session to interrupt. `interrupt_agent` applies the same normalization as a second line of
-  defense whenever it finds a session-less record still claiming `running`/`initializing`.
+  defense whenever it finds a session-less record still claiming `running`/`initializing` and no
+  turn is in flight (`hasTurn`: a turn in flight settles itself).
 - Parent/child relationships via `PARENT_AGENT_ID_LABEL = "pi-studio.parent-agent-id"`.
 - **Deferred draft creation** — `create_agent_request` (`agent-service.ts` `handleCreate`) with no
   `initialPrompt` persists the `AgentRecord` (including the raw client `config`, so it survives to
@@ -972,7 +1168,7 @@ creation" above.
   fully stops. Fire-and-forget like `interrupt`; the provider confirms queue state asynchronously
   via a `queue_update` stream event (mapped in `event-mapper.ts`), NOT via a response. Wired as the
   daemon RPCs `steer_agent_request` / `follow_up_agent_request` in `session-operations.ts`
-  (`handleSteer`) — these reach the live session directly, never route through `runTurn`, and never
+  (`handleSteer`) — these reach the live session directly, never route through a turn, and never
   change agent status. The handler optimistically appends the injected text as a `user_message`
   timeline row so history shows it; `ok:false` when there is no live session.
 - `AgentSession.close()` — shut down the session.
@@ -997,7 +1193,7 @@ creation" above.
   it — making the RPC a self-correcting model source for a poll-driven client (covers `/model`
   cycle and cross-client changes an `agent_update` broadcast alone can't fully convey).
 - **Stream events outside a turn are recorded only by an operation that explicitly subscribes**
-  (sprint-074; today: `handleCompact`). `AgentService.runTurn` holds the only standing
+  (sprint-074; today: `handleCompact`). `AgentService.executeTurn` holds the only standing
   `session.subscribe`, and the Pi adapter's `emit` reaches subscribers only, so an event emitted
   while no turn runs is otherwise dropped. `SlashCommandOperationsService.handleCompact`:
   (1) rejects with `busy: …` through `AgentManager.runExclusive(id, "compaction", …)` when a turn,
@@ -1012,7 +1208,7 @@ creation" above.
   subscription for the duration of `compact()` and forwards only `kind === "compaction"` events
   through `appendStreamEvent`; (6) if `compact()` rejects after a `started` event with no terminal
   seen, records and broadcasts a synthetic `failed` with the same `compactionId`. Status is never
-  touched. Automatic compactions need none of this: they sit inside `runTurn`'s window, and a
+  touched. Automatic compactions need none of this: they sit inside `executeTurn`'s window, and a
   `failed` compaction is not `kind:"error"` so the final-status derivation is unaffected. The
   `compactionEvents` flag needs no wiring: `ws-server.ts` and `bootstrap.ts` advertise every
   `SERVER_FEATURES` key. Tests: `agent/compact-handler.test.ts`.
@@ -1047,6 +1243,16 @@ creation" above.
   being silently dropped the way an unmatched `notify` response is. A `command` override pointing
   at a Pi older than 0.99.0 (no `disposition`) would hang an inline command's turn — the daemon
   requires Pi ≥ 1.1.0 (root `AGENTS.md` § Pi dependency posture).
+- **A plain prompt Pi refuses ends as `turn_failed`** (`rpc-transport.ts` `handleLine`,
+  `event-mapper.ts` `case "response"`; found live, sprint-152/task-005): a turn's `prompt` is a
+  `notify`, so it has no id, and Pi refuses it before any run starts (no model, no credential, a
+  compaction running) with a failed `prompt` response and no `agent_start`/`agent_settled`. The
+  transport used to drop that response (no pending id), so the turn never ended: the agent stayed
+  `running` and `stop` did not free it. An id-less failed response now goes to the session as an
+  event (a response with an id nobody waits for is still dropped), and the mapper turns a failed
+  `prompt` response into `turn_failed {error}` (Pi's text), the whole outcome of that turn; the
+  same response for any other command maps to nothing. Tests: `pi-adapter.test.ts` (mapper),
+  `rpc-transport.test.ts` ("a prompt Pi refuses", real child process).
 
 **Pi provider** (`providers/pi/`):
 - Spawns `piCommand(["--mode", "rpc"])` of `runtime/self.ts` (the bundled CLI under `process.execPath`
@@ -1100,7 +1306,7 @@ creation" above.
   `detachDeadSession` sets `managed.session = null` (only if that session is still the attached
   one) and the status to `error` (not for a `closed` agent), so `send_agent_prompt` goes through
   `spawnOrResumeSession` and resumes the persisted session file. A turn in progress gets the same
-  `error` status from `runTurn` (last row `turn_failed`), and its send RPC resolves. Tests:
+  `error` status from `executeTurn`'s settle (last row `turn_failed`). Tests:
   `agent-recovery.test.ts` (service + real `PiAgentClient` over a fake transport),
   `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi process ends the turn").
 - **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
@@ -1229,7 +1435,7 @@ creation" above.
   `stopReason`/`errorMessage` to emit `turn_failed`/`turn_canceled`, but the *live* mapper did
   not mirror that check — so a turn that failed immediately (e.g. a provider 429/quota-exceeded
   rejection) was reported live as a plain success: no `turn_failed`/error ever reached the
-  client's live stream, `runTurn`'s own `newStatus` computation (which trusts this same mapping)
+  client's live stream, the turn's own status computation in `executeTurn` (which trusts this same mapping)
   never learned the turn failed either, and the error only became visible after a full
   reconnect/restore re-read the (correctly-hydrated) persisted timeline. Fixed by having the
   `agent_end` case find the last assistant-role message in `event.messages` and check its
@@ -1244,7 +1450,7 @@ creation" above.
   it for the session's lifetime) — that latches the disposition each `agent_end` implies (the
   `stopReason` check from the bullet above, moved into the latch) and returns `null`; only
   `agent_settled` emits the turn-closer stream event. Before this, a retried/continued turn
-  resolved `session.run()` — and with it `runTurn`'s `unsubscribe()`, status flip to `idle`, and
+  resolved `session.run()` — and with it `executeTurn`'s `unsubscribe()`, status flip to `idle`, and
   `autoArchive` — mid-turn, on the first `agent_end`, silently dropping every row streamed after
   it. `agent_settled.aborted: true` (Pi ≥ 1.1.0) overrides the latch with `turn_canceled`: an
   abort that lands between runs (auto-retry backoff, compaction) produces no
@@ -1259,7 +1465,7 @@ creation" above.
   `completed` (`tokensBefore`, `estimatedTokensAfter`, `summary`, `willRetry`); otherwise `failed`
   with `error: errorMessage`. A failed compaction is deliberately not `kind:"error"`. Pi emits an
   end before throwing on every `compact()` failure path (incl. "Nothing to compact"). Automatic
-  (threshold/overflow) compactions happen inside a turn, so `runTurn`'s subscription already carries
+  (threshold/overflow) compactions happen inside a turn, so `executeTurn`'s subscription already carries
   them; the manual path needs its own subscription window (`handleCompact`, task-003).
   `session-hydration.ts` replays each Pi `compaction` entry on the active branch as a lone
   `completed` row (`compactionId = entry.id`, `tokensBefore`, `summary`) at its branch position —
@@ -1333,6 +1539,9 @@ no code, only the same underlying `auth.json`/`models.json` files via `resolvePi
   already called from `ws-server`'s socket-close hook for every subscription family, aborts the
   flow and emits a terminal `done { ok: false, error: "cancelled" }` — confirmed live, including
   that the daemon stays healthy and accepts new connections afterward.
+  `ProviderAuthService.close()` (shutdown step `login flows`) aborts every flow the same way, with
+  `error: "shutting_down"`, and a later `login` returns `{ ok: false, error: "shutting_down" }`; the
+  flow TTL timers are `unref`'d.
 - **`provider-auth-rpc.ts`**'s `registerProviderAuthHandlers` is a pure pass-through onto the
   service for exactly this reason — no `SessionSubscriptions` dep, no policy, only wire-input
   coercion (the router never validates a session message's shape before dispatch).
@@ -1355,7 +1564,7 @@ local tiny-model fallback, no role ladder, no `titleSource` pinning — see
 `structured-generation-runtime.ts`'s module doc comment for the full "what was dropped and why"
 list.
 
-- **Trigger** — `AgentService.maybeGenerateTitle` (private, called fire-and-forget from `runTurn`,
+- **Trigger** — `AgentService.maybeGenerateTitle` (private, called fire-and-forget from `executeTurn`,
   concurrently with the turn itself — never delays the response). Fires when: a
   `generateAgentTitle` (`AgentTitleGenerator`) is configured, the record has no title yet
   (`record.title` — a rename — and `record.labels.title` — an explicit create-time pick — are both
@@ -1615,9 +1824,12 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
   wires it to the same `terminals_update` broadcast `create`/`rename`/`start_workspace_script`
   already send, rather than `kill_terminal_request` sending its own (which would now duplicate the
   one `manager.kill()` triggers through this listener).
-- `killAll()` — kill every live terminal and clear its pending flush timer; called from
+- `killAll()` — async: kill every live terminal and clear its pending flush timer; called from
   `startDaemon(...).close()` (after `AgentManager.closeAll()`) so a stray PTY can't emit output
   after the transports it would flush through (relay/WS) have already been torn down on shutdown.
+  It resolves when every shell has exited: `kill()` (also used alone) sends SIGTERM and starts a
+  reaper that SIGKILLs a shell still alive after `killGraceMs` (default 2 s; warn `terminal ignored
+  SIGTERM: killed`); `killAll()` waits for every reaper in flight.
 
 Terminal RPC handlers (`terminal-rpc.ts`) — text RPCs, all `_request`-suffixed:
 - `create_terminal_request` — spawn PTY, return slot + entry (echoing the size the PTY actually got).
@@ -1709,14 +1921,22 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   file handles without waiting for the browser to unsubscribe first. Fixes a pre-existing leak:
   `git_checkout_subscribe` never released its `WorkspaceGitService` listener on a dropped
   connection, and this now covers both subscription families.
+- Terminal output streams use the same registry (`TerminalRpcDeps.subscriptions`, key
+  `terminal:<slot>`): `subscribe_terminal_request` adds the manager's unsubscribe fn,
+  `unsubscribe_terminal_request` and a terminal exit (`onTerminalExit`, for every active session)
+  remove the entry, and both daemons' session-close path (`bootstrap.ts` `disposeSession`,
+  `dev-bootstrap.ts` `onSessionClose`) calls `disposeSession`, so a closed socket stops receiving
+  terminal output and leaves no entry behind.
 
 ### File operations (`files/`)
 
-**`file_read_request`** (`bootstrap.ts`/`dev-bootstrap.ts`, now `async`):
-- Reads a file synchronously into the WS response — **now uses `async` `stat` / `readFile` from
-  `node:fs/promises`** instead of the prior synchronous `statSync`/`readFileSync`. Before: a
-  multi-MB UTF-8 decode blocked the entire event loop (all agent streams, terminal bytes,
-  heartbeats shared this thread). After: long reads yield back to the event loop between chunks.
+**`file_read_request`** (`bootstrap.ts`/`dev-bootstrap.ts` both delegate to `readInlineFile` in
+`files/inline-read.ts`):
+- Async; a directory answers `is_directory`, any other non-regular file (FIFO, device, socket)
+  answers `not_a_file` from `stat` before it is opened (so `/dev/zero` and FIFOs cannot hang the
+  daemon). The file is opened `O_NONBLOCK`, re-checked with `fstat`, and at most
+  `MAX_INLINE_FILE_READ_BYTES + 1` bytes are read, so a file that grew after the size check still
+  answers `file_too_large`.
 - Size check: if `size > MAX_INLINE_FILE_READ_BYTES` (5 MiB in `files/limits.ts`, raised from a
   512 KiB literal previously duplicated in both bootstrap files), returns
   `{ ok: false, error: "file_too_large", size, maxBytes: MAX_INLINE_FILE_READ_BYTES }`.
@@ -1785,8 +2005,10 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
     (`no_begin`). No push without `ack`, and none when the session is gone.
   - *Atomic upload.* `Begin` creates `.pistudio-upload-<32 hex>.part` (exclusive create) in the
     target's directory; `Chunk` appends to it; `End` closes it and renames it over the target. The
-    target is untouched until then. A failed write/close/rename, a client `Error` frame and
-    `disposeSession` close the handle and remove the temporary file (a failed removal is ignored).
+    target is untouched until then. A failed write/close/rename, a client `Error` frame,
+    `disposeSession` and `close()` close the handle and remove the temporary file (a failed removal
+    is ignored). `close()` (shutdown step `transfers`) does that for every upload in flight, stops
+    every download, and resolves once the files are gone and the journal entries removed.
     The explorer's watcher sees the `.part` file appear and disappear; it is not hidden.
     `deps.uploadJournal` (`files/upload-journal.ts`, `$PI_STUDIO_HOME/pending-uploads.json` in the
     production bootstrap, none in the dev daemon) lists each temporary file before `Begin` creates
@@ -1820,6 +2042,9 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   across filesystems). Resolves only the *parent* of each path via `realpath`, then re-joins the
   basename — resolving the full source would follow a symlink to its target instead of moving the
   link itself.
+- `deleteFile` (sprint-156): same parent-only `realpath` + `lstat` as `moveEntry`, so deleting a
+  symlink removes the link and never its target (a link to a directory leaves the directory). `/`
+  and the home directory (however spelled, e.g. `~`, `/tmp/..`) are refused with `protected_path`.
 - `writeFile` / `file_write_request`: overwrite-only atomic save (temp file + `rename`; target must
   already exist; capped at the inline-read ceiling). Preserves the target's permission bits across
   the rename (creation `mode` from the pre-write `stat`, then an exact `chmod` on the temp file) so
@@ -1829,6 +2054,11 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 ### Projects / Git subsystem (`projects/`)
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.
+  `WorkspaceRegistryService` runs every access to a registry under that registry's lock
+  (`createLimiter(1)`, one for `projects.json`, one for `workspaces.json`): two concurrent
+  `open_project_request` calls for different folders both land, and a read that repairs a damaged
+  file cannot race a save. Code inside a lock reads with `loadProjects`/`loadWorkspaces`, never the
+  locked `list*` methods (a nested call would wait on its own lock).
 - **Project key derivation**: normalizes git remote URLs to `host/owner/repo` form for grouping.
 - **`WorkspaceKind`**: `local_checkout | worktree | directory`.
 - **`WorktreeService`**: `git worktree add/list/remove` via shell.
@@ -1837,7 +2067,58 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 
 ### Persistence (`persistence/`)
 
-All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
+All stores write with `atomicWriteJson` (temp file in the same directory, fsync, rename) for crash
+safety. Writes to one path run one at a time in call order (a promise chain per resolved path), so
+the last call wins; the data is validated and serialised when called, a failed write rejects only its
+own caller, and a failed write removes its temp file.
+
+**Damaged files** (sprint-155): `loadStore(path, schema, defaults, logger)` returns the defaults,
+silently, for a missing file. A file that is not JSON or fails its schema is renamed first by
+`quarantineFile(path, reason, logger)` to `<name>.corrupt-<UTC timestamp>` (`20261125T143012Z`;
+`-1`, `-2`… is added when that name is taken, so an earlier set-aside file is never replaced), logged
+as one error with the path, the new path and the reason, and only then are the defaults returned, so
+the next save cannot overwrite the damaged bytes. A rename that fails, or a file that cannot be read
+at all (permissions, a directory), **throws**: it is not known to be damaged, and defaults would let
+the next save replace it. `loadStore`'s callers pass their logger: `loadAgent`/`loadAllAgents`/
+`loadProjects`/`loadWorkspaces` take it, `WorkspaceRegistryService(home, logger)` holds it, and
+`bootstrap.ts` passes `loadAllAgents: () => loadAllAgents(home, logger)` to `AgentManager`
+(`loadAllAgents` is a required `AgentManagerDeps` member; no disk default). `OpenProjectService` and
+`WorktreeService` take their `registry` (required) instead of building one.
+
+**Registries and agent records** (sprint-155): `loadProjects`/`loadWorkspaces` validate record by
+record. A file with some invalid records is set aside whole (`quarantineFile`, so the set-aside file
+holds the original bytes; the error names the count, e.g. `1 of 3 records invalid`), and the valid
+records are written back at once with `atomicWriteJson`, so the next save cannot lose them. A file
+that is not JSON, or not an array, is set aside and the registry starts empty. `loadAllAgents`
+loads every `agents/<cwd>/<id>.json` it can: a damaged record is set aside and logged by `loadStore`;
+an entry it cannot read (a dangling symlink at either level, a directory called `x.json`,
+permissions) is logged as an error and skipped, so one bad entry never stops recovery. Set-aside
+files end in `.corrupt-<timestamp>`, so a later recovery ignores them.
+
+**Damaged `config.json`** (sprint-155): the one file that is never set aside. `readRawConfig(path)`
+(`config/daemon-config.ts`) returns the raw object (`{}` for a missing file) and throws
+`ConfigUnreadableError` (`code: "config_unreadable"`, exported with `CONFIG_UNREADABLE_CODE`, `path`
+and `problem`; the message names the path and says the file was not changed) for a file that cannot
+be read, is not valid JSON, or is not a JSON object. `loadConfig` goes through it and throws the same
+error for a schema failure (e.g. an `agents.providers` key other than `pi`); it never turns damage
+into `{}`, because that would start the daemon without its password. `startDaemon` loads the config
+first (`loadConfigOrRefuse`): on that error it logs one error with the path and code, sets
+`process.exitCode = 1`, calls `onFatalError` and throws, before the PID file, any service or any
+socket, like the `unprotected_bind` refusal (`daemon/config-refusal.test.ts`). The server writers
+`persistExtensionPacks` and `persistUpdateAutoCheck` share `updateRawConfig` (raw read via
+`readRawConfig`, merge, `atomicWriteJson`, chmod 0600) and throw the same error without writing; the
+CLI's `setDaemonPassword` and `persistRelayEnvOverrides` use `readRawConfig` and `rawObject` too.
+
+**Damaged identity files** (sprint-155, `daemon/identity-files.ts`): `startDaemon` needs the server id
+and the key pair before it listens, so these two files use synchronous helpers (same temp file, fsync,
+rename and `.corrupt-<UTC timestamp>` naming as `persistence/atomic-store.ts`). A missing file is
+created without a log line. `daemon-keypair.json` that is unreadable, not JSON or without both keys is
+renamed aside, one error is logged (path, set-aside path, reason, and that pairing links are revoked
+and devices must pair again) and a new pair is written atomically with mode 0600. `server-id` that is
+empty or unreadable is set aside the same way (error: a new id is used). A failed write is logged at
+error and the value is used for this run only; a file that cannot be set aside is logged, left as it
+is, and nothing is written over it. `PI_STUDIO_SERVER_ID` / the `serverId` option still win and touch
+no file. Tests: `daemon/identity-files.test.ts` (incl. a crash before the rename).
 
 **Entity file locations** (relative to `$PI_STUDIO_HOME`):
 - `agents/<sanitized-cwd>/<agentId>.json`
@@ -1898,7 +2179,9 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
   coercing would read as "deselect everything" and persist an empty selection); `packs` present
   and well-formed ⇒ validate against the catalog, unknown slug ⇒
   `{ ok: false, error }` with no persistence/sync, otherwise `service.setSelectedPacks(packs)`
-  (updates the in-memory selection *and* persists via `persistExtensionPacks`, in that order) then
+  (updates the in-memory selection *and* persists via `persistExtensionPacks`, in that order; a
+  `config.json` that cannot be read (`ConfigUnreadableError`) restores the previous selection
+  and answers `{ ok: false, error }` naming the file, with no sync, the file untouched) then
   `sync("selection")` (gated by `autoSync`, unlike manual). Both branches respond with fields
   recomputed from a fresh `describe()` call *after* the triggered sync completes, never a stale
   pre-sync view.
@@ -1951,13 +2234,16 @@ pi-resource-management.md) — skills + the Pi packages that carry them. Invaria
   `ResourceService`'s private `createLimiter(1)` queue (`enqueueMutation`) — separate from
   `ExtensionsService`'s own sync mutex — serializes install/remove/update_all (tasks 004/005/077);
   `list`/`setEnabled` never touch it. `runSpawn` wraps the injectable `spawn: InstallSpawn`
-  constructor dep (default `extensions/sync-executor.ts`'s `defaultInstallSpawn`) and returns
+  constructor dep (default the service's own `InstallProcesses.spawn`) and returns
   `{ok, error?: "spawn_failed"|"timeout", exitCode, stderr}` — a plain nonzero exit is `ok:false`
   with no `error`, left for the caller to map to its own `install_failed`/`remove_failed`/
   `update_failed`. `spawn-runner.ts`'s `redactSource` (pure: strips `user[:pass]@` from URL-like
   substrings, masks `token`/`access_token` query values) runs on the stderr tail *before* it's
   bounded to 2 048 bytes, and on every `{op, kind, source, outcome, durationMs}` log line
   `enqueueMutation` writes — never a raw credential in a log or a wire `source`/`sourceUrl`.
+  `close()` (shutdown step `installs`) makes every queued or later mutation and `preview` reject
+  with `the daemon is shutting down`, clears the external-change timer, and stops the install
+  children.
 - **Production-only.** `registerSkillsHandlers` is wired in `bootstrap.ts` only; `dev-bootstrap.ts`
   never touches a real pi-home's `settings.json`, so the dev daemon answers `unknown_message_type`
   for both `skills_*` RPCs (mirrors extensions sync's same production-only posture).
@@ -2021,18 +2307,20 @@ Production bootstrap (`daemon/bootstrap.ts`); the dev daemon uses the same servi
 (see "Dev daemon script" below). Constructed after the
 registry, `start()` runs after `listen()` and never delays readiness: it finds the install kind
 (`detectInstallKind`), reads **and removes** `$PI_STUDIO_HOME/update-result.json` into `lastResult`,
-then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once
-and arms a 6 h `unref`'d timer. The helper writes the result file only after it has seen this daemon
+then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once,
+arms a 6 h `unref`'d timer, and from then on also checks when a client connects (below). The helper
+writes the result file only after it has seen this daemon
 answer, so after that start-up read: while `lastResult` is empty, `start()` also polls the file every
 500 ms for 30 s (`RESULT_POLL_MS`/`RESULT_WATCH_MS`, its own `resultTimer` seam); the first read takes
-it, sets `lastResult` and broadcasts. `close()` (called first in the daemon's shutdown) clears both
-timers.
+it, sets `lastResult` and broadcasts. `close()` (run by the first shutdown step, "stop accepting")
+clears both timers.
 
 - **Skipped version (D14, all install kinds).** Reading an `update-result.json` with outcome
   `rolled_back` or `failed` (at start-up or in the watch) writes `$PI_STUDIO_HOME/update-skip.json`
-  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; an
-  unreadable/malformed file is removed and logged; absent store = in-memory only, so bootstrap must
-  pass it). `status.skippedVersion` is set while one is held. An automatic check finding exactly
+  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; written
+  with `atomicWriteJson`, so a crash leaves the previous file; an unreadable/malformed file is
+  removed and logged; absent store = in-memory only, so bootstrap must pass it). `status.skippedVersion`
+  is set while one is held. An automatic check finding exactly
   that version stays `idle`; a manual check offers it; a newer latest clears it (file removed).
   `outcome: "updated"` writes nothing. `MANUAL_UPDATE_COMMANDS.unmanaged_binary` is the releases page.
   A result taken by the watch arrives after this daemon's own start check, which had no skip to honour
@@ -2045,7 +2333,21 @@ timers.
   (`updateBlocker`), `npm_missing` (`npmOnPath`), `not_writable` (`canWriteGlobalFolder(npm root -g)`),
   `unsupported_platform`, else `available`. `command` per reason is `MANUAL_UPDATE_COMMANDS`. A manual
   check broadcasts `checking`; an automatic one does not, and a failed automatic check changes nothing
-  (not even `checkedAt`/`checkError`). A running update owns the state: checks are no-ops.
+  (not even `checkedAt`/`checkError`) a client sees: the daemon log gets one `info` line, `update: check
+  found no release` (`by`, `failure`), the only trace of it. A running update owns the state: checks are no-ops.
+- **Check on connect (`checkIfStale()`).** A session that completed `hello` (direct: `onSession`; relay:
+  `onSessionOpen`; the one call each, after `sendUpdateStatus`) asks for an automatic check: it runs
+  unless auto-check is off, the service is closed, a check or an update is running, or the last
+  **attempt** began less than `UPDATE_CONNECT_CHECK_MIN_AGE_MS` (10 min) ago. An attempt is any
+  `check()` that ran (`lastAttemptAt`, set when it begins): the start-up check, the timer's, a manual
+  one, a connect's, successful or not (so a failed start-up check is retried by the first connect after
+  10 min, not before). The session still gets the stored status at once; what the check finds reaches it
+  through the broadcast, as any automatic check's result does: no `checking` state, a failure shows
+  nothing, a version skipped after a rollback is not offered. Ten connects in one tick start one check
+  (`checking` is set synchronously). The 6 h timer is unchanged and the dev daemon (`dev-bootstrap.ts`)
+  has no hook, so its scripted flow is unaffected. Tests: `update-service.test.ts` (fake clock and
+  registry), `daemon/update-e2e.test.ts` (direct) and the relay case in `daemon/bootstrap.test.ts`, on
+  `test-support/update-check-rig.ts`.
 - **Apply.** Refusals `in_progress` / `cannot_update` / `not_available`; otherwise `installing` is
   broadcast, `{ ok: true }` answers, and the injected `UpdatePipeline` (required dep; production:
   `createUpdatePipeline`) reports each stage through `setState`. A rejection becomes
@@ -2055,13 +2357,13 @@ timers.
   `timeout` "timed out after" (npm.ts's kill message), `network` ENOTFOUND/ECONNRESET/…, else
   `install`; `message` = `failureMessage`: `redactSource`, last 2048 chars) → `updating_extensions`
   (`updateInstalledExtensions` in `extensions/sync-executor.ts`: bundled `pi update --extensions`
-  through the sync `InstallSpawn` seam and `piSpawnEnv`, 180 s; a failure is logged and the update goes
+  through the sync `InstallSpawn` seam (`extensionsService.installSpawn`) and `piSpawnEnv`, 180 s; a failure is logged and the update goes
   on) → `restarting` → `spawnUpdateHelper` (throws → `failed(install)`, nothing shut down) →
   `pause(300 ms)` → `shutdown` (the daemon's one memoized `close()`; a throw is logged, exit still
   happens) → `exit(0)`. Nothing is `import()`ed lazily between the install and the exit. A daemon
   without `DaemonOptions.onUpdateRestart` (embedding, tests) fails the apply **before** installing.
-  `daemon/run.ts` `runDaemon()` is the process entry (`main.ts` and any detached starter): fatal-error
-  exit, SIGINT/SIGTERM → `close()` → exit, and `onUpdateRestart: process.exit`. `startDaemon` alone
+  `daemon/run.ts` `runDaemon()` is the process entry (`main.ts`, the binary and any detached starter):
+  signals and fatal errors → `close()` → exit (see "Daemon shutdown"), and `onUpdateRestart: process.exit`. `startDaemon` alone
   never ends its host. `server_info.features.daemonUpdate` is advertised on both handshakes (one
   `serverFeatures` map in `bootstrap.ts`, passed to the direct WS server and the relay's
   `buildServerInfo`).
@@ -2132,7 +2434,10 @@ timers.
   sections of `packages/server/docs/binary-live-results.md`.
 - **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
   read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
-  value through `loadConfig` so an env override still wins in memory.
+  value through `loadConfig` so an env override still wins in memory. A `config.json` that cannot be
+  read makes the write throw `ConfigUnreadableError` before anything changes: the router answers an
+  `rpc_error` (`handler_error`, the message names the file), the file is left byte-identical and the
+  service keeps its current setting.
 - **Wire.** Responses are flat (`status` at the top level); every change is broadcast as
   `daemon_update_status`, and each session (direct and relay) gets the current status right after
   `server_info`. The root `vitest.config.ts` pins `PI_STUDIO_UPDATE_AUTOCHECK=false` so tests never ask
@@ -2206,13 +2511,16 @@ kill switch every future viewer plugin reads. Invariants:
 - **Absent row means enabled.** Defaults are never written to disk, so a fresh daemon's file
   (or a daemon with no file at all) looks identical to a client as a daemon that has always had
   every viewer enabled.
-- **Soft-fallback on a read failure, deliberately NOT `extensions-state.ts`'s `"unreadable"`
-  sentinel.** `loadViewerSettings` degrades a missing file, corrupt JSON, or a schema mismatch
-  to the all-enabled defaults (logged at `warn` only on an actual read failure, never on a
-  merely-absent file) — extensions must not silently re-offer a package after a corrupt read,
-  whereas an unreadable viewer setting must degrade toward *offering* the viewer. A corrupt file
-  must never end up hiding a file behind a "which viewer can open this" decision, and the read
-  itself never rewrites the corrupt file.
+- **Soft-fallback on a damaged file, deliberately NOT `extensions-state.ts`'s `"unreadable"`
+  sentinel.** `loadViewerSettings(home, logger)` is `loadStore`: a missing file is the all-enabled
+  defaults, silently; a file that is not JSON or fails the schema is set aside as
+  `viewer-settings.json.corrupt-<timestamp>`, logged as an error, and loads as the all-enabled
+  defaults, so the next `set` writes a fresh file and never overwrites the damaged one. A file that
+  cannot be read at all (permissions, a directory) throws, so `set` cannot replace it and `get`
+  answers an error, which a client treats like any failed fetch (every viewer enabled) — extensions
+  must not silently re-offer a package after a corrupt read, whereas an unreadable viewer setting
+  must degrade toward *offering* the viewer. A corrupt file must never end up hiding a file behind
+  a "which viewer can open this" decision.
 - **`set` serializes its read-modify-write.** Two clients toggling different viewer ids
   concurrently must not lose a row: `registerViewerSettingsHandlers` chains every `set` onto a
   module-local promise queue. "Last write wins" is the semantic rule for a single boolean; a
@@ -2242,6 +2550,71 @@ kill switch every future viewer plugin reads. Invariants:
   - A `pi-studio-bearer.<base64(password)>` WS subprotocol header.
 - Auth is optional; an unset password allows all connections.
 
+### Daemon shutdown (`daemon/shutdown.ts`)
+
+`runShutdown(steps, logger)` runs `ShutdownStep { name, run, always? }` in order. Both bootstraps keep
+`close()` memoized (a second call returns the first one's promise) and only list steps through it.
+
+- **Isolated.** A step that throws or rejects is logged at `error` (`shutdown step failed`, `step`,
+  `err`) and the next one runs.
+- **Bounded.** `SHUTDOWN_DEADLINE_MS` (10 s) covers the whole. The step still pending at the deadline
+  is abandoned (`warn`), every later step is skipped (`warn`), except `always` steps (the PID file):
+  those are started past the deadline and not awaited, so they must be synchronous. A finished step
+  logs `debug` `shutdown step done`; the runner never rejects, so the process entry always gets to
+  exit.
+- **Export path.** `package.json` `exports` has `./shutdown` (`dist/daemon/shutdown.js`) beside `.`:
+  the CLI derives its `daemon stop` wait (`SHUTDOWN_DEADLINE_MS` + 5 s) from the constant without
+  loading the rest of `daemon/`. The module imports only a logger type; keep it that way.
+- **Production order** (`bootstrap.ts`): `stop accepting` (registry `shutting_down`, WS upgrades 503,
+  relay dials ignored, update timers) → `agents` (`manager.closeAll()`, 7 s per session, in parallel)
+  → `terminals` (`killAll()`: SIGKILL after 2 s for a shell that ignores SIGTERM) → `installs`
+  (`extensionsService.close()` + `resourceService.close()`) → `login flows`
+  (`providerAuthService.close()`) → `transfers` (`fileTransfer.close()`) → `file watch` →
+  `status service` → `log service` → `relay` (control and data
+  sockets) → `sockets` (`wsHandle.close()`, 1 s grace) → `http` (`closeHttpServer`: closes the
+  listener and drops idle and active connections instead of waiting for them) → `pid file`
+  (`always`; removed only when it still names this process).
+- **Dev order** (`dev-bootstrap.ts`): the same without `installs`, `login flows`, `file watch`,
+  `relay` and `pid file`.
+- **Nothing the daemon started outlives it.** A terminal's descendants are signalled before its shell
+  (`killTree(pid, signal, then)`, `terminal/pty-backend.ts`), so a foreground process that ignores
+  SIGHUP (`nohup`) is stopped too (`pty-backend.test.ts`, real processes). The three steps after
+  `terminals` end what the daemon
+  spawned or timed: install children (`pi install`, `skills`) are killed as process trees, SIGTERM
+  then SIGKILL after 2 s (`InstallProcesses.stop()`); queued installs reject; login-flow timers are
+  cleared; uploads in flight lose their `.pistudio-upload-*.part` file. The update helper is spawned
+  detached outside that seam and survives by design; its steps finish before `close()` runs. Not
+  covered: the update service's own `npm view` / `npm install -g` children (`update/npm.ts`, bounded
+  by their own timeouts) and a tool subprocess of a Pi that was killed with SIGKILL.
+- **Process exit** (`daemon/run.ts`, installed by `runDaemon`, so the npm daemon and the compiled
+  binary both have it). One stop path: `handle.close()` → `flushLogger(handle.logger)` → `exit`.
+  The first SIGINT/SIGTERM exits 0; a rejecting `close()` is logged (`shutdown failed`) and exits 1;
+  a second signal exits 1 at once (the PID file stays, stale: the next start or `daemon stop` reclaims it); a timer of `SHUTDOWN_DEADLINE_MS` + `HARD_KILL_GRACE_MS` (2 s)
+  exits 1 when the stop has not finished. `uncaughtException` logs at `fatal`, runs the same stop and
+  exits 1 (also when a signal's shutdown is already running: its exit code becomes 1).
+  `unhandledRejection` logs at `error` with the reason and stack and keeps running. A failure while
+  `startDaemon` is still starting (bad listen address, unprotected bind) has no handle to stop:
+  `onFatalError` exits 1 through the host at once.
+- **PID file and a lost port.** `pi-studio.pid` is written on the HTTP server's `listening` event
+  (not before, and not once a shutdown has begun), so a second daemon that loses the bind never
+  names itself in it. Any listen error (`EADDRINUSE` or other) runs `closeDaemon()` — the same
+  steps as a signal, since the relay, the update service and agent recovery already started — and
+  then calls `onFatalError`; the `pid file` step still removes only a file that names this process.
+- **Tests:** `daemon/shutdown.test.ts` — the runner under fake timers (throw, reject, a step that
+  never returns, an `always` step); for each daemon the order, read from the `shutdown step done`
+  lines, and a request or upgrade arriving while an agent still closes; the production daemon with
+  a throwing step and with a stuck one. `daemon/run.test.ts` (real daemon, fake `ProcessHost`:
+  signals, uncaught exception reaching the log file, unhandled rejection with `/api/health` still
+  answering, a second daemon on a taken port with a sentinel PID file), `daemon/run-signals.test.ts`
+  (mocked `startDaemon`, fake timers: second signal, rejecting and hanging `close`, hard-kill timer,
+  startup failure), `daemon/listen.test.ts` (listen failure: whole shutdown before `onFatalError`,
+  no PID file). `ws-server.test.ts` (503, 1001, the grace), `router.test.ts`
+  (`shutting_down`), `http-server.test.ts` (`closeHttpServer`), `relay-transport.test.ts`
+  (`stopAccepting`).
+  `daemon/shutdown-children.test.ts` runs a real daemon process (`vite-node`) with a stand-in `npm`
+  install and a terminal whose shell ignores SIGTERM: SIGTERM must end it, code 0, within
+  `SHUTDOWN_DEADLINE_MS` with every process of its tree gone.
+
 ### Logging (`logging/`)
 
 `createDaemonLogger(home, opts)` / `createLogger(opts)` return a `pino` logger (the `Logger`
@@ -2252,6 +2625,10 @@ interface in `logging/logger.ts`) that:
   (multistream — both destinations, never either/or).
 - Level from `PI_STUDIO_LOG_LEVEL` (`trace`|`debug`|`info`|`warn`|`error`|`fatal`|`silent`),
   default `info`; `opts.level` overrides. `silentLogger()` is the test no-op.
+- **`flushLogger(logger)`**: resolves once every line logged so far is in the rotating file (the
+  file stream writes asynchronously; an empty write's callback fires after the earlier ones).
+  Immediate for a logger without a file or a `child`; never rejects. `runDaemon` calls it before
+  the exit that ends a stop, so the last (fatal) line is not lost.
 - **Optional `opts.tap: LogTap`** (sprint-085): one extra multistream entry at the resolved level
   (none when silent); stdout/file bytes are unchanged. `LogTap` (`logging/log-tap.ts`) exposes
   `stream`, `attach(level)`/`effectiveLevel` (`"silent"` until attached), `onLine(listener)`
@@ -2268,6 +2645,7 @@ The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
 | Where | What gets logged |
 |---|---|
 | `bootstrap.ts` / `dev-bootstrap.ts` | daemon starting (home, configPath, serverId), agent recovery count, agent archived/deleted, relay dial lifecycle, bind errors, shutdown |
+| `daemon/shutdown.ts` | `debug` per finished step (name, durationMs), `error` for a failed step, `warn` for an abandoned or skipped one |
 | `ws/ws-server.ts` | upgrade rejections (host allowlist, origin, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
 | `ws/router.ts` (`HandlerRegistry(logger)`) | every RPC at `debug` (type, requestId, clientId, durationMs), handler failures at `warn`, unknown types at `debug` — one instrumentation point covering the whole RPC surface |
 | `agent/agent-service.ts` | agent created (provider, model, cwd), turn started (prompt SIZE, never contents), turn finished (outcome + durationMs), provider session failures |
@@ -2286,6 +2664,9 @@ messages are fair game.
   `providers/pi/` or `providers/mock/` from outside `agent/`.
 - **`HandlerRegistry` is explicit.** Register handlers in bootstrap/dev-bootstrap, not
   auto-discovery.
+- **Teardown is a shutdown step.** New teardown in `startDaemon`/`startDevDaemon` is an entry in the
+  `runShutdown` list at its place in the order (see "Daemon shutdown"), never a bare `await` in
+  `close()`: a throwing or stuck step must not skip the PID file.
 - **`AgentManager` is the only place that mutates or persists an agent record.** Status changes go
   through `manager.setStatus(agentId, newStatus)`; any other field (title, labels, config, …)
   goes through `manager.updateRecord(agentId, patch)`. Never mutate `managed.record` directly from
@@ -2300,7 +2681,7 @@ messages are fair game.
 - **Terminal snapshot is optional for correctness.** A subscriber that arrives after PTY exit gets
   the last snapshot; no new Output frames will arrive.
 - **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
-  `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
+  `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope`/`broadcast` helpers from `bootstrap.ts`, nothing
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
@@ -2373,13 +2754,19 @@ persistence tests use temporary directories; WS tests use in-memory session stub
 reported, retyped/missing/literal-changed values fail, `volatile` pointers compare type only;
 client-input fixtures are sent with live ids and must get the paired response shape; a fixture with
 no scenario producer fails the coverage guard, and a manifest `exception` fixture must stay
-unproduced). A daemon change that alters a fixtured shape fails here: update the fixture per the
+unproduced). The `create_agent_request` and `send_agent_prompt` fixtures are also sent in a dedicated
+test that proves the answer precedes the turn's first `agent_stream` frame and the turn ends in
+exactly one `agent_update` (`idle`/`error`). A daemon change that alters a fixtured shape fails here: update the fixture per the
 bump + note rule (protocol AGENTS.md). `scripts/record-external-fixtures.ts` runs the same scenario
 and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, so run
 `npm run build:server` first. Not run in CI. The scenario also drives file transfer (whole-file and ranged download by path with live `ifUnchanged`, a rejected download, a cancel on an idle stream,
 `ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
 (create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
 the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.
+Because `create_agent_request` and `send_agent_prompt` answer when the prompt is accepted, the
+scenario waits for the agent's next `idle` / `error` `agent_update` after each send (and after the
+interrupted turn), and e2e tests that act on a created agent (its session, a following send) wait
+for the same update first.
 
 ## Direct-port Origin rule
 

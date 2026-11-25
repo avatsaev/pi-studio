@@ -5,7 +5,7 @@ import type { WorkspaceRecord } from "../persistence/entity-schemas.js";
 import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import { defaultGitRunner, type GitRunner } from "./git-detect.js";
-import { normalizePath, WorkspaceRegistryService } from "./workspace-registry.js";
+import { normalizePath, type WorkspaceRegistryService } from "./workspace-registry.js";
 
 /**
  * Pi-Studio-managed git worktree service (features/worktrees.md § Operations, § Behavior,
@@ -57,7 +57,7 @@ export interface AgentLike {
 
 export interface WorktreeServiceDeps {
   home: string;
-  registry?: WorkspaceRegistryService;
+  registry: WorkspaceRegistryService;
   broadcast: (sessions: Iterable<Session>, message: unknown) => void;
   getActiveSessions?: () => Iterable<Session>;
   gitRunner?: GitRunner;
@@ -117,7 +117,7 @@ export class WorktreeService {
   private readonly runCommand: CommandRunner;
 
   constructor(private readonly deps: WorktreeServiceDeps) {
-    this.registry = deps.registry ?? new WorkspaceRegistryService(deps.home);
+    this.registry = deps.registry;
     this.git = deps.gitRunner ?? defaultGitRunner;
     this.runCommand = deps.runCommand ?? (async () => ({ code: 0, stdout: "", stderr: "" }));
   }

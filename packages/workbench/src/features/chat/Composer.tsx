@@ -17,21 +17,30 @@
  * turn's events arrive on a raw broadcast nobody is listening to, so this file no longer needs a
  * first-turn gate/latch dance for a still-unbound session.
  *
- * OPTIMISTIC ECHO: `send_agent_prompt` blocks server-side until the whole turn finishes, and even
- * the *first* broadcast event only fires once the agent process is booted/warm — for a session
- * materializing on this very send, that means a real process-spawn+handshake before anything
- * appears (see AGENTS.md "First-message latency"). To hide that, `submit` mints a
- * `clientMessageId` and inserts the user's row into the timeline *synchronously*, before the RPC
- * is even issued. The daemon echoes the same id back verbatim as the `user_message` event's
- * `messageId` (`packages/server/src/agent/agent-service.ts` `runTurn`); the reducer
+ * OPTIMISTIC ECHO: the daemon answers a send at acceptance and broadcasts the user's message as the
+ * first row after that answer, and a session materializing on this very send waits on its draft's
+ * `createAgent` round trip first. To show the message at once, `submit` mints a `clientMessageId`
+ * and inserts the user's row into the timeline *synchronously*, before any request is issued. The
+ * daemon echoes the same id back verbatim as the `user_message` event's `messageId`
+ * (`packages/server/src/agent/agent-service.ts` `beginTurn`); the reducer
  * (`timeline/reducer.ts` `onUserMessage`) matches it against the pending row and confirms it in
  * place instead of appending a duplicate.
+ *
+ * SEND AND BUSY: `send_agent_prompt` is answered when the daemon ACCEPTS the prompt, not when the
+ * turn ends (`composer-send.ts`). `sending` therefore covers the request only. Once accepted the
+ * session is `running` until its turn ends — the one `agent_update` (`idle` or `error`) the daemon
+ * sends after the turn's last row, never a `turn_*` row (`lib/agent-status.ts`) — so the composer
+ * offers Steer, not Send, from the answer on and a second send cannot slip in before the turn's
+ * first event or after its last row. A refused
+ * send (`busy`, an unknown agent, a lost connection) marks the optimistic row failed and toasts
+ * the reason; a turn that fails after acceptance shows its reason as an error row in the timeline.
  *
  * MODEL & MATERIALIZATION: a chat materializes the instant its tab is created
  * (`tab-store.ts` `openNewChat` calls `ensureMaterialized`, which also resolves and pins the
  * default model into the record if none was set yet) — long before this composer even mounts, in
- * the common case. `submit`'s own `ensureMaterialized` call below is the retry path: it only does
- * real work when the eager materialize failed or never ran (opened while disconnected). Picking a
+ * the common case. `sendPrompt`'s own `ensureMaterialized` call (`composer-send.ts`) is the retry
+ * path: it only does real work when the eager materialize failed or never ran (opened while
+ * disconnected). Picking a
  * different model (`handleSelectModel` below, moved here from `StatusBar.tsx` with the toolbar)
  * updates the already-materialized
  * record's `config.model`/`config.modelProvider` directly — replayed by the server on first spawn
@@ -79,6 +88,7 @@ import { Attachments, readImageFile, type PendingImage } from "./Attachments.js"
 import { isComposerBusy } from "./composer-busy.js";
 import { canCompact, canSubmitDraft, shouldRestoreCompactDraft } from "./composer-gate.js";
 import { decideComposerDrop, refRoot, type InsertionPlan } from "./composer-path-drop.js";
+import { sendPrompt } from "./composer-send.js";
 import { CommandMenu } from "./CommandMenu.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { ThinkingMenu } from "./ThinkingMenu.js";
@@ -126,7 +136,6 @@ export function Composer({ sessionId, workspaceCwd, owningPaneId }: ComposerProp
   const session = useSessionStore((s) => s.sessions[sessionId]);
   const addOptimisticUserMessage = useSessionStore((s) => s.addOptimisticUserMessage);
   const markUserMessageFailed = useSessionStore((s) => s.markUserMessageFailed);
-  const setCwd = useSessionStore((s) => s.setCwd);
   const setModel = useSessionStore((s) => s.setModel);
   const setThinkingLevel = useSessionStore((s) => s.setThinkingLevel);
   const serverInfo = useConnectionStore((s) => s.serverInfo);
@@ -165,11 +174,11 @@ export function Composer({ sessionId, workspaceCwd, owningPaneId }: ComposerProp
   const text = useDraftStore((s) => s.drafts[sessionId] ?? "");
   const setDraftText = useDraftStore((s) => s.setDraft);
   const [images, setImages] = useState<PendingImage[]>([]);
-  // Two independent busy flags: `sending` guards Send/create-agent, whose RPC blocks
-  // server-side for the *entire* turn (`runTurn` doesn't resolve until the turn ends — see
-  // AGENTS.md "Steering"); `steering` guards the separate, fire-and-forget steer RPC. Sharing
-  // one flag would leave the Steer button disabled for the whole turn, since the original
-  // send's promise stays pending throughout it.
+  // Two independent in-flight flags, each covering only its own request: `sending` guards Send
+  // (materialize + `send_agent_prompt`, answered at acceptance — `composer-send.ts`), `steering`
+  // guards the separate steer RPC. Once a send is accepted the session is `running` and
+  // `isComposerBusy` takes over: a running session offers Steer, so only a steer in flight
+  // blocks submit.
   const [sending, setSending] = useState(false);
   const [steering, setSteering] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -515,37 +524,32 @@ export function Composer({ sessionId, workspaceCwd, owningPaneId }: ComposerProp
     const clientMessageId = randomId();
     addOptimisticUserMessage(sessionId, clientMessageId, prompt, rpcImages, mode === "steer");
 
-    const setBusy = mode === "steer" ? setSteering : setSending;
-    setBusy(true);
-    try {
-      if (mode === "steer") {
-        // Fire-and-forget injection into the live turn — never touches materialization, which
-        // only applies to the send-only, no-agent-yet path below.
-        const result = await client
-          .agent(session.agentId!)
-          .steer(prompt, { clientMessageId, images: rpcImages });
-        if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
-      } else {
-        if (!session.agentId) setCwd(sessionId, session.cwd || "~");
-        // Retry path (see file header "MODEL & MATERIALIZATION") for a session whose eager
-        // materialize (`tab-store.ts` `openNewChat`) never ran or failed — a no-op once already
-        // bound. `useAgentStream` attaches the instant `agentId` is bound, before this turn's
-        // first event can possibly arrive (see file header), so `send` needs no separate
-        // first-turn broadcast path the way a combined create-and-run RPC used to.
-        const agentId = await ensureMaterialized(client, sessionId);
-        await client.agent(agentId).send(prompt, { clientMessageId, images: rpcImages });
+    if (mode === "send") {
+      setSending(true);
+      try {
+        await sendPrompt(client, { sessionId, prompt, clientMessageId, images: rpcImages });
+      } finally {
+        setSending(false);
       }
+      return;
+    }
+
+    setSteering(true);
+    try {
+      // Fire-and-forget injection into the live turn — never touches materialization, which
+      // only applies to the send-only, no-agent-yet path.
+      const result = await client
+        .agent(session.agentId!)
+        .steer(prompt, { clientMessageId, images: rpcImages });
+      if (isOkFalse(result)) markUserMessageFailed(sessionId, clientMessageId);
     } catch {
       // RPC rejection before any `user_message` broadcast arrived (e.g. dropped connection) —
-      // the optimistic row would otherwise stay pending forever with no feedback. If the server
+      // the optimistic row would otherwise stay pending forever with no feedback. If the daemon
       // *did* manage to broadcast `user_message` first (the row is already reconciled), this is
-      // a no-op — `markUserMessageFailed` only touches a still-pending row. Turn-level failures
-      // that occur after that point still surface via `agent_stream` `error`/`turn_failed`
-      // events (POC swallows the RPC rejection the same way; the stream is the source of truth
-      // for those).
+      // a no-op — `markUserMessageFailed` only touches a still-pending row.
       markUserMessageFailed(sessionId, clientMessageId);
     } finally {
-      setBusy(false);
+      setSteering(false);
     }
   }
 

@@ -7,15 +7,15 @@
  * bootstrap module.
  */
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import type { Server as HttpServer } from "node:http";
 import { join } from "node:path";
 import { expandHome } from "../files/resolve-path.js";
-import { createHttpServer } from "../http/http-server.js";
+import { closeHttpServer, createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import { HandlerRegistry, routeBinaryFrame, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
+import { SessionSubscriptions } from "../ws/session-subscriptions.js";
 import { registerAgentUiHandlers } from "../agent/agent-ui/agent-ui-rpc.js";
 import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
@@ -30,7 +30,7 @@ import { createMockClient } from "../agent/providers/mock/mock-provider.js";
 import { ProviderRegistry } from "../agent/provider-registry.js";
 import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
-import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
+import { readInlineFile } from "../files/inline-read.js";
 import type { AgentClient } from "../agent/provider-contract.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import { LogTap } from "../logging/log-tap.js";
@@ -43,7 +43,7 @@ import { TerminalManager } from "../terminal/terminal-manager.js";
 import { makeTerminalBinaryHandler, registerTerminalHandlers } from "../terminal/terminal-rpc.js";
 import { registerViewerSettingsHandlers } from "../viewers/viewer-settings-rpc.js";
 import { SERVER_VERSION } from "../version.js";
-import { wrapSessionEnvelope } from "./bootstrap.js";
+import { broadcast, wrapSessionEnvelope } from "./bootstrap.js";
 import { registerDaemonUpdateHandlers } from "../update/update-rpc.js";
 import {
   DEV_UPDATE_STEP_MS,
@@ -53,6 +53,7 @@ import {
 } from "../update/dev-update-script.js";
 import { UpdateService } from "../update/update-service.js";
 import { isLoopbackHost, unprotectedBindError } from "./loopback.js";
+import { runShutdown } from "./shutdown.js";
 
 export interface DevBootstrapOptions {
   host: string;
@@ -98,17 +99,6 @@ export interface DevBootstrapHandle {
 /** Vite dev origins: web development keeps working; every other `Origin` is refused. */
 const DEV_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 
-/** Broadcast helper — see `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale. */
-function broadcast(sessions: Iterable<Session>, message: unknown): void {
-  const envelope = wrapSessionEnvelope(message);
-  for (const s of sessions) {
-    try {
-      s.send(envelope);
-    } catch {
-      /* ignore send errors on dead sockets */
-    }
-  }
-}
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // The dev daemon has no auth at all, so it never accepts a bind beyond this machine.
   if (!isLoopbackHost(opts.host)) {
@@ -412,12 +402,14 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   // ── Terminals: manager + control RPCs + binary stream (same wiring as production) ──────────
   const terminalManager = new TerminalManager({ logger });
+  const terminalSubscriptions = new SessionSubscriptions();
   registerTerminalHandlers(
     registry,
     {
       manager: terminalManager,
       broadcast,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
+      subscriptions: terminalSubscriptions,
     },
     getActiveSessions,
   );
@@ -456,30 +448,9 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   // Simple text file read RPC for the POC UI (returns up to `MAX_INLINE_FILE_READ_BYTES` of
   // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
   // multi-MB read/decode never blocks the event loop.
-  registry.register("file_read_request", async (ctx) => {
-    const filePath = String(ctx.message.path ?? "");
-    const resolved = expandHome(filePath);
-    try {
-      const st = await stat(resolved);
-      if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (st.size > MAX_INLINE_FILE_READ_BYTES)
-        return {
-          type: "file_read_response",
-          ok: false,
-          error: "file_too_large",
-          size: st.size,
-          maxBytes: MAX_INLINE_FILE_READ_BYTES,
-        };
-      const content = await readFile(resolved, "utf8");
-      return { type: "file_read_response", ok: true, path: resolved, content, size: st.size };
-    } catch (e: unknown) {
-      return {
-        type: "file_read_response",
-        ok: false,
-        error: (e as Error).message ?? "read_failed",
-      };
-    }
-  });
+  registry.register("file_read_request", async (ctx) =>
+    readInlineFile(String(ctx.message.path ?? "")),
+  );
 
   // ── HTTP + WS wiring ─────────────────────────────────────────────────────────
   const hostnames = opts.hostnames ?? true;
@@ -502,6 +473,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
       sendUpdateStatus(session);
     },
     onSessionClose: (session) => {
+      terminalSubscriptions.disposeSession(session);
       daemonStatusService.disposeSession(session);
       daemonLogsService.disposeSession(session);
       fileTransfer.disposeSession(session);
@@ -525,20 +497,34 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
   httpServer.listen(opts.port, opts.host);
   void updateService.start();
 
-  return {
-    httpServer,
-    serverId,
-    logger,
-    manager,
-    close: async () => {
+  // One shutdown, memoized like the production daemon's (`close()` twice returns the first run).
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
       logger.info("dev daemon shutting down");
-      updateService.close();
-      await manager.closeAll();
-      daemonStatusService.dispose();
-      terminalManager.killAll();
-      daemonLogsService.dispose();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-    },
+      await runShutdown(
+        [
+          {
+            name: "stop accepting",
+            run: () => {
+              registry.stopAccepting();
+              wsHandle.stopAccepting();
+              updateService.close();
+            },
+          },
+          { name: "agents", run: () => manager.closeAll() },
+          { name: "terminals", run: () => terminalManager.killAll() },
+          { name: "transfers", run: () => fileTransfer.close() },
+          { name: "status service", run: () => daemonStatusService.dispose() },
+          { name: "log service", run: () => daemonLogsService.dispose() },
+          { name: "sockets", run: () => wsHandle.close() },
+          { name: "http", run: () => closeHttpServer(httpServer) },
+        ],
+        logger,
+      );
+    })();
+    return closing;
   };
+
+  return { httpServer, serverId, logger, manager, close };
 }

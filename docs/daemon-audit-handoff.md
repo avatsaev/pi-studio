@@ -94,11 +94,11 @@ changes for the user, which is the middle column. Nothing is implemented yet.
 | 1 | Block websites from reaching the daemon; require a password when it is open to the network | Websites are turned away, except the hosted app. A daemon opened to the network without a password refuses to start and says why. | S1, S2 | The owner starts the daemon on `0.0.0.0` without a password, so a password has to be set first. The allowlist must include the hosted app, the local dev server and the desktop webview; requests with no `Origin` (CLI, the desktop app's Rust side) pass. |
 | 2 | Recover when the agent process crashes | A crashed turn shows as failed, and the next message starts Pi again. A second message while one is running is refused cleanly. | A1, A2, A3, A4 | Refusing a send while running is a behaviour change for any client that queues by sending twice. |
 | 3 | Keep conversation history intact | History is there after a restart, whatever the user does first, and the daemon holds it in less memory. | A5, A6 | **Changed 2026-11-25:** the first version (save history to a daemon-owned file) was designed and not adopted, because Pi's own session file already restores the conversation and the file would add a second copy that can drift (`swe/architecture/agent-timeline-persistence.md`). Done instead: seed the timeline before the first turn; one row per message in memory; evict on archive and delete. Known and accepted: after a restart a turn killed by a Pi crash shows as completed. |
-| 4 | Answer immediately on create and send | A new conversation appears at once; long turns no longer show a false error; a brief disconnect no longer confuses the app. | A7 | A wire change. The workbench, the SDK and the CLI's `run` and `send` must change in the same release as the daemon. Fixture and changelog procedure applies. |
-| 5 | Stop the daemon cleanly, every time | Stop, restart and update always finish in a bounded time and leave no stray processes. | T1 | The update pipeline ends in this shutdown; re-run `scripts/daemon-update-check/` after the change. |
-| 6 | Notice dead connections and protect against slow ones | The connected-clients list is accurate, memory stays steady, and one bad connection cannot slow the others. | T2, T3 | A user on a very poor connection sees a reconnect where today they see a long freeze. |
+| 4 | Answer immediately on create and send | A new conversation appears at once; long turns no longer show a false error; a brief disconnect no longer confuses the app. | A7 | A wire change. The workbench, the SDK and the CLI's `run` and `send` must change in the same release as the daemon. Fixture and changelog procedure applies. **Done 2026-11-25** (sprints 151 and 152); seen live on a real Pi in the CLI and in a browser: a new conversation shows `running` and the first message at 31 ms, a 45 s tool call shows no error, a reload mid-turn ends on the right state, a killed connection catches up on reconnect. The live check also found that a plain prompt Pi refuses (no credential) left the agent `running` for ever: fixed (`rpc-transport.ts` hands a failed response with no id to the session, `event-mapper.ts` maps it to `turn_failed`). |
+| 5 | Stop the daemon cleanly, every time | Stop, restart and update always finish in a bounded time and leave no stray processes. | T1 | The update pipeline ends in this shutdown; re-run `scripts/daemon-update-check/` after the change. **Done 2026-11-25** (sprint 153); seen live: a stop with a running agent, a terminal, a login flow and an upload ends within the budget (daemon 10 s, CLI 15 s, desktop 20 s) and removes the PID file; both update recipes passed; the compiled binary's stop leaves no `sleep` child, even one that ignores SIGHUP and SIGTERM. |
+| 6 | Notice dead connections and protect against slow ones | The connected-clients list is accurate, memory stays steady, and one bad connection cannot slow the others. | T2, T3 | A user on a very poor connection sees a reconnect where today they see a long freeze. **Done 2026-11-25** (sprint 154); seen live: a frozen client leaves the list after 51–56 s; one that stops reading is cut at 16 MiB queued in about 1 s while a second client gets every event and the daemon's memory stays flat across 100 cut and reconnect cycles; frames over 32 MiB close 1009; no `hello` closes after 10 s; a connection that never finishes its HTTP headers is closed after 10 s (found live: it lived 66 s). Not seen: the Tauri window itself, `wss`, the relay's own slow-client cutoff. A terminal that never stops printing makes a slow viewer reconnect about every 1.3 s (the documented gap). |
 | 7 | Check every request before acting on it | A malformed request is refused at once with a clear message. No visible change in the app. | T4 | It will surface the CLI commands that already send the wrong shape (F8); most of those go with the orchestration drop. |
-| 8 | Never overwrite a damaged settings or data file | A damaged file is set aside under a new name and reported. A damaged main configuration stops the daemon from starting instead of running unprotected. | S5, F2 | Refusing to start is a new failure the CLI and the desktop Daemons screen must report clearly. |
+| 8 | Never overwrite a damaged settings or data file | A damaged file is set aside under a new name and reported. A damaged main configuration stops the daemon from starting instead of running unprotected. | S5, F2 | Refusing to start is a new failure the CLI and the desktop Daemons screen must report clearly. **Done 2026-11-25** (sprints 155 and 156); seen live: a truncated `config.json` refuses `start`, `restart`, `set-password` (and `--json` prints one `config_unreadable` line) with the file byte-identical; a registry with one bad record keeps the others and the original is set aside; a damaged key pair is replaced at mode 0600 with the original kept; the symlink, `file_read` and extension-credential fixes behave as designed. Not seen: the Daemons screen in the running desktop app (only the Rust and web tests ran). |
 | 9 | One start-up path for the real and the development daemon | Nothing visible. What is tested matches what ships. | Section 8 | Do it after the approved drops, and together with moving the mock provider and dev daemon out of the published package. |
 
 ### Approved drops: scope
@@ -403,16 +403,20 @@ Lower priority than the two-doors work. Effort: medium, most of it the three-pla
 
 ### Milestones
 
-Approved by the owner on 2026-11-24, with the small fixes folded in. M1 to M3 are planned as sprints
-146 to 150 in `swe/sprints/` (index in `swe/sprints/PLAN.md`); M4 to M9 are planned when each comes
-up, and M8 needs a written design first.
+Approved by the owner on 2026-11-24, with the small fixes folded in. M1 to M3 were sprints 146 to 150
+in `swe/sprints/` (index in `swe/sprints/PLAN.md`). M4 and M5 were planned together on 2026-11-25 as
+sprints 151 to 156 (their contract is in "M4 and M5: what was fixed while planning" below) and built
+the same day. M6 to M9
+are planned when each comes up, and M8 needs a written design first.
 
 | Milestone | Sprints |
 |---|---|
-| M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
-| M2 Clear the ground | 147, 148 — **done 2026-11-25** (on branch `feat/daemon-audit-m1-m3`, not merged) |
-| M3 Agents that recover | 149, 150 — **done 2026-11-25** (branch `feat/daemon-audit-m1-m3`, not merged). The timeline file design was not adopted (improvement 3); 150 shipped history loaded before the first turn, one row per message in memory, and eviction on archive and delete |
-| M4 to M9 | not planned yet |
+| M1 Close the door | 146 — **done 2026-11-24**, merged in #70 |
+| M2 Clear the ground | 147, 148 — **done 2026-11-25**, merged in #70 |
+| M3 Agents that recover | 149, 150 — **done 2026-11-25**, merged in #70. The timeline file design was not adopted (improvement 3); 150 shipped history loaded before the first turn, one row per message in memory, and eviction on archive and delete |
+| M4 Instant replies | 151 (daemon and protocol), 152 (SDK, CLI, workbench) — **done 2026-11-25**, on branch `feat/daemon-audit-m4-m5`, not merged |
+| M5 A daemon that holds up | 153 (shutdown), 154 (sockets), 155 (damaged files), 156 (small fixes and close) — **done 2026-11-25**, on branch `feat/daemon-audit-m4-m5`, not merged. Sprint 156 also holds the owner-requested update check when a client connects |
+| M6 to M9 | not planned yet |
 
 | # | Milestone | Contains | What the user gets | Size | Needs |
 |---|---|---|---|---|---|
@@ -464,6 +468,86 @@ than today, where the relay already works that way, but it is the reason M8 shou
   (F3), terminal subscriptions leaking on disconnect (F4) and credentials in extension error text
   (section 7) go into M5 when it is planned. The unwired skip store (T6) needs nothing: it was fixed by
   sprint-142/task-002 (`createFileSkipStore` is wired in `bootstrap.ts` on `main`).
+
+### M4 and M5: what was fixed while planning
+
+Written 2026-11-25 from a fresh read of `main` after the M1–M3 merge. This section is the scope the
+tasks of sprints 151 to 156 point to. The owner has not reviewed the choices marked **Choice**; each
+can be changed before its sprint starts.
+
+#### Findings that changed since the audit
+
+- **A7.** `agent wait` has never worked: the CLI sends `wait_for_agent`, and the daemon has no such
+  handler. `send_agent_prompt` and its answer have no schema in `packages/protocol`; the answer's
+  `status: "idle"` is a literal. No external fixture covers create or send. The workbench never sends
+  an initial prompt with create (it creates a draft, then sends), and it ignores `agent_update.status`:
+  it takes the status from the stream's `turn_*` events only. The error of a prompt Pi refuses before
+  the turn starts (no credential, 403, 429) reaches the user only as the RPC's error, and the workbench
+  throws that text away.
+- **T1.** Already done: `closeDaemon` runs once, `closeAll` is bounded (7 s per agent, in parallel),
+  the update pipeline exits even when the shutdown throws. Still open: no try/finally and no overall
+  limit, agents are closed while the socket server still accepts requests, no second-signal handling,
+  no process-level error handler, and nothing stops running installs, login flows or uploads.
+- **New, next to T5.** The PID file is written before `listen`. A second daemon that loses the port
+  overwrites the first daemon's PID file with its own dying PID, and its `EADDRINUSE` path closes only
+  the socket server.
+- **S5 is wider.** Besides the two writers in `daemon-config.ts`, the CLI's `setDaemonPassword` and
+  `persistRelayEnvOverrides` also read a damaged `config.json` as empty and write it back, not
+  atomically. A config that fails the schema already stops the start; only unparseable JSON is silent.
+  Neither failure is logged or reported: the CLI prints `not_healthy` after 6 s.
+- **F2 is smaller.** The queued writer and the loop and room files are gone, and `atomicWriteJson` is a
+  real temp-file, fsync and rename. Left: `loadStore` is silent on a damaged file, writes to one path
+  are not serialised, one bad record empties `projects.json` or `workspaces.json`, the workspace
+  registry reads, awaits and writes with no lock, and `update-skip.json` is written in place.
+- **The desktop app shows no start-failure reason.** `cli_answers.rs` maps every `{"up": false}` to
+  "not healthy", so `unprotected_bind` (M1) is already lost there.
+
+#### M4 contract: create and send answer at once
+
+1. **Accepted or refused.** `create_agent_request` and `send_agent_prompt` answer as soon as the
+   request is accepted: the agent exists, the busy claim is taken, the agent's status is `running`.
+   A refusal (`busy`, unknown agent, invalid request) is still an `rpc_error`, and it means nothing
+   was started. The answers are `create_agent_response {payload: {agentId}}` and
+   `agent_prompt_response {payload: {agentId}}`; the false `status: "idle"` goes.
+2. **The answer comes first.** No event of the turn is sent before the answer to the request.
+3. **Every accepted prompt leaves its outcome in two places.** The timeline gets the user's message
+   first, then the turn's rows. Whatever goes wrong after acceptance (Pi cannot start, Pi refuses the
+   prompt, Pi dies) ends in a `turn_failed` row with the reason. Then one `agent_update` with status
+   `idle` or `error` is broadcast. A slash command an extension handles inline has no `turn_*` rows;
+   its `agent_update idle` is the end signal.
+4. **No turn id.** One turn runs per agent at a time (M3), so the next settle after an accepted send
+   belongs to that send. `turnId` on stream events stays optional and unused.
+5. **Clients.** The SDK gets `waitForIdle`. **Choice:** the CLI's `run` and `send` still wait for the
+   turn by default (scripts keep working), print the agent id at once, exit non-zero when the turn
+   failed, and take `--no-wait`; `agent wait` is rebuilt on the same helper. The workbench takes the
+   agent's status from `agent_update` as well as the stream, and its 30-minute request timeout goes.
+6. **No feature flag and no compatibility path** (owner rule, 2026-11-22). New external fixtures pin
+   create and send; the fixture change is additive and gets a dated changelog entry.
+
+#### M5 choices
+
+- **Shutdown order:** stop accepting (new connections and new requests are refused with
+  `shutting_down`), agents, terminals, child processes of installs, services, sockets, HTTP, PID file.
+  Each step is isolated, the whole has a 10 s limit, and the PID file is removed on every path.
+  **Choice:** a second signal exits at once; `uncaughtException` logs, runs the bounded shutdown and
+  exits 1; `unhandledRejection` is logged as an error and the daemon keeps running. The CLI waits 15 s
+  for a stop and the desktop app 20 s.
+- **Sockets:** a 10 s limit for `hello`; a frame size limit on direct sockets; a limit on requests in
+  flight per session; a protocol-level ping every 30 s with `terminate()` on a missed pong (direct
+  sockets only: relay sockets already have a silence timer); a broadcast is serialised once; a session
+  whose send queue passes a cap is closed and the client reconnects and resyncs.
+- **Damaged files:** an unparseable `config.json` stops the start with code `config_unreadable` and no
+  writer touches it. Every other damaged file is renamed to `<name>.corrupt-<timestamp>`, logged as an
+  error and then replaced by defaults; for a registry the valid records are kept. A damaged
+  `daemon-keypair.json` is set aside and a new pair is made (pairings are lost either way), loudly.
+- **Folded small fixes:** F4's leaking terminal subscriptions go with the sockets sprint (154); F1, F3
+  and the credentials in extension error text are sprint 156.
+- **Owner addition (2026-11-25): an update check on connect.** A connecting client gets only the
+  daemon's last stored result, which can be six hours old, and the owner saw no update notification on
+  an SSH daemon. Sprint 156 task 004 makes the daemon run an automatic check when a client connects,
+  unless auto-check is off, a check or an update is running, or the last attempt is younger than ten
+  minutes. The rule is in the daemon, so every client gets it. The task first finds out why the pill
+  was missing on the SSH daemon; that cause is not known yet.
 
 ---
 

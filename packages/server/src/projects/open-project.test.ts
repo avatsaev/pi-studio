@@ -5,7 +5,9 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { silentLogger } from "../logging/logger.js";
 import { OpenProjectService } from "./open-project.js";
+import { WorkspaceRegistryService } from "./workspace-registry.js";
 
 let home: string;
 let repo: string;
@@ -35,8 +37,8 @@ afterEach(async () => {
 function makeService(): { svc: OpenProjectService; updates: Array<Record<string, unknown>> } {
   const updates: Array<Record<string, unknown>> = [];
   const svc = new OpenProjectService({
-    home,
     broadcast: (_sessions, message) => updates.push(message as Record<string, unknown>),
+    registry: new WorkspaceRegistryService(home, silentLogger()),
   });
   return { svc, updates };
 }
@@ -65,5 +67,15 @@ describe("OpenProjectService.openProject", () => {
     const b = await svc.openProject(repo);
     expect(b.created).toBe(false);
     expect(b.workspace.workspaceId).toBe(a.workspace.workspaceId);
+  });
+
+  it("records both folders when two are opened at once", async () => {
+    const { svc } = makeService();
+    const results = await Promise.all([svc.openProject(repo), svc.openProject(plain)]);
+
+    const registry = new WorkspaceRegistryService(home, silentLogger());
+    const workspaceIds = (await registry.listWorkspaces()).map((w) => w.workspaceId);
+    expect(workspaceIds.toSorted()).toEqual(results.map((r) => r.workspace.workspaceId).toSorted());
+    expect(await registry.listProjects()).toHaveLength(2);
   });
 });

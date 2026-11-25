@@ -717,6 +717,27 @@ describe("event mapper", () => {
     });
   });
 
+  it("maps the failed response of a refused prompt to turn_failed, and no other response", () => {
+    // Pi refuses a prompt before any run starts (no model, no credential) with a failed response
+    // and nothing else: no agent_start, no agent_settled. It is the whole outcome of that turn.
+    expect(
+      mapPiEvent({
+        type: "response",
+        command: "prompt",
+        success: false,
+        error: "No API key found for the selected model.",
+      }),
+    ).toEqual({ kind: "turn_failed", error: "No API key found for the selected model." });
+    expect(mapPiEvent({ type: "response", command: "prompt", success: false })).toEqual({
+      kind: "turn_failed",
+      error: "prompt refused",
+    });
+    expect(
+      mapPiEvent({ type: "response", command: "steer", success: false, error: "not streaming" }),
+    ).toBeNull();
+    expect(mapPiEvent({ type: "response", command: "prompt", success: true })).toBeNull();
+  });
+
   it("latches an aborted final assistant message and emits turn_canceled on settle", () => {
     const mapper = createPiEventMapper();
     expect(

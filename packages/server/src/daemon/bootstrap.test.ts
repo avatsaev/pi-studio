@@ -24,17 +24,19 @@ import {
 } from "@av-pi-studio/relay";
 import { startRelayServer, type RelayServerHandle } from "@av-pi-studio/relay/server";
 import {
+  daemonUpdateStatusPushSchema,
   decodeFileTransferFrame,
   decodeTerminalFrame,
   encodeTerminalFrame,
   extensionPacksListResponseSchema,
   extensionPacksSetResponseSchema,
+  type DaemonUpdateStatus,
 } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import { Session } from "../ws/session.js";
 import { SessionSubscriptions } from "../ws/session-subscriptions.js";
-import { startDaemon, type DaemonHandle } from "./bootstrap.js";
+import { startDaemon, type DaemonHandle, type DaemonOptions } from "./bootstrap.js";
 import { startDevDaemon } from "./dev-bootstrap.js";
 import { createLogger, silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
@@ -46,6 +48,8 @@ import { MERMAID_DIAGRAM_INSTRUCTIONS } from "../agent/mermaid-diagram-instructi
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
 import { persistedConfigSchema } from "../config/daemon-config.js";
+import { updateCheckRig } from "../test-support/update-check-rig.js";
+import { UPDATE_CONNECT_CHECK_MIN_AGE_MS } from "../update/update-service.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -176,6 +180,29 @@ async function waitForAgentTitle(
     const entry = entries.find((a) => a.agentId === agentId);
     if (entry?.title) return entry;
     if (Date.now() > deadline) throw new Error("waitForAgentTitle: timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/** `create_agent_request` and `send_agent_prompt` answer once the prompt is accepted, so a turn has
+ *  ended when `list_agents_request` reports the agent back at `idle` (it reads `running` from the
+ *  moment the prompt is accepted). Same real bounded poll as `waitForAgentTitle`. */
+async function waitForAgentIdle(client: Client, agentId: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const list = await client.rpc({ type: "list_agents_request" });
+    const agents: unknown[] = Array.isArray(list.agents) ? list.agents : [];
+    const idle = agents.some(
+      (a) =>
+        typeof a === "object" &&
+        a !== null &&
+        "agentId" in a &&
+        a.agentId === agentId &&
+        "status" in a &&
+        a.status === "idle",
+    );
+    if (idle) return;
+    if (Date.now() > deadline) throw new Error("waitForAgentIdle: timed out");
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
@@ -324,7 +351,7 @@ describe("production daemon bootstrap", () => {
     expect(entry?.model).toBe("mock-model-x");
 
     // It persisted to disk under the temp home.
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     expect(onDisk.some((a) => a.id === agentId)).toBe(true);
 
     client.close();
@@ -404,6 +431,7 @@ describe("production daemon bootstrap", () => {
     // First send spawns the mock session and replays the pin; the mock clamps `max` → `off`,
     // and the live value must win over the stale pin.
     await client.rpc({ type: "send_agent_prompt", agentId, prompt: "go" });
+    await waitForAgentIdle(client, agentId as string);
     entry = entryOf(await client.rpc({ type: "list_agents_request" }));
     expect(entry?.thinkingLevel).toBe("off");
 
@@ -440,6 +468,7 @@ describe("production daemon bootstrap", () => {
     const entry = await waitForAgentTitle(client, agentId as string);
     expect(entry.title).toBe("add dark mode toggle to the settings page");
     expect(titleBroadcasts.some((m) => m.agentId === agentId)).toBe(true);
+    await waitForAgentIdle(client, agentId as string);
 
     // A second, very different prompt on the same agent must never regenerate the title
     // (write-once semantics — `record.title` already set).
@@ -448,6 +477,7 @@ describe("production daemon bootstrap", () => {
       agentId,
       prompt: "totally unrelated follow-up about deployment",
     });
+    await waitForAgentIdle(client, agentId as string);
     const after = await waitForAgentTitle(client, agentId as string);
     expect(after.title).toBe("add dark mode toggle to the settings page");
 
@@ -496,7 +526,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(INLINE_IMAGE_INSTRUCTIONS);
 
@@ -516,7 +546,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBeUndefined();
 
@@ -536,7 +566,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(FILE_LINK_INSTRUCTIONS);
 
@@ -560,7 +590,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}`;
     expect(record?.config?.systemPrompt).toBe(expected);
@@ -582,7 +612,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record?.config?.systemPrompt).toBe(MERMAID_DIAGRAM_INSTRUCTIONS);
 
@@ -607,7 +637,7 @@ describe("production daemon bootstrap", () => {
     const agentId = (created.payload as { agentId?: string })?.agentId;
     expect(agentId).toBeTruthy();
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     const expected = `${INLINE_IMAGE_INSTRUCTIONS}\n\n${FILE_LINK_INSTRUCTIONS}\n\n${MERMAID_DIAGRAM_INSTRUCTIONS}`;
     expect(record?.config?.systemPrompt).toBe(expected);
@@ -636,7 +666,7 @@ describe("production daemon bootstrap", () => {
     const agents = list.agents as Array<{ agentId: string }>;
     expect(agents.some((a) => a.agentId === agentId)).toBe(false);
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     expect(onDisk.some((a) => a.id === agentId)).toBe(false);
 
     client.close();
@@ -684,7 +714,7 @@ describe("production daemon bootstrap", () => {
     const agents = list.agents as Array<{ agentId: string }>;
     expect(agents.some((a) => a.agentId === agentId)).toBe(false); // excluded from the active list
 
-    const onDisk = await loadAllAgents(booted.home);
+    const onDisk = await loadAllAgents(booted.home, silentLogger());
     const record = onDisk.find((a) => a.id === agentId);
     expect(record).toBeDefined(); // the record itself is still on disk
     expect(record?.archivedAt).toBeTruthy();
@@ -1163,6 +1193,20 @@ describe("file_read RPC", () => {
     expect(response.error).toBe("is_directory");
   }, 15000);
 
+  it("rejects a FIFO and /dev/zero with not_a_file", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const fifo = join(booted.home, "pipe");
+    execFileSync("mkfifo", [fifo]);
+
+    for (const path of [fifo, "/dev/zero"]) {
+      const response = await client.rpc({ type: "file_read_request", path });
+      expect(response.ok).toBe(false);
+      expect(response.error).toBe("not_a_file");
+    }
+  }, 15000);
+
   it("resolves a ~-prefixed path against the real home directory", async () => {
     const booted = await boot();
     handle = booted.handle;
@@ -1387,6 +1431,7 @@ describe("dev daemon auto-titling", () => {
 
       const entry = await waitForAgentTitle(client, agentId as string);
       expect(entry.title).toBe("add dark mode toggle to the settings page");
+      await waitForAgentIdle(client, agentId as string);
 
       client.close();
     } finally {
@@ -1413,10 +1458,21 @@ interface RelayClient {
   closed: Promise<{ code: number; reason: string }>;
   /** Binary records received from the daemon, in order. */
   binaries: Uint8Array[];
+  /** Every session message received, answers and pushes alike, in order. */
+  messages: Record<string, unknown>[];
   /** Resolves with the `server_info` payload once `hello` is answered. */
   hello(fields?: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Send a `session` request and resolve with the daemon's reply for its `requestId`. */
   rpc(requestId: string, message: Record<string, unknown>): Promise<Record<string, unknown>>;
+}
+
+/** The `daemon_update_status` pushes a relay client has received, in order. */
+function pushedUpdateStatuses(client: RelayClient): DaemonUpdateStatus[] {
+  return client.messages.flatMap((message) =>
+    message.type === "daemon_update_status"
+      ? [daemonUpdateStatusPushSchema.parse(message).status]
+      : [],
+  );
 }
 
 let relayServer: RelayServerHandle | undefined;
@@ -1432,7 +1488,10 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
     relayServer = undefined;
   });
 
-  async function bootRelayDaemon(prefix: string): Promise<RelayRig> {
+  async function bootRelayDaemon(
+    prefix: string,
+    options: Partial<DaemonOptions> = {},
+  ): Promise<RelayRig> {
     const relay = await startRelayServer({ host: "127.0.0.1", port: 0 });
     relayServer = relay;
     const home = mkdtempSync(join(tmpdir(), `pi-studio-${prefix}-`));
@@ -1445,7 +1504,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
         },
       }),
     );
-    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger(), ...options });
     // Barrier only: these tests drive the daemon over the relay, not its own WS port, but must
     // still let it finish binding before proceeding.
     await listeningPort(handle.httpServer);
@@ -1485,6 +1544,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
     const ready = Promise.withResolvers<void>();
     const info = Promise.withResolvers<Record<string, unknown>>();
     const binaries: Uint8Array[] = [];
+    const messages: Record<string, unknown>[] = [];
     // Correlated session-message responses arrive interleaved with uncorrelated broadcasts (e.g.
     // `create_terminal_request` also fires a `terminals_update`), so wait on the `requestId`.
     const pendingByRequestId = new Map<string, (msg: Record<string, unknown>) => void>();
@@ -1509,6 +1569,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
           }
           if (envelope.type !== "session") return;
           const msg = envelope.message as Record<string, unknown>;
+          messages.push(msg);
           const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
           const resolve = requestId ? pendingByRequestId.get(requestId) : undefined;
           if (requestId && resolve) {
@@ -1529,6 +1590,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
       channel,
       closed: closed.promise,
       binaries,
+      messages,
       hello: (fields = {}) => {
         channel.send(
           JSON.stringify({
@@ -1606,6 +1668,42 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
 
     a.channel.close();
     b.channel.close();
+  }, 15000);
+
+  it("a relay client's hello starts an update check when the last one is old, as a direct one does", async () => {
+    const checks = updateCheckRig();
+    const rig = await bootRelayDaemon("relay-update-check", { updateTestSeams: checks.seams });
+    const first = await openRelayClient(rig);
+    await first.hello({ clientId: "relay-update-a" });
+    // The start-up check ends with a status that carries its time. The first connect landed while
+    // it ran, or after it: either way it asked nothing of its own.
+    await vi.waitFor(
+      () => expect(pushedUpdateStatuses(first).some((s) => s.checkedAt === 1_000)).toBe(true),
+      { timeout: 3000 },
+    );
+    expect(checks.asked.count).toBe(1);
+
+    checks.clock.now += UPDATE_CONNECT_CHECK_MIN_AGE_MS;
+    checks.registry.latest = "99.0.0";
+    const second = await openRelayClient(rig);
+    await second.hello({ clientId: "relay-update-b" });
+    // The stored status first, then what the check found (silent: no `checking` between).
+    await vi.waitFor(
+      () =>
+        expect(pushedUpdateStatuses(second).map((s) => s.state.kind)).toEqual([
+          "idle",
+          "available",
+        ]),
+      { timeout: 3000 },
+    );
+    await vi.waitFor(
+      () => expect(pushedUpdateStatuses(first).map((s) => s.state.kind)).toContain("available"),
+      { timeout: 3000 },
+    );
+    expect(checks.asked.count).toBe(2);
+
+    first.channel.close();
+    second.channel.close();
   }, 15000);
 
   it("closing one client disposes only its session; the other keeps working", async () => {

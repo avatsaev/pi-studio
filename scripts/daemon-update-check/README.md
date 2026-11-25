@@ -39,7 +39,8 @@ also after a failure, unless `--keep` is given. Remove a kept run with
 ## What it does
 
 `lib.mjs` packs each package once (`npm pack`), and per version rewrites the tarball's
-`package.json` (version, internal ranges), then publishes to the local registry. The broken N+2 has
+`package.json` (version, internal ranges) and `dist/version.generated.js` (what `--version` and
+`/api/health` report), then publishes to the local registry. The broken N+2 has
 `process.exit(3)` at the top of `dist/daemon/main.js` (the entry the update helper starts). Packages:
 protocol, relay, client, server, cli (cli last, as in `scripts/publish.sh`).
 
@@ -54,7 +55,7 @@ protocol, relay, client, server, cli (cli last, as in `scripts/publish.sh`).
 | 5 | rollback | N+2 (broken) → apply → the helper fails three starts, reinstalls N+1, `lastResult.outcome = rolled_back`, health = N+1, pid file names the live daemon |
 | 6 | read-only npm folder | `cannot_update(not_writable)` with its command; a forged apply is refused `cannot_update` |
 | 7 | folder made read-only after the check | `failed(permission)`; no restart, no extensions step; same pid, same version, the client's socket never dropped; the next check replaces `failed` |
-| 8 | auto-check | `PI_STUDIO_UPDATE_AUTOCHECK=false`: the registry sees no request after the start, `checkedAt` is unset, Check now works; the switch writes `config.json` (the env still wins); without the env the start checks; switching off stops it |
+| 8 | auto-check | `PI_STUDIO_UPDATE_AUTOCHECK=false`: the registry sees no request after the start, `checkedAt` is unset, Check now works; the switch writes `config.json` (the env still wins); without the env the start checks (and leaves `idle`: scenario 5's rolled-back N+2 is `skippedVersion`, which an automatic check never offers); switching off stops it |
 | 9 | rollback with the registry stopped | the registry is stopped at the `restarting` broadcast; the helper's log and `update-result.json` are recorded, and whether npm's cache serves the previous version offline |
 | 10 | recovery | N+1 installed again, the daemon started, the helper's outcome is read once at that start |
 

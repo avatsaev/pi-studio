@@ -117,6 +117,11 @@ results in `packages/server/docs/daemon-update-live-results.md`). Run it from a 
 changes to `packages/server/src/update/`, the daemon's shutdown or the CLI's start/stop. The single
 binary's update path has its own: `scripts/binary-update-check/` (a Node-less container, a local HTTP
 release channel; `build:binary` takes `--version`/`--out-dir` for it).
+The ordered, bounded shutdown (`daemon/shutdown.ts`, 10 s) was stopped live under load (a running Pi turn, a
+terminal, an install in flight, a client that stopped reading): `daemon stop` took 1.5 s, 3.1 s with a
+terminal that ignores SIGTERM and SIGHUP, and left no process and no PID file; a second SIGTERM exits 1 at
+once (the PID file stays, stale); a second daemon on the port exits 1 and leaves the first's PID file
+untouched; requests during the stop get `shutting_down` (same results file, 2026-11-25).
 What Pi, the `skills` CLI, an OAuth login and older glibc do inside the single binary (a Node-less
 container; real agent turn, `pi install`, a failing extension) was checked live; results are in
 `packages/server/docs/binary-live-results.md`.
@@ -406,11 +411,11 @@ published — hence name-based lookup and no CLI.
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 |`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
-|`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
+|`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start, none when a client connects and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
 |`PI_STUDIO_DEV_UPDATE`|_(unset)_|Dev daemon only (`npm run dev:daemon`, `packages/server/src/update/dev-update-script.ts`): `available`, `cannot`, `fail` or `rollback` scripts the whole daemon-update flow with no npm and no helper process; unset: install kind `source`, never offers an update. The production daemon ignores it|
 |`PI_STUDIO_EXTENSION_PACKS`|_(unset, i.e. `core` only)_|CSV of extra audience pack slugs to select, additive to the always-implicit `core` (`daemon.extensions.packs`)|
 
-Also reads `$PI_STUDIO_HOME/config.json`.
+Also reads `$PI_STUDIO_HOME/config.json`; a damaged one stops the start (`config_unreadable`), it is never treated as empty.
 
 ---
 
@@ -426,7 +431,12 @@ All communication uses a **single WebSocket connection** per client.
   - `hello` (Client→Server, first frame, handshake)
   - `status` (Server→Client, `server_info` payload after hello — carries `serverId`, feature flags,
     and `homeDir`, the daemon host's own home directory)
-  - `ping` / `pong` (JSON liveness, NOT RFC 6455 ping — browser/RN cannot access protocol ping)
+  - `ping` / `pong` (JSON liveness, NOT RFC 6455 ping — browser/RN cannot access protocol ping). The
+    daemon itself sends RFC 6455 pings every 30 s on direct sockets and terminates one that showed
+    no life for two intervals (a client frozen with `SIGSTOP` leaves `daemon_status` 30–60 s later;
+    seen live at 51–56 s); browsers, `ws` and tungstenite answer them, so a client needs no code for
+    it. A direct session with more than 16 MiB queued and unsent is cut off (close 1013, the peer
+    sees 1006), see `swe/architecture/websocket-protocol.md` § Top-level envelopes for the limits.
   - `session` (envelope wrapping all RPC request/response/broadcast messages)
   - `rpc_error` (correlated error response)
 - **Binary frames** carry terminal and file-transfer data with a 2-byte header `[opcode][slot]`.
@@ -438,6 +448,22 @@ All communication uses a **single WebSocket connection** per client.
   `checkout.github.set_auto_merge.request`).
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
   there's a specific reason to nest.
+- **Create and send answer at acceptance** (sprint 151, M4). `create_agent_request` and
+  `send_agent_prompt` answer `create_agent_response {payload: {agentId}}` / `agent_prompt_response
+  {payload: {agentId}}` as soon as the request is accepted (agent exists, busy claim taken, status
+  `running`), before any event of the turn; neither answer carries a `status`, and neither means the
+  turn finished. A refusal (`busy`, unknown or archived agent, invalid request) is an `rpc_error` and
+  means nothing was started. The outcome is the turn's `agent_stream` rows (a failure ends in
+  `turn_failed` with the reason) and exactly one `agent_update` with status `idle` or `error`; an
+  inline-handled slash command has no `turn_*` rows and its `agent_update idle` is the end signal. No
+  feature flag and no compatibility path. The four fixtures under
+  `packages/protocol/fixtures/external-clients/` pin it (additive; dated `CHANGELOG.md` entry, which
+  also records the behaviour change). Clients follow the end of a turn, not the answer: the SDK's
+  `agent(id).send` resolves at acceptance and `agent(id).waitForIdle()` waits for the settle; the CLI's
+  `agent run`/`send`/`wait` print the id at once, then wait (`--no-wait`, `--timeout`, one-line
+  `--json`; non-zero when the turn failed); the workbench takes a turn's end only from
+  `agent_update`, and sets no long request timeout. Seen live against a real Pi (sprint 152
+  task 005): a 45 s tool call, a dropped socket mid-turn, a stale second tab refused with `busy`.
 - **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough
   fallback rather than a `messages.ts` discriminated-union entry — `checkout_status_subscribe`/
   `_unsubscribe` + `checkout_status_update` (git status, per-session `send()`, not broadcast) and
@@ -464,7 +490,11 @@ All communication uses a **single WebSocket connection** per client.
 - **`daemon_update_*`** (daemon self-update, roadmap 5b, sprints 135–138, `swe/features/self-update.md`) is a
   real `messages.ts` family, flat, gated by `server_info.features.daemonUpdate`: `daemon_update_status`/
   `_check`/`_apply`/`_set_auto_check_request` + responses, and the `daemon_update_status` broadcast the
-  daemon sends to every session (direct and relay) on each change and right after `server_info`. The
+  daemon sends to every session (direct and relay) on each change and right after `server_info`. The daemon
+  looks for a newer version at start, every 6 h and when a client connects whose last attempt (any
+  check, successful or not) is over 10 minutes old (`UpdateService.checkIfStale`, `swe/features/self-update.md`
+  § Check); an automatic check is silent: no `checking` state, a failure shows nothing (the daemon log has
+  one `info` line). The
   status is `{currentVersion, installKind, autoCheck, checkedAt?, checkError?, state, lastResult?}`; `state` is a
   closed union (`idle`, `checking`, `available`, `installing`, `updating_extensions`, `restarting`,
   `failed`, `cannot_update`). Any client may ask, so it works for local, direct, relay and SSH daemons and in the
@@ -482,7 +512,10 @@ All communication uses a **single WebSocket connection** per client.
   clients reconnecting, rollback of a broken version, a rollback with the registry stopped, read-only folder,
   auto-check off) and in the desktop app's webview on Linux (`desktop/docs/platform-checks.md` § Daemon
   self-update rows). Not seen: macOS and Windows, a hoisted npm layout, a real old CLI, the pill on an SSH
-  entry's daemon. No external-client fixture: the Rust clients do not consume this family.
+  entry's daemon in the desktop webview (sprint 156: the binary started the way the app starts one over SSH
+  gave a connecting client `available` at once; a failed or stale start-up check, which showed nothing until
+  the next 6 h tick, is what the check on connect closes; the owner's own cause is not established,
+  `swe/features/self-update.md` § Resolved by the build). No external-client fixture: the Rust clients do not consume this family.
 - **`provider_auth_*`** (sprint-055) is the one RPC family that both gets real `messages.ts` request/
   response schemas AND has a passthrough-only push: the five `provider_auth_list/login/respond/
   cancel/logout` request/response pairs are real, durable, multi-client RPC schemas, while the
@@ -565,9 +598,9 @@ All communication uses a **single WebSocket connection** per client.
   daemon knows nothing about plugins: `viewers` is an open record keyed by whatever id a client
   sends, an unknown id is a legal row, and `config` is an opaque blob (the `agent_ui_request`
   `payload` posture). Every degrade direction means *enabled*: an absent row, a capability-absent
-  client, and a corrupt state file all offer every viewer (`viewers/viewer-settings-state.ts`'s
-  soft-fallback loader warns and returns all-enabled defaults — deliberately not
-  `extensions-state.ts`'s `"unreadable"` sentinel; the warn fires lazily per read, not at boot).
+  client, and a damaged state file all offer every viewer (`viewers/viewer-settings-state.ts`'s
+  loader sets a damaged file aside as `.corrupt-<timestamp>`, logs an error and returns all-enabled
+  defaults — deliberately not `extensions-state.ts`'s `"unreadable"` sentinel; logged lazily per read, not at boot).
   Advertised via the `viewerSettings` feature flag; registered in both bootstraps. Consumed by
   `PiStudioClient` (`getViewerSettings`/`setViewerSettings`/`onViewerSettingsUpdate`/
   `hasViewerSettingsCapability`) and web-client's `viewer-plugins/viewer-settings-store.ts` +
@@ -584,7 +617,7 @@ All communication uses a **single WebSocket connection** per client.
   `event-mapper.ts`; Pi's own `Compaction failed: ` / `Auto-compaction failed: ` prefix is stripped
   from `error` because the row label supplies it. A **manual** compaction runs outside any turn, so
   `handleCompact` (`slash-command-operations.ts`) opens its own subscription window to record and
-  broadcast the events; **automatic** ones arrive inside `runTurn`'s subscription. `agent_compact_request`
+  broadcast the events; **automatic** ones arrive inside `executeTurn`'s subscription. `agent_compact_request`
   is refused with a `busy` error while the agent is running or already compacting (it would abort the
   turn, since Pi's `compact()` aborts first), and a process-less record (after a daemon restart) is
   resumed before compacting, with its timeline seeded so history is intact. The response carries
@@ -686,7 +719,7 @@ All communication uses a **single WebSocket connection** per client.
   not `"all"`. SDK option `DaemonClientOptions.agentStreams`; the workbench does not send it.
   Fixture `hello.agentStreams.json`. CLI: `pi-studio --json daemon start|restart|pair|stop` prints
   exactly one JSON line (`{up, started, host, port, pairingUrl, relay}`; failures `error:
-  "not_healthy" | "no_keypair"` with a non-zero exit; `pair` `{pairingUrl, relay}`; `stop`
+  "not_healthy" | "no_keypair" | "unprotected_bind" | "config_unreadable"` with a non-zero exit; `pair` `{pairingUrl, relay}`; `stop`
   `{stopped}`). `pairingUrl` is a credential on relay links.
 - **Relay protocol 2 (`swe/architecture/relay-protocol.md`, `swe/features/relay-multi-client.md`).**
   A daemon holds one relay control socket (`relay_daemon_register` → `relay_registered`) and opens one
@@ -741,7 +774,7 @@ Two providers ship today:
 - **`mock`** — in-process stub that emits synthetic events; needs no credentials; used for smoke
   testing.
 
-`agents.providers` in `config.json` holds only the `pi` entry (`command`, `env`); any other key fails config load.
+`agents.providers` in `config.json` holds only the `pi` entry (`command`, `env`); any other key fails config load. A `config.json` that exists but is not valid JSON, is not an object, or fails the schema is never read as empty: `loadConfig` throws `ConfigUnreadableError` (`config_unreadable`, naming the file), the daemon logs it, exits 1 and never listens, no writer (`persistExtensionPacks`, `persistUpdateAutoCheck`, the CLI's `set-password` and relay-env persist) touches the file, and `pi-studio daemon start|restart|pair` and `extensions list --local` report it (`--json`: `{up:false, host, port, error:"config_unreadable"}`). A missing file is still an empty config.
 `pi` needs a model-provider credential before it can run a turn — `pi-studio auth login` (CLI-local,
 no daemon required; `packages/cli/AGENTS.md`'s `auth` group) is the supported way to provide one
 without hand-editing Pi's `auth.json` or discovering `/login` inside `pi-studio pi`'s pass-through
@@ -756,34 +789,39 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 
 ```
 config.json           Daemon config (password hash, provider overrides, relay, …) — written 0600
-pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
+pi-studio.pid         PID of the running daemon (written once the daemon is listening, so a second daemon that loses the port never names itself in it; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
-update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
+update-skip.json      The one version a rollback or failed update names (`{version}`, written atomically); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
 bin/                  The single binary's own folders (only where the binary was installed here, by the app or a binary update):
                        `versions/<x.y.z>/pi-studio` one folder per installed version, `current` a symbolic link to the one in use
                        (switched by rename; the app and the optional `~/.local/bin/pi-studio` link run through it), `tmp/` downloads and unpacking
 logs/update-restart.log  The update restart helper's own log (written outside the daemon's pino logs, so it survives the old daemon's exit)
-server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set
+server-id             Stable server identity (plain UUID via randomUUID()), unless PI_STUDIO_SERVER_ID is set; an empty or
+                       unreadable file is set aside as `server-id.corrupt-<timestamp>`, logged, and a new id is written
 daemon-keypair.json   Persistent Curve25519 keypair (pairing / outbound relay E2EE) — written 0600;
-                       replace via `pi-studio daemon rotate-key` (revokes all pairing links)
+                       replace via `pi-studio daemon rotate-key` (revokes all pairing links); a damaged file is set aside as
+                       `daemon-keypair.json.corrupt-<timestamp>`, logged, and a new pair is written 0600 (pairings are lost)
 extensions-state.json Preinstalled-extensions sync bookkeeping: per-pi-home offered/failures/
                        lastSync (features/preinstalled-extensions.md § State file)
 viewer-settings.json Daemon-backed per-viewer kill switch + opaque config for the viewer plugin
-                       registry (viewers/ subsystem); corrupt file degrades to all-enabled
-                       defaults and is never rewritten on read
+                       registry (viewers/ subsystem); a damaged file is set aside as
+                       `viewer-settings.json.corrupt-<timestamp>` and loads as all-enabled defaults
 pending-uploads.json  Temporary files of the uploads in progress (`.pistudio-upload-<hex>.part`);
                        the next daemon removes every listed file at start, then this file
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
-    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows
+    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows; a damaged record is set
+                       aside as `<agentId>.json.corrupt-<timestamp>`; an unreadable entry (dangling symlink) is logged and skipped
 projects/
-  projects.json       Project registry
-  workspaces.json     Workspace registry
+  projects.json       Project registry (a record that fails its schema is dropped; the rest are kept, the original set aside as `.corrupt-<timestamp>`)
+  workspaces.json     Workspace registry (same rule)
 ```
 
 All entity files use `.passthrough()` schemas and optional fields — unknown/future fields are
-tolerated without a migration framework.
+tolerated without a migration framework. A damaged entity, identity or settings file above (registries, agent records,
+`server-id`, `daemon-keypair.json`, `viewer-settings.json`) is set aside as `<name>.corrupt-<timestamp>` (never overwritten
+by the next save) and replaced by defaults; `config.json` is never set aside or rewritten, it stops the start (`config_unreadable`).
 
 ---
 

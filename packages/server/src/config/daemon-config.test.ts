@@ -1,17 +1,35 @@
 import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { chmodSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import {
+  CONFIG_UNREADABLE_CODE,
+  ConfigUnreadableError,
   loadConfig,
   overlayEnv,
   persistedConfigSchema,
   persistExtensionPacks,
   persistUpdateAutoCheck,
 } from "./daemon-config.js";
+
+function catchError(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+async function tempConfigText(text: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
+  const path = join(dir, "config.json");
+  await writeFile(path, text, "utf8");
+  return path;
+}
 
 async function tempConfig(contents: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
@@ -156,6 +174,69 @@ describe("provider validation", () => {
   });
 });
 
+describe("a damaged config.json", () => {
+  const damaged: [string, string][] = [
+    ["truncated JSON", '{ "daemon": { "auth": { "password": "$2a$10$hash"'],
+    ["an empty file", ""],
+    ["plain text", "not json at all"],
+    ["a JSON array", "[1, 2]"],
+    ["JSON null", "null"],
+  ];
+
+  it.each(damaged)(
+    "loadConfig throws config_unreadable naming the path (%s)",
+    async (_label, text) => {
+      const path = await tempConfigText(text);
+      const error = catchError(() => loadConfig(path, {}));
+      expect(error).toBeInstanceOf(ConfigUnreadableError);
+      expect(error).toMatchObject({ code: "config_unreadable", path });
+      expect((error as Error).message).toContain(path);
+    },
+  );
+
+  it("loadConfig throws config_unreadable for a file that fails the schema, naming the key", async () => {
+    const path = await tempConfig({ agents: { providers: { foo: {} } } });
+    const error = catchError(() => loadConfig(path, {}));
+    expect(error).toBeInstanceOf(ConfigUnreadableError);
+    expect((error as Error).message).toContain('agents.providers.foo: only "pi" is supported');
+  });
+
+  it("loadConfig throws config_unreadable when the path is a directory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
+    expect(catchError(() => loadConfig(dir, {}))).toBeInstanceOf(ConfigUnreadableError);
+  });
+
+  it.each(damaged)(
+    "persistExtensionPacks leaves the file byte-identical (%s)",
+    async (_l, text) => {
+      const path = await tempConfigText(text);
+      await expect(persistExtensionPacks(path, ["a"])).rejects.toBeInstanceOf(
+        ConfigUnreadableError,
+      );
+      expect(readFileSync(path, "utf8")).toBe(text);
+    },
+  );
+
+  it.each(damaged)(
+    "persistUpdateAutoCheck leaves the file byte-identical (%s)",
+    async (_l, text) => {
+      const path = await tempConfigText(text);
+      await expect(persistUpdateAutoCheck(path, false)).rejects.toBeInstanceOf(
+        ConfigUnreadableError,
+      );
+      expect(readFileSync(path, "utf8")).toBe(text);
+      expect(await readdir(dirname(path))).toEqual(["config.json"]);
+    },
+  );
+
+  it("a missing file is still an empty config and the writers create it", async () => {
+    const path = await tempConfigPath();
+    expect(loadConfig(path, {}).daemon.update.autoCheck).toBe(true);
+    await persistUpdateAutoCheck(path, false);
+    expect(loadConfig(path, {}).daemon.update.autoCheck).toBe(false);
+  });
+});
+
 describe("persistExtensionPacks", () => {
   it("writes daemon.extensions.packs into a fresh (absent) config.json with mode 0600", async () => {
     const path = await tempConfigPath();
@@ -237,16 +318,16 @@ describe("persistExtensionPacks", () => {
     expect((statSync(path).mode & 0o777) === 0o600).toBe(true);
   });
 
-  it("does NOT throw on a corrupt/unparseable existing file; replaces it with the merged key", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "pi-studio-config-"));
-    const path = join(dir, "config.json");
-    await writeFile(path, "{ invalid json", "utf8");
+  it("refuses a corrupt existing file: throws config_unreadable and leaves the bytes alone", async () => {
+    const path = await tempConfigText('{ "daemon": { "auth": { "password": "$2a$10$hash"');
+    const before = readFileSync(path);
 
-    // Should not throw
-    await persistExtensionPacks(path, ["ext-1"]);
+    await expect(persistExtensionPacks(path, ["ext-1"])).rejects.toMatchObject({
+      code: CONFIG_UNREADABLE_CODE,
+    });
 
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    expect(raw).toEqual({ daemon: { extensions: { packs: ["ext-1"] } } });
+    expect(readFileSync(path).equals(before)).toBe(true);
+    expect(await readdir(dirname(path))).toEqual(["config.json"]);
   });
 
   it("loadConfig after a write returns the persisted packs; env value still wins in memory", async () => {

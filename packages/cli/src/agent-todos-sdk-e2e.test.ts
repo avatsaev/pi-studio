@@ -67,13 +67,50 @@ function trackState(client: PiStudioClient): { get: () => AgentTodosState } {
   return { get: () => state };
 }
 
+/**
+ * Creates the agent and waits for its first turn to settle: `create_agent_request` answers once the
+ * prompt is accepted, and a send while that turn runs is refused with `busy`.
+ */
 async function createMockAgent(client: PiStudioClient, initialPrompt: string): Promise<string> {
-  const created = await client.createAgent({
-    config: { provider: "mock", cwd: "/tmp" },
-    labels: {},
-    initialPrompt,
+  const settledAgents = new Set<string>();
+  const settled = Promise.withResolvers<void>();
+  let created: string | undefined;
+  const off = client.onAgentUpdate((update) => {
+    if (update.status !== "idle" && update.status !== "error") return;
+    settledAgents.add(update.agentId);
+    if (update.agentId === created) settled.resolve();
   });
-  return created.agentId;
+  try {
+    const answer = await client.createAgent({
+      config: { provider: "mock", cwd: "/tmp" },
+      labels: {},
+      initialPrompt,
+    });
+    created = answer.agentId;
+    if (settledAgents.has(created)) settled.resolve();
+    await settled.promise;
+    return created;
+  } finally {
+    off();
+  }
+}
+
+/** Sends `prompt` and waits for the turn it starts to settle (the answer only accepts the prompt). */
+async function sendAndSettle(
+  client: PiStudioClient,
+  agentId: string,
+  prompt: string,
+): Promise<void> {
+  const settled = Promise.withResolvers<void>();
+  const off = client.agent(agentId).onUpdate((update) => {
+    if (update.status === "idle" || update.status === "error") settled.resolve();
+  });
+  try {
+    await client.agent(agentId).send(prompt);
+    await settled.promise;
+  } finally {
+    off();
+  }
 }
 
 // Polls a REAL daemon over a REAL WebSocket: no fake clock can stand in for network/process
@@ -109,7 +146,7 @@ describe("agent todos SDK, real dev daemon (sprint-079/task-009)", () => {
       "pending",
     ]);
 
-    await client.agent(agentId).send("#todo advance");
+    await sendAndSettle(client, agentId, "#todo advance");
     await waitFor(() => snapshotFor(live.get(), agentId)?.seq === 2, "the advance snapshot");
     const advanced = snapshotFor(live.get(), agentId)!;
     expect(advanced.tasks.map((t) => t.status)).toEqual([
@@ -146,11 +183,11 @@ describe("agent todos SDK, real dev daemon (sprint-079/task-009)", () => {
     await waitFor(() => snapshotFor(otherLive.get(), agentId)?.seq === 1, "the many snapshot");
     expect(snapshotFor(otherLive.get(), agentId)!.tasks).toHaveLength(12);
 
-    await client.agent(agentId).send("#todo clear");
+    await sendAndSettle(client, agentId, "#todo clear");
     await waitFor(() => snapshotFor(live.get(), agentId)?.seq === 2, "the clear snapshot");
     expect(snapshotFor(live.get(), agentId)!.tasks).toEqual([]);
 
-    await client.agent(agentId).send("#todo plan");
+    await sendAndSettle(client, agentId, "#todo plan");
     await waitFor(() => snapshotFor(live.get(), agentId)?.seq === 3, "the replan snapshot");
     await client.agent(agentId).archive();
     await waitFor(() => snapshotFor(otherLive.get(), agentId)?.seq === 4, "the archive sweep");
@@ -171,7 +208,7 @@ describe("agent todos SDK, real dev daemon (sprint-079/task-009)", () => {
 
     const before = await createMockAgent(client, "#todo plan");
     await waitFor(() => snapshotFor(state, before) !== undefined, "the first daemon's snapshot");
-    await client.agent(before).send("#todo advance");
+    await sendAndSettle(client, before, "#todo advance");
     await waitFor(() => snapshotFor(state, before)?.seq === 2, "seq 2 on the first daemon");
 
     // Stop the daemon and bring a fresh process up on the same port: its seq counters start over.

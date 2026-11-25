@@ -7,14 +7,14 @@ subtitle: Create, drive, and inspect agents from the command line.
 
 | Command | Description |
 |---|---|
-| `agent run --provider pi/<model> "prompt"` | Create an agent and run the first turn |
+| `agent run --provider pi/<model> "prompt" [--no-wait] [--timeout <seconds>]` | Create an agent, run the first turn and wait for it |
 | `agent ls` | List all agents |
 | `agent attach <agentId>` | Stream an agent's live events |
-| `agent send <agentId> "prompt"` | Send a follow-up prompt |
+| `agent send <agentId> "prompt" [--no-wait] [--timeout <seconds>]` | Send a follow-up prompt and wait for the turn |
 | `agent steer <agentId> "message"` | Steer a running turn (after current tool calls) |
 | `agent follow-up <agentId> "message"` | Queue a message for after the agent stops |
 | `agent stop <agentId>` | Interrupt the current turn |
-| `agent wait <agentId>` | Block until the agent goes idle or closes |
+| `agent wait <agentId> [--timeout <seconds>]` | Wait for the agent's turn to end (exit 0 when idle) |
 | `agent logs <agentId> [-n <limit>]` | Print paged timeline history |
 | `agent inspect <agentId>` | Print the full agent record |
 | `agent update <agentId>` | Update model/thinking/title |
@@ -25,6 +25,25 @@ subtitle: Create, drive, and inspect agents from the command line.
 
 `run`, `ls`, `attach`, `logs`, `send`, and `steer` also work without the `agent` prefix
 (`pi-studio ls`, `pi-studio run …`).
+
+## Waiting for a turn
+
+`run`, `send` and `wait` follow the turn. `run` and `send` print the agent id at once, then wait for
+the turn to end:
+
+- **Exit code:** 0 when the agent goes idle; non-zero when the turn failed (the reason goes to
+  stderr), the agent is closed or unknown, the wait times out, or you press Ctrl-C.
+- **`--no-wait`** (`run`, `send`): return as soon as the daemon accepted the prompt, with exit 0.
+- **`--timeout <seconds>`** (`run`, `send`, `wait`): stop waiting after that long and exit non-zero.
+  The turn keeps running.
+- **Ctrl-C** stops the wait only; the turn keeps running (`agent stop` interrupts it).
+- **`--json`** prints exactly one line, at the end: `{"agentId": "…", "status": "idle"}`, or with a
+  failure `{"agentId": "…", "status": "error", "error": "<reason>"}`. A timeout or Ctrl-C gives
+  `{"agentId": "…", "error": "timeout"}` / `"interrupted"`; `--no-wait` gives `{"agentId": "…"}`.
+
+The answer text is not printed; read it with `agent logs <agentId>` or follow it with
+`agent attach <agentId>`. `agent attach <agentId> --until-idle` also exits non-zero when the turn
+failed.
 
 ## Provider spec parsing
 

@@ -1,0 +1,19 @@
+{
+  "type": "agent_prompt_response",
+  "direction": "server_to_client",
+  "description": "Answer to send_agent_prompt: the prompt was ACCEPTED for payload.agentId (the agent is running). It carries no status and does not mean the turn finished. The answer comes before any agent_stream frame of the turn; the outcome is the turn's agent_stream rows (a failure ends in a turn_failed row) and exactly one agent_update with status idle or error. A refusal is an rpc_error instead.",
+  "since": "0.0.134",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/payload/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "agent_prompt_response",
+      "requestId": "req-1",
+      "payload": {
+        "agentId": "00000000-0000-4000-8000-000000000001"
+      }
+    }
+  }
+}

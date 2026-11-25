@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { DEFAULT_DAEMON_LISTEN } from "./index.js";
 import { isLoopbackHost } from "./loopback.js";
 import { persistedConfigSchema } from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
 
 let handle: DaemonHandle | undefined;
 const savedEnv = { listen: process.env.PI_STUDIO_LISTEN, pw: process.env.PI_STUDIO_PASSWORD };
@@ -167,5 +168,40 @@ describe("unprotected bind refusal", () => {
       port: 0,
       logger: capture().logger,
     });
+  });
+});
+
+describe("a listen failure", () => {
+  it("runs the whole shutdown before onFatalError and never writes a PID file", async () => {
+    const taken = await freePort();
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(taken, "127.0.0.1", resolve));
+    try {
+      const home = makeHome();
+      const { logger, lines } = recordingLogger();
+      const fatal = Promise.withResolvers<NodeJS.ErrnoException>();
+      handle = startDaemon({
+        home,
+        host: "127.0.0.1",
+        port: taken,
+        logger,
+        onFatalError: fatal.resolve,
+      });
+
+      expect((await fatal.promise).code).toBe("EADDRINUSE");
+
+      expect(handle.httpServer.listening).toBe(false);
+      expect(existsSync(join(home, "pi-studio.pid"))).toBe(false);
+      for (const step of ["agents", "sockets", "http", "pid file"]) {
+        expect(lines).toContainEqual(
+          expect.objectContaining({
+            msg: "shutdown step done",
+            obj: expect.objectContaining({ step }),
+          }),
+        );
+      }
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 });

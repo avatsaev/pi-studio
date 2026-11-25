@@ -506,6 +506,30 @@ describe("connectRelay", () => {
     await until(() => fourth.texts.some((t) => t.includes("relay_paired")));
   });
 
+  it("stopAccepting() ignores every later relay_dial and leaves an open connection working", async () => {
+    const server = await startRelay({ attachTimeoutMs: 400 });
+    const { logger, lines } = captureLogger();
+    const conns: RelayConnection[] = [];
+    start(server.port, { logger, onConnection: (conn) => conns.push(conn) });
+    await until(() => server.counts().controls === 1);
+    const first = await connectClient(server.port);
+    await until(() => conns.length === 1);
+    echo(conns[0]!);
+    const side = await startClientChannel(first);
+
+    handle!.stopAccepting();
+
+    const late = await connectClient(server.port);
+    await until(() => lines.some((l) => l.msg.includes("ignored")));
+    expect(conns).toHaveLength(1);
+    // Nobody attached for the late client, so the relay gives up on it.
+    expect((await late.closed).code).toBe(RELAY_CLOSE.DAEMON_UNRESPONSIVE.code);
+
+    expect(conns[0]!.isOpen).toBe(true);
+    side.channel.send("still there");
+    await until(() => side.texts.includes("echo:still there"));
+  });
+
   it("ignores unknown control frames", async () => {
     // A relay of the future: registers the daemon, then sends a frame type this daemon lacks.
     fakeServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });

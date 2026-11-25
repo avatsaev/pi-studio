@@ -706,9 +706,11 @@ try {
       },
       { timeoutMs: 20_000 },
     );
+    // The rollback of scenario 5 remembered V3 (`skippedVersion`), and an automatic check never
+    // offers a skipped version: the check ran (`checkedAt`) and left `idle`, which is the proof.
     expect(
-      on.autoCheck === true && on.state.kind === "available",
-      `no env, config true: autoCheck ${on.autoCheck}, the start's check found ${on.state.kind} ${on.state.version}`,
+      on.autoCheck === true && on.state.kind === "idle" && on.skippedVersion === V3,
+      `no env, config true: autoCheck ${on.autoCheck}, the start's check ran and left ${on.state.kind} (skippedVersion ${on.skippedVersion}, the rolled-back ${V3})`,
     );
     const off = await A.pi.setDaemonUpdateAutoCheck(false);
     const config2 = JSON.parse((await dbash(`cat ${HOME}/config.json`)).stdout);

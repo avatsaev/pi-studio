@@ -221,6 +221,16 @@ fn start_failures_carry_their_reason() {
 }
 
 #[test]
+fn a_daemon_that_refuses_to_start_says_why() {
+    let f = fixture();
+    let state = |mode: &str| f.supervisor(mode, "0.0.130", Limits::default()).carry_out(LocalRequest::Start, false);
+    assert_eq!(state("unprotected_bind"), failed(FailReason::UnprotectedBind));
+    // The damaged file is named by its path in the daemon's home.
+    let config = f.dir.path().join("config.json").display().to_string();
+    assert_eq!(state("config_unreadable"), LocalState::Failed { reason: FailReason::ConfigUnreadable, output: Some(config) });
+}
+
+#[test]
 fn a_stop_that_times_out_is_failed() {
     let f = fixture();
     let limits = Limits { stop: Duration::from_millis(300), ..Limits::default() };

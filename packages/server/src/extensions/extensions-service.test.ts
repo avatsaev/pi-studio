@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistedConfigSchema, type PersistedConfig } from "../config/daemon-config.js";
 import { silentLogger } from "../logging/logger.js";
+import { isAlive, killQuietly, readPid } from "../test-support/process-probe.js";
 import { effectivePiHomeKey, loadExtensionsState } from "./extensions-state.js";
 import { ExtensionsService } from "./extensions-service.js";
 import type { InstallSpawn } from "./sync-executor.js";
@@ -243,5 +244,90 @@ describe("ExtensionsService.describe", () => {
     const described = await service.describe();
     expect(described.autoSync).toBe(false);
     expect(described.entries).toHaveLength(3);
+  });
+});
+
+describe("ExtensionsService.close", () => {
+  const SHUTTING_DOWN = "the daemon is shutting down";
+  const homes: string[] = [];
+  const leftovers: number[] = [];
+
+  afterEach(async () => {
+    for (const pid of leftovers.splice(0)) killQuietly(pid);
+    await Promise.all(homes.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  async function trackedHome(): Promise<string> {
+    const home = await tempHome();
+    homes.push(home);
+    return home;
+  }
+
+  it("rejects a queued sync, ends the running one after its install and records no failure", async () => {
+    const home = await trackedHome();
+    const config = configWithPiHome(home);
+    const started = Promise.withResolvers<void>();
+    const childDies = Promise.withResolvers<void>();
+    const calls: string[] = [];
+    const spawn: InstallSpawn = async ({ command }) => {
+      calls.push(command.at(-1) as string);
+      started.resolve();
+      await childDies.promise;
+      return { exitCode: null, stderr: "" }; // killed by the stop
+    };
+    const service = new ExtensionsService({ home, config, logger: silentLogger(), spawn });
+
+    const running = service.sync("bootstrap");
+    await started.promise;
+    const queued = service.sync("manual");
+    const closing = service.close();
+    childDies.resolve();
+
+    await Promise.all([
+      expect(running).rejects.toThrow(SHUTTING_DOWN),
+      expect(queued).rejects.toThrow(SHUTTING_DOWN),
+      closing,
+    ]);
+    expect(calls).toHaveLength(1); // the rest of the plan and the queued sync never started
+    const state = await loadExtensionsState(home);
+    if (state === "unreadable") throw new Error("state unreadable");
+    expect(state.piHomes[effectivePiHomeKey(config)]?.failures).toEqual({});
+  });
+
+  it("rejects a sync requested after close and spawns nothing", async () => {
+    const home = await trackedHome();
+    const spawn = vi.fn(succeedAlways);
+    const service = new ExtensionsService({
+      home,
+      config: configWithPiHome(home),
+      logger: silentLogger(),
+      spawn,
+    });
+
+    await service.close();
+
+    await expect(service.sync("manual")).rejects.toThrow(SHUTTING_DOWN);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("kills a child started through its own seam (a real sleep 60)", async () => {
+    const home = await trackedHome();
+    const service = new ExtensionsService({
+      home,
+      config: configWithPiHome(home),
+      logger: silentLogger(),
+    });
+    const running = service.installSpawn({
+      command: ["sh", "-c", 'echo $$ > "$1"; exec sleep 60', "sh", join(home, "pid")],
+      env: { PATH: process.env.PATH ?? "" },
+      timeoutMs: 60_000,
+    });
+    const pid = await readPid(join(home, "pid"));
+    leftovers.push(pid);
+
+    await service.close();
+
+    expect(isAlive(pid)).toBe(false);
+    await expect(running).resolves.toMatchObject({ exitCode: null });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { agentCalls } from "../test-support/answer-then-run.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
@@ -27,16 +28,18 @@ async function setupAgentWithTurns(
   const registry = new HandlerRegistry();
   registerTimelineHandler(registry, { manager, resolveClient: () => client });
 
-  const result = (await service.handleCreate(
-    { requestId: "r", config: { provider: "mock", cwd: "/w" }, initialPrompt: "hi" },
-    () => [],
-  )) as Record<string, unknown>;
-  const agentId = (result.payload as Record<string, unknown>).agentId as string;
+  const calls = agentCalls(service);
+  const { agentId } = (
+    await calls.createSettled({
+      requestId: "r",
+      config: { provider: "mock", cwd: "/w" },
+      initialPrompt: "hi",
+    })
+  ).payload;
 
   // Add more turns to build up history.
-  const managed = manager.get(agentId)!;
   for (let i = 1; i < n; i++) {
-    await service.runTurn(agentId, managed.session!, `prompt ${i}`, () => []);
+    await calls.sendSettled({ agentId, prompt: `prompt ${i}` });
   }
   return { agentId, manager, registry };
 }

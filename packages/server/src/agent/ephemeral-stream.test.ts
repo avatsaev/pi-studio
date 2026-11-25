@@ -1,6 +1,7 @@
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
 
+import { agentCalls, type AgentCalls } from "../test-support/answer-then-run.js";
 import { HandlerRegistry } from "../ws/router.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentService } from "./agent-service.js";
@@ -24,7 +25,7 @@ interface StreamFrame {
 async function setup(): Promise<{
   agentId: string;
   manager: AgentManager;
-  service: AgentService;
+  calls: AgentCalls;
   session: MockAgentSession;
   frames: StreamFrame[];
   registry: HandlerRegistry;
@@ -49,13 +50,15 @@ async function setup(): Promise<{
   const registry = new HandlerRegistry();
   registerTimelineHandler(registry, { manager, resolveClient: () => client });
 
-  const result = (await service.handleCreate(
-    { requestId: "r", config: { provider: "mock", cwd: "/w" }, initialPrompt: "hi" },
-    () => [],
-  )) as Record<string, unknown>;
-  const agentId = (result.payload as Record<string, unknown>).agentId as string;
+  const calls = agentCalls(service);
+  const result = await calls.createSettled({
+    requestId: "r",
+    config: { provider: "mock", cwd: "/w" },
+    initialPrompt: "hi",
+  });
+  const { agentId } = result.payload;
   const session = manager.get(agentId)!.session as MockAgentSession;
-  return { agentId, manager, service, session, frames, registry };
+  return { agentId, manager, calls, session, frames, registry };
 }
 
 function isPartial(event: AgentStreamEvent): boolean {
@@ -64,8 +67,8 @@ function isPartial(event: AgentStreamEvent): boolean {
 
 describe("ephemeral partial tool_call broadcast", () => {
   it("broadcasts partials live without seq, persists only start + end rows", async () => {
-    const { agentId, manager, service, session, frames } = await setup();
-    await service.runTurn(agentId, session, "#tool shell", () => []);
+    const { agentId, manager, calls, frames } = await setup();
+    await calls.sendSettled({ agentId, prompt: "#tool shell" });
 
     const partialFrames = frames.filter((f) => isPartial(f.event));
     expect(partialFrames).toHaveLength(3);
@@ -91,8 +94,8 @@ describe("ephemeral partial tool_call broadcast", () => {
   });
 
   it("fetch_agent_timeline_request returns no partials and one projected tool_call item", async () => {
-    const { agentId, service, session, registry } = await setup();
-    await service.runTurn(agentId, session, "#tool shell", () => []);
+    const { agentId, calls, registry } = await setup();
+    await calls.sendSettled({ agentId, prompt: "#tool shell" });
 
     const handler = registry.get("fetch_agent_timeline_request")!;
     const resp = (await handler({
@@ -110,15 +113,15 @@ describe("ephemeral partial tool_call broadcast", () => {
 
 describe("ephemeral queue_update broadcast", () => {
   it("is broadcast live without seq and never appended to the timeline", async () => {
-    const { agentId, manager, service, session, frames } = await setup();
-    // Steer from inside the turn, once it has started and `runTurn` is subscribed.
+    const { agentId, manager, calls, session, frames } = await setup();
+    // Steer from inside the turn, once it has started and the turn is subscribed.
     const unsub = session.subscribe((event) => {
       if (event.kind === "turn_started") {
         unsub();
         void session.steer("focus");
       }
     });
-    await service.runTurn(agentId, session, "next", () => []);
+    await calls.sendSettled({ agentId, prompt: "next" });
 
     const queueFrames = frames.filter((f) => f.event.kind === "queue_update");
     expect(queueFrames).toHaveLength(1);

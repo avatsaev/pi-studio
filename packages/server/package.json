@@ -16,6 +16,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./shutdown": {
+      "types": "./dist/daemon/shutdown.d.ts",
+      "default": "./dist/daemon/shutdown.js"
     }
   },
   "scripts": {

@@ -149,7 +149,7 @@ describe("FileExplorerService.deleteFile", () => {
     await expect(stat(target)).rejects.toThrow();
   });
 
-  it("resolves symlinks before deleting (removes the real target)", async () => {
+  it("deletes a symlink to a file without touching its target", async () => {
     const real = join(dir, "real2.txt");
     const link = join(dir, "link2.txt");
     await writeFile(real, "content");
@@ -157,7 +157,48 @@ describe("FileExplorerService.deleteFile", () => {
     const svc = new FileExplorerService();
     const result = await svc.deleteFile(link);
     expect(result.ok).toBe(true);
-    await expect(stat(real)).rejects.toThrow();
+    await expect(lstat(link)).rejects.toThrow();
+    expect(await readFile(real, "utf8")).toBe("content");
+  });
+
+  it("deletes a symlink to a directory and leaves the directory and its contents", async () => {
+    const real = join(dir, "realdir");
+    const link = join(dir, "linkdir");
+    await mkdir(real);
+    await writeFile(join(real, "keep.txt"), "keep");
+    await symlink(real, link);
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(link);
+    expect(result.ok).toBe(true);
+    await expect(lstat(link)).rejects.toThrow();
+    expect(await readFile(join(real, "keep.txt"), "utf8")).toBe("keep");
+  });
+
+  it("deletes a broken symlink", async () => {
+    const link = join(dir, "broken");
+    await symlink(join(dir, "missing-target"), link);
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(link);
+    expect(result.ok).toBe(true);
+    await expect(lstat(link)).rejects.toThrow();
+  });
+
+  it("resolves a symlinked parent directory and deletes the entry inside it", async () => {
+    const real = join(dir, "realparent");
+    await mkdir(real);
+    await writeFile(join(real, "inner.txt"), "x");
+    await symlink(real, join(dir, "parentlink"));
+    const svc = new FileExplorerService();
+    const result = await svc.deleteFile(join(dir, "parentlink", "inner.txt"));
+    expect(result.ok).toBe(true);
+    await expect(stat(join(real, "inner.txt"))).rejects.toThrow();
+  });
+
+  it("refuses the filesystem root and the home directory", async () => {
+    const svc = new FileExplorerService();
+    for (const path of ["/", "/.", "/tmp/..", homedir(), "~", "~/", join(homedir(), "x", "..")]) {
+      expect(await svc.deleteFile(path)).toEqual({ ok: false, error: "protected_path" });
+    }
   });
 
   it("returns not_found for a missing path", async () => {

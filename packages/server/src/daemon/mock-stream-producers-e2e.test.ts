@@ -8,6 +8,7 @@ import {
   messageOf,
   type TestClient,
 } from "../test-support/daemon-test-client.js";
+import { createdAgentId } from "../test-support/wire-answers.js";
 import { startDevDaemon, type DevBootstrapHandle } from "./dev-bootstrap.js";
 
 /**
@@ -33,7 +34,13 @@ async function boot(): Promise<{ client: TestClient; agentId: string }> {
     config: { provider: "mock", cwd: "/tmp" },
     initialPrompt: "hello",
   });
-  return { client, agentId: (created.payload as { agentId: string }).agentId };
+  const agentId = createdAgentId(created);
+  // The answer only accepts the prompt: a send while the first turn runs is refused with `busy`.
+  await client.waitFor((frame) => {
+    const m = messageOf(frame);
+    return m.type === "agent_update" && m.agentId === agentId && m.status === "idle";
+  });
+  return { client, agentId };
 }
 
 function streamKind(kind: string): (frame: Record<string, unknown>) => boolean {

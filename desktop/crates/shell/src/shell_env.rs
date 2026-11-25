@@ -139,6 +139,11 @@ pub fn bin_dir(home: &Path) -> PathBuf {
     home.join("bin")
 }
 
+/// The daemon's `config.json`: in [`pi_studio_home`].
+pub fn config_file(home: &Path) -> PathBuf {
+    home.join("config.json")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

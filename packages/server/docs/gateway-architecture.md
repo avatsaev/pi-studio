@@ -197,18 +197,19 @@ sequenceDiagram
   AS->>M: add(record @ "initializing")
   AS-->>All: broadcast agent_update {status:"initializing"}
 
+  Note over AS,Pi: initialPrompt present → the prompt is accepted before Pi is started
+  AS->>M: setStatus("running") (claim held; persisted, not broadcast)
+  AS-->>C: create_agent_response { agentId } (correlated by requestId)
+  Note over AS,Pi: the rest runs after the answer (the router's afterReply hook)
+  AS-->>All: broadcast agent_update {status:"running"}
+  AS->>AS: append + broadcast the user_message row
+
   AS->>PC: resolveClient("pi").createSession({provider,cwd})
   PC->>PC: isAvailable()? resolve bundled pi CLI
   PC->>T: spawn pi --mode rpc (createProcessTransport)
   PC->>PS: new PiAgentSession(transport)
   PC-->>AS: session
-  AS->>M: attachSession + setStatus("idle")
-  AS-->>All: broadcast agent_update {status:"idle"}
-
-  Note over AS,Pi: initialPrompt present → run the first turn
-  AS->>AS: runTurn(agentId, session, prompt)
-  AS->>M: setStatus("running")
-  AS-->>All: broadcast agent_update {status:"running"}
+  AS->>M: attachSession
   AS->>PS: subscribe(cb) → timeline.append + broadcast
 
   AS->>PS: session.run(prompt, opts)
@@ -228,7 +229,6 @@ sequenceDiagram
   PS-->>AS: run() promise resolves (turn_completed seen)
   AS->>M: setStatus("idle")
   AS-->>All: broadcast agent_update {status:"idle"}
-  AS-->>C: create_agent_response { agentId } (correlated by requestId)
 ```
 
 ### Step-by-step
@@ -244,16 +244,18 @@ sequenceDiagram
    `rpc-transport.ts › defaultPiCommand`);
   - spawns `node <pkg>/<pi's declared bin> --mode rpc` via `createProcessTransport`
   (`dist/bundle/cli.js` as of Pi 0.84.4). A literal `~` cwd is expanded server-side (`expandHome`).
-  - If pi can't be resolved, a clean `rpc_error` ("Pi provider unavailable…") is returned instead
-  of crashing the daemon.
-4. **Status → idle.** The session is attached to the manager and an `agent_update {idle}` is
- broadcast.
-5. **Turn runs** (because `initialPrompt` was supplied). `runTurn`:
-  - sets status `running` (+ broadcast);
+  - If pi can't be resolved, the turn ends as `turn_failed` ("Pi provider unavailable…"), status
+  `error` — the daemon does not crash and the (already sent) answer is unaffected.
+4. **Prompt accepted before the spawn.** With `initialPrompt`, `acceptPrompt` runs first: the turn
+ claim is held and the status is `running` (persisted; it never reads `idle` after `initializing`).
+ The create answer goes out here. Then, after it, `beginTurn` broadcasts the `agent_update running`
+ and the user's message as the canonical `user_message` row, and the spawn (3) follows. A spawn that
+ fails ends the turn as a `turn_failed` row with the reason, status `error` and one
+ `agent_update`.
+5. **Turn runs.** `executeTurn`, once the session is attached:
   - **subscribes** to the session's event stream: each event is appended to the agent's **timeline**
-  (monotonic `seq`) and broadcast to **all** sessions as an `agent_stream` frame;
-  - guarantees exactly one canonical `user_message` (emitted by the provider, or synthesized if the
-  provider doesn't);
+  (monotonic `seq`) and broadcast to **all** sessions as an `agent_stream` frame; a provider's own
+  copy of the user message is dropped (the row is already there);
   - calls `session.run(prompt, opts)`, which sends the prompt to pi via
   `transport.notify("prompt", {message})` — `AgentService` never touches the transport itself.
 6. **pi streams events.** pi emits JSONL events on stdout; the transport frames each line (parses
@@ -267,20 +269,22 @@ sequenceDiagram
  or simply followed by more runs) as a non-terminal per-run boundary, latching only the
  disposition it implies. Only pi's own true-end signal, `agent_settled`, drives the turn-closer
  stream event (`turn_completed`/`turn_failed`/`turn_canceled`) — that's when the `run()` promise
- resolves, status returns to `idle` (+ broadcast), and `handleCreate` finally returns
- `create_agent_response { agentId }`, correlated by `requestId`.
+ resolves and the status returns to `idle` (+ broadcast). The create answer went out long before,
+ when the prompt was accepted.
 
-> **Why the response can lag the stream.** An RPC call to `send_agent_prompt` resolves after the
-> *entire* turn finishes (it `await`s `runTurn`). A long turn can exceed a client's RPC timeout — but
-> the UI is driven by the `agent_stream` **broadcasts**, not by the response. Because a deferred draft's
-> `agentId` is bound before any turn can start (at tab-open via `ensureMaterialized`), the live
-> subscription in `use-agent-stream.ts` always attaches before streaming begins — there is no
-> raw-broadcast first-turn workaround anymore.
+> **The response does not wait for the turn.** `create_agent_request` (with a prompt) and
+> `send_agent_prompt` answer as soon as the prompt is accepted — the agent exists, its turn claim is
+> held, its status is `running` — with `create_agent_response { agentId }` /
+> `agent_prompt_response { agentId }`. The user message, the spawn, the turn and its `idle` or
+> `error` settle run after the answer (the handlers queue them on the router's `afterReply`), so a
+> client never sees a turn frame before the answer, and a closed socket does not stop the turn. The
+> outcome reaches clients only through the `agent_stream` rows and `agent_update`; a second send
+> before the `idle` update is refused with `busy`.
 
 ### Follow-up prompts
 
-`send_agent_prompt` skips agent creation: it looks up the live session and calls the same `runTurn`
-on the existing agent.
+`send_agent_prompt` skips agent creation: it accepts the prompt for the existing agent, answers at
+once, then runs the same turn path on the agent's session.
 
 ```mermaid
 sequenceDiagram
@@ -290,15 +294,19 @@ sequenceDiagram
   participant M as AgentManager
   participant PS as AgentSession (PiAgentSession)
   participant Pi as pi (existing child)
+  participant All as All sessions
 
   C->>AS: send_agent_prompt { agentId, prompt }
-  AS->>M: get(agentId).session
-  AS->>AS: runTurn(...) — same subscribe + broadcast loop
-  AS->>PS: session.run(prompt, opts)
+  AS->>M: claim the turn, setStatus("running")
+  AS-->>C: agent_prompt_response { agentId }
+  Note over AS,Pi: the rest runs after the answer (the router's afterReply hook)
+  AS-->>All: broadcast agent_update {status:"running"} + the user_message row
+  AS->>M: get(agentId).session (resume or spawn when it has none)
+  AS->>PS: session.run(prompt, opts) — same subscribe + broadcast loop
   PS->>Pi: notify("prompt", {message})
   Pi-->>PS: streamed events
   PS-->>AS: subscriber callback(event) → agent_stream broadcasts
-  AS-->>C: agent_prompt_response { agentId, status:"idle" }
+  AS-->>All: broadcast agent_update {status:"idle"}
 ```
 
 ---
@@ -444,7 +452,7 @@ A new user query travels:
 ```mermaid
 flowchart LR
   Client --> Upgrade["WS upgrade<br/>(Host + auth)"] --> Hello["hello / Session"] --> Router --> Registry
-  Registry --> Handle["AgentService.handleCreate/runTurn"] --> Session["PiAgentSession"]
+  Registry --> Handle["AgentService.handleCreate/handleSendPrompt"] --> Session["PiAgentSession"]
   Session --> Transport --> Pi["pi --mode rpc"]
   Pi --> Transport --> Session
   Session --> Mapper["createPiEventMapper()"] --> Timeline["timeline.append"] --> Broadcast["broadcast(agent_stream)"]

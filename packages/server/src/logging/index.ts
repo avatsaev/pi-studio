@@ -3,6 +3,7 @@ export {
   createDaemonLogger,
   createLogger,
   type CreateLoggerOptions,
+  flushLogger,
   type Logger,
   type LogLevel,
   silentLogger,

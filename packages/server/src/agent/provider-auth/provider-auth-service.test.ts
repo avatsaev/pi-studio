@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../logging/logger.js";
 import { SessionSubscriptions } from "../../ws/session-subscriptions.js";
 import type { Session } from "../../ws/session.js";
-import type { AuthInteractionLike, AuthPromptLike, PiAuthRuntime } from "./pi-auth-runtime.js";
+import type {
+  AuthInteractionLike,
+  AuthPromptLike,
+  PiAuthProviderInfo,
+  PiAuthRuntime,
+} from "./pi-auth-runtime.js";
 import { PROVIDER_AUTH_FLOW_KEY_PREFIX, ProviderAuthService } from "./provider-auth-service.js";
 
 /**
@@ -658,5 +663,64 @@ describe("ProviderAuthService — SessionSubscriptions ownership", () => {
     expect(result.ok).toBe(true);
     await flush();
     expect(flowEvents(session).find((e) => e.event.kind === "done")?.event.ok).toBe(true);
+  });
+});
+
+// ─── close (daemon shutdown) ─────────────────────────────────────────────────────────────
+
+describe("ProviderAuthService — close", () => {
+  it("ends every flow with done 'shutting_down': runtime aborted, prompt rejected, timers and subscriptions gone", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const promptOutcomes: string[] = [];
+    const runtime = fakeRuntime({
+      login: async (_id, _type, interaction: AuthInteractionLike) => {
+        if (interaction.signal) signals.push(interaction.signal);
+        try {
+          await interaction.prompt({ type: "text", message: "waiting" });
+        } catch (err) {
+          promptOutcomes.push(err instanceof Error ? err.message : String(err));
+          throw err;
+        }
+        return { type: "api_key" };
+      },
+    });
+    const subscriptions = new SessionSubscriptions();
+    const service = new ProviderAuthService({ runtime, subscriptions });
+    const first = fakeSession();
+    const second = fakeSession();
+    await service.login(first, "openai", "api_key");
+    await service.login(second, "chatgpt", "oauth");
+    expect(vi.getTimerCount()).toBe(2); // one time-to-live timer per flow
+
+    service.close();
+    await vi.advanceTimersByTimeAsync(0); // lets the runtimes' rejected prompts settle
+
+    for (const session of [first, second]) {
+      const doneEvents = flowEvents(session).filter((e) => e.event.kind === "done");
+      expect(doneEvents).toHaveLength(1);
+      expect(doneEvents[0]!.event).toEqual({ kind: "done", ok: false, error: "shutting_down" });
+      expect(subscriptions.keysOf(session)).toEqual([]);
+    }
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(promptOutcomes).toEqual(["shutting_down", "shutting_down"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a login still resolving its provider list when close runs starts no flow", async () => {
+    const providers = Promise.withResolvers<PiAuthProviderInfo[]>();
+    const login = vi.fn(async () => ({ type: "api_key" as const }));
+    const runtime = fakeRuntime({ listProviders: () => providers.promise, login });
+    const service = new ProviderAuthService({ runtime });
+    const session = fakeSession();
+
+    const loggingIn = service.login(session, "openai", "api_key");
+    service.close();
+    providers.resolve([{ id: "openai", name: "OpenAI", authTypes: ["api_key"] }]);
+
+    expect(await loggingIn).toEqual({ ok: false, error: "shutting_down" });
+    expect(login).not.toHaveBeenCalled();
+    expect(flowEvents(session)).toEqual([]);
   });
 });

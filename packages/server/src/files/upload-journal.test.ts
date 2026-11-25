@@ -122,4 +122,17 @@ describe("FileTransferService with an upload journal", () => {
     expect(temps()).toEqual([]);
     expect(existsSync(join(dir, "out.bin"))).toBe(false);
   });
+
+  it("lists nothing once the daemon stopped mid-upload: file removed, journal on disk emptied", async () => {
+    const svc = new FileTransferService({ uploadJournal: new UploadJournal(journalPath) });
+    await begin(svc, join(dir, "out.bin"));
+    await waitFor(() => temps().length === 1);
+    await waitFor(async () => existsSync(journalPath) && (await listed()).length === 1);
+
+    await svc.close();
+
+    expect(temps()).toEqual([]);
+    expect(existsSync(join(dir, "out.bin"))).toBe(false);
+    expect(await listed()).toEqual([]);
+  });
 });

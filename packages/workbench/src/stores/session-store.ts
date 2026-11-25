@@ -7,6 +7,7 @@
 
 import { create } from "zustand";
 import type { AgentStatus } from "@av-pi-studio/protocol";
+import { nextAgentStatus, type StatusSignal } from "../lib/agent-status.js";
 import {
   EMPTY_TIMELINE,
   applyStreamEvent as applyStreamEventToTimeline,
@@ -49,6 +50,16 @@ interface SessionStoreState {
   bindAgent(sessionId: string, agentId: string): void;
   setStatus(sessionId: string, status: AgentStatus | "idle"): void;
   setStatusByAgentId(agentId: string, status: AgentStatus | "idle"): void;
+  /**
+   * Moves a session's status by one report on it — a `turn_started` stream event, an
+   * `agent_update`'s status (the only thing that ends a turn), or the daemon's answer to an
+   * accepted send — through the one rule in `lib/agent-status.ts`. Writes only when the status
+   * changes, so the stream's many other events cost no extra update. `setStatus` stays for a
+   * status the daemon states outright (restore and
+   * resync, from the agent list).
+   */
+  applyStatusSignal(sessionId: string, signal: StatusSignal): void;
+  applyStatusSignalByAgentId(agentId: string, signal: StatusSignal): void;
   setModel(sessionId: string, model: string | undefined, modelProvider?: string): void;
   setModelByAgentId(agentId: string, model: string | undefined, modelProvider?: string): void;
   setThinkingLevel(sessionId: string, level: string | undefined): void;
@@ -145,6 +156,21 @@ export const useSessionStore = create<SessionStoreState>()((set, get) => ({
   setStatusByAgentId(agentId, status) {
     const entry = get().findByAgentId(agentId);
     if (entry) get().setStatus(entry.id, status);
+  },
+
+  applyStatusSignal(sessionId, signal) {
+    set((s) => {
+      const entry = s.sessions[sessionId];
+      if (!entry) return s;
+      const status = nextAgentStatus(entry.status, signal);
+      if (status === entry.status) return s;
+      return { sessions: { ...s.sessions, [sessionId]: { ...entry, status } } };
+    });
+  },
+
+  applyStatusSignalByAgentId(agentId, signal) {
+    const entry = get().findByAgentId(agentId);
+    if (entry) get().applyStatusSignal(entry.id, signal);
   },
 
   setModel(sessionId, model, modelProvider) {

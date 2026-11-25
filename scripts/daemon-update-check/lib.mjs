@@ -2,7 +2,7 @@
 // registry (verdaccio) and the publish of the workspace at several versions, the process list
 // inside the daemon container, and a thin SDK client that records every update broadcast.
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
@@ -170,6 +170,18 @@ export class Publisher {
         }
       }
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      // `--version` and `/api/health` read the compiled `version.generated.js`, not package.json:
+      // the release regenerates it after the bump, so the staged copy must carry the new version too.
+      const generated = path.join(dir, "package", "dist", "version.generated.js");
+      if (existsSync(generated)) {
+        writeFileSync(
+          generated,
+          readFileSync(generated, "utf8").replace(
+            /PACKAGE_VERSION = "[^"]*"/,
+            `PACKAGE_VERSION = "${version}"`,
+          ),
+        );
+      }
       if (broken && pkg === "server") {
         const main = path.join(dir, "package", "dist", "daemon", "main.js");
         const [shebang, ...rest] = readFileSync(main, "utf8").split("\n");

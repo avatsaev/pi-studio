@@ -1,0 +1,18 @@
+{
+  "type": "send_agent_prompt",
+  "direction": "client_to_server",
+  "description": "Send a prompt to an agent. The daemon answers with agent_prompt_response as soon as the prompt is accepted, before any event of the turn; the turn's outcome arrives as agent_stream rows and one agent_update (idle or error). Optional fields not shown: clientMessageId, images. An unknown or archived agent, or an agent whose turn is still running (busy), is an rpc_error and nothing was started.",
+  "since": "0.0.134",
+  "stage": 1,
+  "requiresFeature": null,
+  "volatile": ["/message/requestId", "/message/agentId"],
+  "frame": {
+    "type": "session",
+    "message": {
+      "type": "send_agent_prompt",
+      "requestId": "req-1",
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "prompt": "hello again"
+    }
+  }
+}

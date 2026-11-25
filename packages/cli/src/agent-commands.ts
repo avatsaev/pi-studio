@@ -1,15 +1,24 @@
-import { COMPACT_TIMEOUT_MS, type DaemonClient } from "@av-pi-studio/client";
+import {
+  COMPACT_TIMEOUT_MS,
+  type AgentSettledStatus,
+  type DaemonClient,
+  PI_COMMAND_TIMEOUT_MS,
+  SESSION_START_TIMEOUT_MS,
+  WaitForIdleTimeoutError,
+  waitForAgentIdle,
+} from "@av-pi-studio/client";
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
-import type { Command } from "commander";
+import { type Command, InvalidArgumentError, Option } from "commander";
 
 import {
   type CliContext,
   type GlobalOptions,
   EXIT_ERROR,
   EXIT_OK,
+  errorMessage,
   withDaemon,
 } from "./cli-core.js";
-import { renderJson, renderObject, renderTable } from "./output.js";
+import { renderJson, renderJsonLine, renderObject, renderTable } from "./output.js";
 
 /**
  * Agent command group (features/cli.md § Command tree (agent); agent-sessions.md § Other
@@ -18,8 +27,9 @@ import { renderJson, renderObject, renderTable } from "./output.js";
  * RPC names follow the daemon's registered handlers where they exist (`create_agent_request`,
  * `send_agent_prompt`, `interrupt_agent`, `update_agent`, `resume_agent`, `import_agent_session`,
  * `fetch_agent_timeline_request`). Names for operations whose daemon handlers land in other sprints
- * (`list_agents_request`, `archive_agent`, `delete_agent`, `inspect_agent_request`,
- * `wait_for_agent`) are the canonical names per the scope and are flagged TODO(verify).
+ * (`list_agents_request`, `archive_agent`, `delete_agent`, `inspect_agent_request`) are the
+ * canonical names per the scope and are flagged TODO(verify). `agent wait` has no RPC of its own: it
+ * runs the SDK's `waitForAgentIdle` (see "Waiting for a turn" below).
  */
 
 export const AGENT_RPC = {
@@ -37,7 +47,6 @@ export const AGENT_RPC = {
   archive: "archive_agent",
   delete: "delete_agent",
   inspect: "inspect_agent_request",
-  wait: "wait_for_agent",
   // Slash-command operations (sprint-037): Pi built-ins with a real Pi RPC equivalent — daemon
   // handlers registered in packages/server/src/agent/slash-command-operations.ts.
   sessionStats: "agent_session_stats_request",
@@ -114,16 +123,153 @@ export function formatStreamEvent(event: AgentStreamEvent): string {
 const isTerminalEvent = (e: AgentStreamEvent): boolean =>
   e.kind === "turn_completed" || e.kind === "turn_failed" || e.kind === "turn_canceled";
 
+// ─── Waiting for a turn (`run`, `send`, `wait`) ─────────────────────────────────
+
+/**
+ * `create_agent_request` and `send_agent_prompt` answer at acceptance; the turn ends with one
+ * `agent_update` (`idle` | `error`) and, on a failure, a `turn_failed` stream row carrying the
+ * reason. `run`, `send` and `wait` wait on the SDK's `waitForAgentIdle` and report the outcome:
+ * exit 0 when the agent settles `idle`, non-zero for `error`, `closed`, a `--timeout`, Ctrl-C, or a
+ * lost connection. With `--json` they print exactly one compact line, at the end.
+ */
+
+export interface WaitOptions {
+  /** `--no-wait`: return once the daemon accepted the prompt. Default: wait for the turn. */
+  wait?: boolean;
+  /** `--timeout`: stop waiting after this many seconds (the turn keeps running). Default: no limit. */
+  timeoutSeconds?: number;
+  /** Ends the wait early, like Ctrl-C does in production (which is always listened for). */
+  signal?: AbortSignal;
+}
+
+/** The single `--json` line of `run`, `send` and `wait`. */
+export interface TurnReport {
+  agentId: string;
+  status?: AgentSettledStatus;
+  error?: string;
+}
+
+/** `--timeout <seconds>`: a positive number. */
+export function parseTimeoutSeconds(value: string): number {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new InvalidArgumentError("must be a positive number of seconds");
+  }
+  return seconds;
+}
+
+/** The reasons of each agent's latest `turn_failed` row seen on this connection. */
+interface TurnFailures {
+  reasonOf(agentId: string): string | undefined;
+  stop(): void;
+}
+
+/** Listens from now on; install it BEFORE the request that starts the turn. */
+function trackTurnFailures(client: DaemonClient): TurnFailures {
+  const reasons = new Map<string, string>();
+  const stop = client.onSessionMessage((message) => {
+    if (message.type !== "agent_stream" || message.event.kind !== "turn_failed") return;
+    reasons.set(message.agentId, message.event.error ?? "the turn failed");
+  });
+  return { reasonOf: (agentId) => reasons.get(agentId), stop };
+}
+
+/** An `AbortSignal` that fires on the first Ctrl-C (SIGINT); `dispose` hands SIGINT back. */
+function interruptSignal(): { signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onSigint = (): void => controller.abort();
+  process.once("SIGINT", onSigint);
+  return { signal: controller.signal, dispose: () => process.removeListener("SIGINT", onSigint) };
+}
+
+/** What the wait ended with: the exit code, the `--json` line and the line for stderr. */
+interface TurnOutcome {
+  code: number;
+  report: TurnReport;
+  message?: string;
+}
+
+/** The outcome of an agent that settled; a failure carries the last `turn_failed` reason. */
+export function settledOutcome(
+  agentId: string,
+  status: AgentSettledStatus,
+  failureReason: string | undefined,
+): TurnOutcome {
+  switch (status) {
+    case "idle":
+      return { code: EXIT_OK, report: { agentId, status } };
+    case "error": {
+      const error = failureReason ?? `agent ${agentId} ended with status error`;
+      return { code: EXIT_ERROR, report: { agentId, status, error }, message: `error: ${error}` };
+    }
+    case "closed": {
+      const error = `agent ${agentId} is closed`;
+      return { code: EXIT_ERROR, report: { agentId, status, error }, message: `error: ${error}` };
+    }
+  }
+}
+
+/** The outcome of a wait that did not settle: `--timeout`, Ctrl-C, or any other failure. */
+export function unsettledOutcome(agentId: string, error: unknown): TurnOutcome {
+  if (error instanceof WaitForIdleTimeoutError) {
+    return {
+      code: EXIT_ERROR,
+      report: { agentId, error: "timeout" },
+      message: `error: timeout: agent ${agentId} still running after ${error.timeoutMs / 1000} s; the turn keeps running`,
+    };
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return {
+      code: EXIT_ERROR,
+      report: { agentId, error: "interrupted" },
+      message: `interrupted: stopped waiting for agent ${agentId}; the turn keeps running`,
+    };
+  }
+  const message = errorMessage(error);
+  return { code: EXIT_ERROR, report: { agentId, error: message }, message: `error: ${message}` };
+}
+
+/** Wait for `agentId`'s turn to end and report it; the exit code is the outcome's. */
+async function awaitTurn(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  failures: TurnFailures,
+  opts: WaitOptions & { json?: boolean; announce?: boolean },
+): Promise<number> {
+  const interrupt = interruptSignal();
+  let outcome: TurnOutcome;
+  try {
+    const { status } = await waitForAgentIdle(client, agentId, {
+      timeoutMs: opts.timeoutSeconds === undefined ? undefined : opts.timeoutSeconds * 1000,
+      signal: opts.signal ? AbortSignal.any([interrupt.signal, opts.signal]) : interrupt.signal,
+    });
+    outcome = settledOutcome(agentId, status, failures.reasonOf(agentId));
+  } catch (error) {
+    outcome = unsettledOutcome(agentId, error);
+  } finally {
+    interrupt.dispose();
+  }
+  if (outcome.message) ctx.sink.error(outcome.message);
+  if (opts.json) ctx.sink.write(renderJsonLine(outcome.report));
+  else if (outcome.code === EXIT_OK && opts.announce) ctx.sink.write(outcome.report.status ?? "");
+  return outcome.code;
+}
+
 // ─── Pure command actions (run inside withDaemon) ───────────────────────────────
 
-export interface RunOptions {
+export interface RunOptions extends WaitOptions {
   provider?: string;
   worktree?: string;
   cwd?: string;
   json?: boolean;
 }
 
-/** `run` — create + run an agent, print its id. */
+/**
+ * `run` — create + run an agent: print its id at once, then wait for the turn (unless
+ * `--no-wait`). `--json` prints one line at the end instead: `{agentId, status, error?}`, or just
+ * `{agentId}` with `--no-wait`.
+ */
 export async function runAgent(
   client: DaemonClient,
   ctx: CliContext,
@@ -136,9 +282,13 @@ export async function runAgent(
   const params: Record<string, unknown> = { config, initialPrompt: prompt };
   if (opts.worktree) params.worktreeName = opts.worktree;
 
-  const payload = await client.request<{ agentId: string }>(AGENT_RPC.create, params);
-  ctx.sink.write(opts.json ? renderJson(payload) : payload.agentId);
-  return EXIT_OK;
+  const failures = trackTurnFailures(client);
+  try {
+    const { agentId } = await client.request<{ agentId: string }>(AGENT_RPC.create, params);
+    return await followAccepted(client, ctx, agentId, failures, opts);
+  } finally {
+    failures.stop();
+  }
 }
 
 export interface LsOptions {
@@ -169,17 +319,62 @@ export async function lsAgents(
   return EXIT_OK;
 }
 
-/** `send` — send a follow-up prompt. */
+/**
+ * The agent accepted a prompt: print its id (`--json`: nothing yet), then wait for the turn unless
+ * `--no-wait`.
+ */
+async function followAccepted(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  failures: TurnFailures,
+  opts: WaitOptions & { json?: boolean },
+): Promise<number> {
+  if (!opts.json) ctx.sink.write(agentId);
+  if (opts.wait === false) {
+    if (opts.json) ctx.sink.write(renderJsonLine({ agentId }));
+    return EXIT_OK;
+  }
+  return awaitTurn(client, ctx, agentId, failures, opts);
+}
+
+/**
+ * `send` — send a follow-up prompt: the same as `run` after the daemon accepted it. A refusal
+ * (`busy`, unknown agent) is the daemon's `RpcError`: its message on stderr, exit 1.
+ */
 export async function sendAgent(
   client: DaemonClient,
   ctx: CliContext,
   agentId: string,
   prompt: string,
-  opts: GlobalOptions,
+  opts: WaitOptions & { json?: boolean },
 ): Promise<number> {
-  const payload = await client.request(AGENT_RPC.send, { agentId, prompt });
-  ctx.sink.write(opts.json ? renderJson(payload) : "sent");
-  return EXIT_OK;
+  const failures = trackTurnFailures(client);
+  try {
+    await client.request(AGENT_RPC.send, { agentId, prompt });
+    return await followAccepted(client, ctx, agentId, failures, opts);
+  } finally {
+    failures.stop();
+  }
+}
+
+/**
+ * `wait` — wait for the agent's current turn to end: returns at once for an agent that is not
+ * running. Same exit codes, `--timeout` and `--json` line as `run`; prints the status (`idle`) on
+ * success.
+ */
+export async function waitAgent(
+  client: DaemonClient,
+  ctx: CliContext,
+  agentId: string,
+  opts: WaitOptions & { json?: boolean },
+): Promise<number> {
+  const failures = trackTurnFailures(client);
+  try {
+    return await awaitTurn(client, ctx, agentId, failures, { ...opts, announce: true });
+  } finally {
+    failures.stop();
+  }
 }
 
 /** `steer` / `follow-up` — inject a message into a LIVE turn (does not start a new turn). */
@@ -207,7 +402,8 @@ export async function steerAgent(
   return payload.ok === false ? EXIT_ERROR : EXIT_OK;
 }
 
-/** Generic single-agent RPC by id (stop/archive/delete/reload/wait). */
+/** Generic single-agent RPC by id (stop/archive/delete/reload). `timeoutMs` overrides the default
+ *  RPC timeout for a request that is slow by nature (the SDK's `*_TIMEOUT_MS` constants). */
 async function simpleAgentRpc(
   client: DaemonClient,
   ctx: CliContext,
@@ -215,9 +411,9 @@ async function simpleAgentRpc(
   agentId: string,
   okText: string,
   opts: GlobalOptions,
-  extra: Record<string, unknown> = {},
+  timeoutMs?: number,
 ): Promise<number> {
-  const payload = await client.request(type, { agentId, ...extra });
+  const payload = await client.request(type, { agentId }, timeoutMs);
   ctx.sink.write(opts.json ? renderJson(payload) : okText);
   return EXIT_OK;
 }
@@ -302,7 +498,8 @@ export interface AttachOptions extends GlobalOptions {
   signal?: AbortSignal;
 }
 
-/** `attach` — subscribe to the live timeline and stream events to the terminal. */
+/** `attach` — subscribe to the live timeline and stream events to the terminal. With `untilTurnEnd`
+ *  the exit code is non-zero when the turn ended in `turn_failed`. */
 export function attachAgent(
   client: DaemonClient,
   ctx: CliContext,
@@ -322,7 +519,7 @@ export function attachAgent(
       }
       if (opts.untilTurnEnd && isTerminalEvent(m.event)) {
         unsubscribe();
-        resolve(EXIT_OK);
+        resolve(m.event.kind === "turn_failed" ? EXIT_ERROR : EXIT_OK);
       }
     });
 
@@ -380,7 +577,11 @@ export async function newAgentSession(
   agentId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.newSession, { agentId });
+  const payload = await client.request<{ cancelled: boolean }>(
+    AGENT_RPC.newSession,
+    { agentId },
+    PI_COMMAND_TIMEOUT_MS,
+  );
   ctx.sink.write(
     opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "new session started",
   );
@@ -395,10 +596,11 @@ export async function switchAgentSession(
   sessionPath: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.switchSession, {
-    agentId,
-    sessionPath,
-  });
+  const payload = await client.request<{ cancelled: boolean }>(
+    AGENT_RPC.switchSession,
+    { agentId, sessionPath },
+    PI_COMMAND_TIMEOUT_MS,
+  );
   ctx.sink.write(
     opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "session switched",
   );
@@ -413,10 +615,11 @@ export async function forkAgent(
   entryId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<Record<string, unknown>>(AGENT_RPC.fork, {
-    agentId,
-    entryId,
-  });
+  const payload = await client.request<Record<string, unknown>>(
+    AGENT_RPC.fork,
+    { agentId, entryId },
+    SESSION_START_TIMEOUT_MS,
+  );
   ctx.sink.write(opts.json ? renderJson(payload) : renderObject(payload));
   return EXIT_OK;
 }
@@ -433,9 +636,11 @@ export async function forkMessagesAgent(
   agentId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ messages?: ForkMessageRow[] }>(AGENT_RPC.forkMessages, {
-    agentId,
-  });
+  const payload = await client.request<{ messages?: ForkMessageRow[] }>(
+    AGENT_RPC.forkMessages,
+    { agentId },
+    SESSION_START_TIMEOUT_MS,
+  );
   ctx.sink.write(
     opts.json ? renderJson(payload) : renderTable(payload.messages ?? [], ["entryId", "text"]),
   );
@@ -449,7 +654,11 @@ export async function cloneAgentSession(
   agentId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ cancelled: boolean }>(AGENT_RPC.clone, { agentId });
+  const payload = await client.request<{ cancelled: boolean }>(
+    AGENT_RPC.clone,
+    { agentId },
+    SESSION_START_TIMEOUT_MS,
+  );
   ctx.sink.write(opts.json ? renderJson(payload) : payload.cancelled ? "cancelled" : "cloned");
   return EXIT_OK;
 }
@@ -546,15 +755,36 @@ export async function listAgentCommands(
   agentId: string,
   opts: GlobalOptions,
 ): Promise<number> {
-  const payload = await client.request<{ commands?: AgentCommandRow[] }>(AGENT_RPC.listCommands, {
-    agentId,
-  });
+  const payload = await client.request<{ commands?: AgentCommandRow[] }>(
+    AGENT_RPC.listCommands,
+    { agentId },
+    SESSION_START_TIMEOUT_MS,
+  );
   ctx.sink.write(
     opts.json
       ? renderJson(payload)
       : renderTable(payload.commands ?? [], ["name", "source", "scope", "description"]),
   );
   return EXIT_OK;
+}
+
+/** Flags Commander parses for `send` (`--no-wait` stores `wait: false`). */
+interface SendFlags {
+  wait?: boolean;
+  timeout?: number;
+}
+
+interface RunFlags extends SendFlags {
+  provider?: string;
+  worktree?: string;
+  cwd?: string;
+}
+
+function timeoutOption(): Option {
+  return new Option(
+    "--timeout <seconds>",
+    "stop waiting after this many seconds (the turn keeps running; default: no limit)",
+  ).argParser(parseTimeoutSeconds);
 }
 
 // ─── Commander wiring ───────────────────────────────────────────────────────────
@@ -587,23 +817,34 @@ export function registerAgentCommands(
     .action(lsAction);
 
   // run (+ top-level alias)
-  const runAction = (prompt: string, o: RunOptions) =>
-    withDaemon(ctx, g(), (client) => runAgent(client, ctx, prompt, { ...o, json: g().json })).then(
-      setExit,
-    );
+  const runAction = (prompt: string, o: RunFlags) =>
+    withDaemon(ctx, g(), (client) =>
+      runAgent(client, ctx, prompt, {
+        provider: o.provider,
+        worktree: o.worktree,
+        cwd: o.cwd,
+        json: g().json,
+        wait: o.wait,
+        timeoutSeconds: o.timeout,
+      }),
+    ).then(setExit);
   agent
     .command("run <prompt>")
-    .description("create and run an agent")
+    .description("create and run an agent, and wait for the turn to end")
     .option("-p, --provider <provider/model>", "provider id and model, e.g. pi/<model>")
     .option("-w, --worktree <name>", "run inside a Pi-Studio worktree")
     .option("--cwd <dir>", "working directory for the agent")
+    .option("--no-wait", "return once the daemon accepted the prompt")
+    .addOption(timeoutOption())
     .action(runAction);
   program
     .command("run <prompt>")
-    .description("create and run an agent (alias of `agent run`)")
+    .description("create and run an agent, and wait for the turn to end (alias of `agent run`)")
     .option("-p, --provider <provider/model>", "provider id and model, e.g. pi/<model>")
     .option("-w, --worktree <name>", "run inside a Pi-Studio worktree")
     .option("--cwd <dir>", "working directory for the agent")
+    .option("--no-wait", "return once the daemon accepted the prompt")
+    .addOption(timeoutOption())
     .action(runAction);
 
   // attach (+ top-level alias)
@@ -642,15 +883,25 @@ export function registerAgentCommands(
     .action(logsAction);
 
   // send (+ top-level alias)
-  const sendAction = (agentId: string, prompt: string) =>
-    withDaemon(ctx, g(), (client) => sendAgent(client, ctx, agentId, prompt, g())).then(setExit);
+  const sendAction = (agentId: string, prompt: string, o: SendFlags) =>
+    withDaemon(ctx, g(), (client) =>
+      sendAgent(client, ctx, agentId, prompt, {
+        json: g().json,
+        wait: o.wait,
+        timeoutSeconds: o.timeout,
+      }),
+    ).then(setExit);
   agent
     .command("send <agentId> <prompt>")
-    .description("send a follow-up prompt")
+    .description("send a follow-up prompt and wait for the turn to end")
+    .option("--no-wait", "return once the daemon accepted the prompt")
+    .addOption(timeoutOption())
     .action(sendAction);
   program
     .command("send <agentId> <prompt>")
-    .description("send a follow-up prompt (alias of `agent send`)")
+    .description("send a follow-up prompt and wait for the turn to end (alias of `agent send`)")
+    .option("--no-wait", "return once the daemon accepted the prompt")
+    .addOption(timeoutOption())
     .action(sendAction);
 
   // steer / follow-up (+ top-level aliases) — inject into a LIVE turn
@@ -683,7 +934,7 @@ export function registerAgentCommands(
     .description("interrupt the current turn")
     .action((agentId: string) =>
       withDaemon(ctx, g(), (client) =>
-        simpleAgentRpc(client, ctx, AGENT_RPC.stop, agentId, "stopped", g()),
+        simpleAgentRpc(client, ctx, AGENT_RPC.stop, agentId, "stopped", g(), PI_COMMAND_TIMEOUT_MS),
       ).then(setExit),
     );
   agent
@@ -707,15 +958,24 @@ export function registerAgentCommands(
     .description("reload/resume a closed session")
     .action((agentId: string) =>
       withDaemon(ctx, g(), (client) =>
-        simpleAgentRpc(client, ctx, AGENT_RPC.resume, agentId, "reloaded", g()),
+        simpleAgentRpc(
+          client,
+          ctx,
+          AGENT_RPC.resume,
+          agentId,
+          "reloaded",
+          g(),
+          SESSION_START_TIMEOUT_MS,
+        ),
       ).then(setExit),
     );
   agent
     .command("wait <agentId>")
-    .description("wait for the agent to finish")
-    .action((agentId: string) =>
+    .description("wait for the agent's current turn to end (exit 0 when it settles idle)")
+    .addOption(timeoutOption())
+    .action((agentId: string, o: { timeout?: number }) =>
       withDaemon(ctx, g(), (client) =>
-        simpleAgentRpc(client, ctx, AGENT_RPC.wait, agentId, "finished", g()),
+        waitAgent(client, ctx, agentId, { json: g().json, timeoutSeconds: o.timeout }),
       ).then(setExit),
     );
 
@@ -725,7 +985,11 @@ export function registerAgentCommands(
     .description("import a provider-native session")
     .action((sessionRef: string) =>
       withDaemon(ctx, g(), async (client) => {
-        const payload = await client.request(AGENT_RPC.import, { sessionRef });
+        const payload = await client.request(
+          AGENT_RPC.import,
+          { sessionRef },
+          SESSION_START_TIMEOUT_MS,
+        );
         ctx.sink.write(
           g().json ? renderJson(payload) : renderObject(payload as Record<string, unknown>),
         );

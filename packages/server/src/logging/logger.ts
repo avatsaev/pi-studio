@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { Writable } from "node:stream";
 
 import { pino, multistream } from "pino";
 // `pino-pretty` is usable directly as a sonic-boom-compatible stream, which avoids spawning a
@@ -93,16 +94,15 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
   });
 
   // Optional rotating file — in addition to stdout, never instead of it.
+  let fileStream: Writable | undefined;
   if (options.logDir) {
     mkdirSync(options.logDir, { recursive: true });
-    streams.push({
-      level,
-      stream: createRotatingStream("pi-studio.log", {
-        size: options.rotateSize ?? "10M",
-        maxFiles: options.rotateMaxFiles ?? 5,
-        path: options.logDir,
-      }),
+    fileStream = createRotatingStream("pi-studio.log", {
+      size: options.rotateSize ?? "10M",
+      maxFiles: options.rotateMaxFiles ?? 5,
+      path: options.logDir,
     });
+    streams.push({ level, stream: fileStream });
   }
 
   if (options.tap) {
@@ -110,7 +110,27 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
     streams.push({ level, stream: options.tap.stream });
   }
 
-  return pino(base, multistream(streams)) as unknown as Logger;
+  const logger = pino(base, multistream(streams)) as unknown as Logger;
+  if (fileStream) logFiles.set(logger, fileStream);
+  return logger;
+}
+
+/** The rotating file each logger from {@link createLogger} writes to (root loggers only). */
+const logFiles = new WeakMap<Logger, Writable>();
+
+/**
+ * Resolves once every line logged so far through `logger` has been handed to its log file. The file
+ * stream writes asynchronously, so a process that exits right after logging (a fatal error) would
+ * lose the line without this. Resolves at once for a logger without a file (silent, stdout-only, or
+ * injected) and never rejects. Pass the logger `createLogger` returned, not a `child` of it.
+ */
+export function flushLogger(logger: Logger): Promise<void> {
+  const file = logFiles.get(logger);
+  if (file === undefined || file.destroyed) return Promise.resolve();
+  // Writes complete in order, so the callback of an empty one fires after every earlier line.
+  const { promise, resolve } = Promise.withResolvers<void>();
+  file.write("", () => resolve());
+  return promise;
 }
 
 /**

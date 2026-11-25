@@ -110,9 +110,15 @@ By default the daemon:
 - writes logs to **`$PI_STUDIO_HOME/logs/`**
 - uses the **`pi`** provider
 
-It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown that closes every
-live agent session (each limited to 7 s; a `pi` child is killed with its process tree), kills the
-terminals, closes the HTTP/WS servers and removes `pi-studio.pid`.
+It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown: it first stops
+accepting (new connections get 503, a request on an open one gets `rpc_error` `shutting_down`), then
+closes every live agent session (each limited to 7 s; a `pi` child is killed with its process tree),
+kills the terminals (a shell that ignores SIGTERM gets SIGKILL after 2 s), stops the extension and
+skill installs it started (their process trees are killed; an install waiting its turn is rejected),
+ends the login flows and removes the half-written uploads, closes the sockets (a client that does not
+answer the close frame is dropped after 1 s) and the HTTP server, and removes `pi-studio.pid`. The
+whole is limited to 10 s; a step that fails or hangs is logged and the rest still run, and the PID
+file is removed on every path.
 
 ### Verify it's up
 
@@ -127,7 +133,8 @@ curl http://127.0.0.1:6767/api/health
 
 A connected client (workbench pill and dialog, the desktop Daemons screen, or any SDK client) can ask the
 daemon to update itself with the `daemon_update_*` RPCs, gated by `server_info.features.daemonUpdate`.
-The daemon checks the npm registry at start and every 6 h (`daemon.update.autoCheck`, env
+The daemon checks the npm registry at start, every 6 h, and when a client connects whose last check is over
+10 minutes old (`daemon.update.autoCheck`, env
 `PI_STUDIO_UPDATE_AUTOCHECK`; "Check now" always works) and broadcasts every change as `daemon_update_status`.
 Applying runs `npm install -g @av-pi-studio/cli@<version>`, then `pi update --extensions`, then hands over
 to a detached helper that waits for the old daemon to exit (up to 30 s), starts the new version on the same
@@ -291,7 +298,11 @@ All communication rides a **single WebSocket connection** per client.
   (`mobile`/`browser`/`cli`/`mcp`), `protocolVersion`, optional `capabilities`, `platform` and `agentStreams`
   (`"all"` default, or `"none"` to receive no `agent_stream` frames).
 - `status` (Server→Client) — `server_info` payload sent right after a successful hello.
-- `ping` / `pong` — **JSON** liveness (not RFC 6455 ping, which browsers/RN can't send).
+- `ping` / `pong` — **JSON** liveness (not RFC 6455 ping, which browsers/RN can't send). Separately,
+  the daemon sends an RFC 6455 ping to every direct socket every 30 s and closes one that showed no
+  life (a pong or any frame) for two intervals; browsers, `ws` and tungstenite answer by themselves.
+  A client that stops reading is cut off too: a session whose send queue passes 16 MiB is closed
+  (1013, "send queue full") and terminated, and the client reconnects.
 - `session` — the envelope wrapping every RPC request/response/broadcast (`{ type: "session",
   message }`).
 - `rpc_error` — a correlated error response (carries the originating `requestId`).
@@ -420,8 +431,9 @@ src/
 
 ### Lifecycle FSM
 
-`AgentManager` enforces `initializing → idle ↔ running → error → closed`. Every transition persists
-the record **and** broadcasts `agent_update` to subscribers; any other field (title, labels,
+`AgentManager` enforces `initializing → idle ↔ running → error → closed`, plus the shortcut
+`initializing → running` (a created agent's first prompt). Every transition persists the record
+**and** broadcasts `agent_update` to subscribers; any other field (title, labels,
 config) goes through `updateRecord(id, patch)`, which persists but leaves broadcasting to the RPC
 call site. Archiving soft-deletes (sets `archivedAt`). On startup, persisted records are
 rehydrated with no live session re-attached; any record still stuck at `running`/`initializing`

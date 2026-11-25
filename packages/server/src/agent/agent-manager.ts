@@ -2,7 +2,6 @@ import type { AgentStatus } from "@av-pi-studio/protocol";
 
 import {
   deleteAgent as deleteAgentFromDisk,
-  loadAllAgents as loadAllAgentsFromDisk,
   saveAgent as saveAgentToDisk,
 } from "../persistence/entity-stores.js";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
@@ -72,18 +71,19 @@ export class InvalidAgentTransitionError extends Error {
   }
 }
 
-// initializing → idle ⇄ running ; idle/running → error → idle|running|closed (closed is terminal).
+// initializing → idle ⇄ running ; initializing → running (a created agent's first prompt, which
+// never reads idle); idle/running → error → idle|running|closed (closed is terminal).
 //
 // `error` is recoverable, not terminal: it means "the last turn failed, session still attached"
 // (architecture/agent-lifecycle.md § States), and sending another prompt is precisely how a user
 // recovers — fix the upstream cause (bad API key, exhausted quota, provider 403/429) and retry the
-// same conversation. Without the `error → running` edge, `runTurn`'s opening `setStatus(running)`
+// same conversation. Without the `error → running` edge, the opening `setStatus(running)` of a prompt
 // threw `InvalidAgentTransitionError` for every subsequent send, so one provider error wedged the
 // conversation permanently: each later message was rejected in ~1ms and rendered "failed to send",
 // with no way back short of closing the agent. The edge also guarded nothing — `error → idle →
 // running` was already reachable in two hops.
 const ALLOWED_TRANSITIONS: Record<AgentStatus, Partial<Record<AgentStatus, true>>> = {
-  initializing: { idle: true, error: true, closed: true },
+  initializing: { idle: true, running: true, error: true, closed: true },
   idle: { running: true, error: true, closed: true },
   running: { idle: true, error: true, closed: true },
   error: { idle: true, running: true, closed: true },
@@ -98,7 +98,8 @@ export function canTransition(from: AgentStatus, to: AgentStatus): boolean {
 export interface AgentManagerDeps {
   home: string;
   saveAgent?: (record: AgentRecord) => Promise<void>;
-  loadAllAgents?: () => Promise<AgentRecord[]>;
+  /** Where recovery reads the persisted records from; the daemon passes the disk loader with its logger. */
+  loadAllAgents: () => Promise<AgentRecord[]>;
   /** Delete a persisted agent record file by (cwd, id). Injectable for tests. */
   deleteAgent?: (cwd: string, id: string) => Promise<boolean>;
   /** Session-attach hook (features/extension-ui-rpc.md § New/changed files) — invoked at the end of
@@ -127,7 +128,7 @@ export class AgentManager {
   /** The in-memory timeline of every agent with history held; archive and delete evict. */
   readonly timelines = new TimelineRegistry();
   private readonly agents = new Map<string, ManagedAgent>();
-  private readonly busy = new Map<string, BusyKind>();
+  private readonly busy = new Map<string, { kind: BusyKind }>();
   private readonly spawns = new Map<string, Promise<AgentSession>>();
   private readonly subscribers = new Set<AgentManagerSubscriber>();
   private readonly save: (record: AgentRecord) => Promise<void>;
@@ -137,7 +138,7 @@ export class AgentManager {
 
   constructor(private readonly deps: AgentManagerDeps) {
     this.save = deps.saveAgent ?? ((record) => saveAgentToDisk(deps.home, record));
-    this.loadAll = deps.loadAllAgents ?? (() => loadAllAgentsFromDisk(deps.home));
+    this.loadAll = deps.loadAllAgents;
     this.delete = deps.deleteAgent ?? ((cwd, id) => deleteAgentFromDisk(deps.home, cwd, id));
     this.now = deps.now ?? (() => new Date().toISOString());
   }
@@ -176,20 +177,31 @@ export class AgentManager {
   }
 
   /**
-   * Run `fn` as the agent's only turn, compaction or session operation. A second one started while
-   * it runs is refused at once with `busy: agent <id> <reason>` (the router answers `rpc_error`),
-   * before it can spawn, subscribe or touch the timeline. The claim is taken synchronously when
-   * this is called and released when `fn` settles, whatever the outcome. Model and thinking-level
-   * changes do not claim: Pi applies them to the next turn.
+   * Take the agent's claim for `kind`: its only turn, compaction or session operation. A second
+   * one started while it is held is refused at once with `busy: agent <id> <reason>` (the router
+   * answers `rpc_error`), before it can spawn, subscribe or touch the timeline. The claim is taken
+   * synchronously by this call and held until the returned `release` runs (once; later calls do
+   * nothing, so a stale release cannot free a newer claim). A turn whose work outlives its RPC
+   * (`AgentService`) holds the claim this way; everything else uses `runExclusive`. Model and
+   * thinking-level changes do not claim: Pi applies them to the next turn.
    */
-  async runExclusive<T>(id: string, kind: BusyKind, fn: () => Promise<T>): Promise<T> {
+  claim(id: string, kind: BusyKind): () => void {
     const held = this.busy.get(id);
-    if (held) throw new Error(`busy: agent ${id} ${BUSY_REASON[held]}`);
-    this.busy.set(id, kind);
+    if (held) throw new Error(`busy: agent ${id} ${BUSY_REASON[held.kind]}`);
+    const claim = { kind };
+    this.busy.set(id, claim);
+    return () => {
+      if (this.busy.get(id) === claim) this.busy.delete(id);
+    };
+  }
+
+  /** Run `fn` under the agent's claim (`claim`), released when `fn` settles, whatever the outcome. */
+  async runExclusive<T>(id: string, kind: BusyKind, fn: () => Promise<T>): Promise<T> {
+    const release = this.claim(id, kind);
     try {
       return await fn();
     } finally {
-      this.busy.delete(id);
+      release();
     }
   }
 
@@ -235,7 +247,7 @@ export class AgentManager {
   /**
    * The session's runtime ended on its own (`AgentSession.onExit`): detach it and mark the agent
    * `error`, so the next prompt resumes from the persisted handle instead of writing to a dead
-   * process. A turn in progress has already ended as `turn_failed`, and its `runTurn` settles the
+   * process. A turn in progress has already ended as `turn_failed`, and the turn settles the
    * same status. A session that is no longer the attached one (archived, replaced) is ignored.
    */
   private detachDeadSession(id: string, session: AgentSession, reason: string): void {
@@ -345,7 +357,7 @@ export class AgentManager {
    * (architecture/agent-lifecycle.md § Archive). Interrupts a running turn first, snapshots the
    * session's persistence handle, sets `archivedAt`, normalizes `lastStatus` away from
    * running/initializing, notifies subscribers, closes/kills the runtime (which ends the turn, so
-   * its `run()` and RPC settle), then archives each child whose parent label points at this agent.
+   * its `run()` settles), then archives each child whose parent label points at this agent.
    * Detached agents (no parent label) are never cascade-archived. Idempotent.
    */
   async archiveAgent(id: string): Promise<void> {

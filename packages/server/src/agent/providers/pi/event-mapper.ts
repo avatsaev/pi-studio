@@ -251,6 +251,14 @@ export function createPiEventMapper(): PiEventMapper {
         }
 
         // ── Errors ──
+        // Pi answers a `prompt` it refuses before any run starts (no model, no credential, a
+        // compaction running) with a failed response and nothing else: no `agent_start`, no
+        // `agent_settled`. The transport hands that response over only when no request was
+        // waiting for it (a notified `prompt` has no id), and it is the turn's whole outcome.
+        case "response":
+          return event.success === false && event.command === "prompt"
+            ? { kind: "turn_failed", error: str(event.error) ?? "prompt refused" }
+            : null;
         case "extension_error":
           return { kind: "error", message: str(event.error) };
         case "error":

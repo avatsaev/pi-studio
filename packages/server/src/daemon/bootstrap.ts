@@ -7,17 +7,14 @@
  *
  * See: architecture/daemon-bootstrap.md, config.md, persistence.md, auth-security.md.
  */
-import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
-import nacl from "tweetnacl";
 
 import { PACKAGE_NAME, SERVER_VERSION } from "../version.js";
-import { createHttpServer } from "../http/http-server.js";
+import { closeHttpServer, createHttpServer } from "../http/http-server.js";
 import { createWebSocketServer } from "../ws/ws-server.js";
 import {
   HandlerRegistry,
@@ -33,6 +30,7 @@ import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.j
 import { expandHome } from "../files/resolve-path.js";
 
 import {
+  ConfigUnreadableError,
   loadConfig,
   persistUpdateAutoCheck,
   type PersistedConfig,
@@ -61,7 +59,7 @@ import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
 import { FileWatchService } from "../files/file-watch-service.js";
 import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
-import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
+import { readInlineFile } from "../files/inline-read.js";
 import { UploadJournal } from "../files/upload-journal.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
@@ -109,10 +107,12 @@ import {
 } from "../update/update-service.js";
 
 import { SERVER_FEATURES } from "@av-pi-studio/protocol";
+import { resolveDaemonKeypair, resolveServerId } from "./identity-files.js";
 import { parseDaemonListen } from "./index.js";
 import { isUnprotectedBind, unprotectedBindError } from "./loopback.js";
 import { attachRelaySession } from "./relay-sessions.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
+import { runShutdown } from "./shutdown.js";
 
 export interface DaemonOptions {
   /** Bind host. Defaults to the host of `config.daemon.listen` (`PI_STUDIO_LISTEN` → config → loopback). */
@@ -136,8 +136,8 @@ export interface DaemonOptions {
    * same tap to `createLogger({tap})` (an injected logger without it streams nothing).
    */
   logTap?: LogTap;
-  /** Test-only injection for the preinstalled-extensions sync executor's process seam; production
-   *  always spawns the bundled `pi` (`defaultInstallSpawn`). */
+  /** Test-only injection for the process seam of the extensions sync and the update's extensions
+   *  step; production spawns through the extensions service's own `InstallProcesses`. */
   extensionsInstallSpawn?: InstallSpawn;
   /**
    * Called after an update's shutdown has finished, to end the process (`daemon/main.ts` exits 0).
@@ -151,8 +151,10 @@ export interface DaemonOptions {
     pipeline?: Partial<UpdatePipelineDeps>;
   };
   /**
-   * Called after an unrecoverable HTTP-server error (typically `EADDRINUSE` on bind) once the WS
-   * server has been torn down. `startDaemon` logs the error and sets `process.exitCode = 1`, but
+   * Called after an unrecoverable startup error: a refused start (an unusable `config.json`, an
+   * unprotected bind, a bad listen address — nothing has been started yet) or an HTTP-server error
+   * (typically `EADDRINUSE` on bind) once the WS server has been torn down. `startDaemon` logs the
+   * error and sets `process.exitCode = 1`, but
    * never terminates the process itself — a library must not kill its host. The process entry
    * point supplies the actual exit (`daemon/main.ts`); tests leave it unset so a bind failure
    * surfaces as a normal test failure instead of an opaque process kill.
@@ -173,65 +175,6 @@ export interface DaemonHandle {
 
 function resolveHome(opts: DaemonOptions): string {
   return opts.home ?? process.env.PI_STUDIO_HOME ?? join(homedir(), ".pi-studio");
-}
-
-/** Read a stable server id from `<home>/server-id`, generating + persisting one if absent. */
-function resolveServerId(home: string, override?: string): string {
-  if (override) return override;
-  if (process.env.PI_STUDIO_SERVER_ID) return process.env.PI_STUDIO_SERVER_ID;
-  const path = join(home, "server-id");
-  if (existsSync(path)) {
-    const value = readFileSync(path, "utf8").trim();
-    if (value) return value;
-  }
-  const id = randomUUID();
-  try {
-    mkdirSync(home, { recursive: true });
-    writeFileSync(path, id, "utf8");
-  } catch {
-    /* best-effort persistence */
-  }
-  return id;
-}
-
-/**
- * Read (or generate + persist) the daemon's stable Curve25519 keypair for pairing
- * (architecture/relay-e2ee.md § Pairing). Stored as base64 at `<home>/daemon-keypair.json`;
- * the CLI's `readDaemonPublicKey()` reads the same file/shape to build the pairing QR URL.
- */
-function resolveDaemonKeypair(home: string): { publicKeyB64: string; secretKeyB64: string } {
-  const path = join(home, "daemon-keypair.json");
-  if (existsSync(path)) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as {
-        publicKeyB64?: string;
-        secretKeyB64?: string;
-      };
-      if (parsed.publicKeyB64 && parsed.secretKeyB64) {
-        // Contains the secret key — re-tighten files written before mode 0600 was enforced.
-        try {
-          chmodSync(path, 0o600);
-        } catch {
-          /* best-effort */
-        }
-        return { publicKeyB64: parsed.publicKeyB64, secretKeyB64: parsed.secretKeyB64 };
-      }
-    } catch {
-      /* fall through to regenerate */
-    }
-  }
-  const { publicKey, secretKey } = nacl.box.keyPair();
-  const keypair = {
-    publicKeyB64: Buffer.from(publicKey).toString("base64"),
-    secretKeyB64: Buffer.from(secretKey).toString("base64"),
-  };
-  try {
-    mkdirSync(home, { recursive: true });
-    writeFileSync(path, JSON.stringify(keypair), { encoding: "utf8", mode: 0o600 });
-  } catch {
-    /* best-effort persistence */
-  }
-  return keypair;
 }
 
 /** Best-effort PID lock file so a stale daemon is discoverable. */
@@ -274,6 +217,48 @@ export function wrapSessionEnvelope(
 }
 
 /**
+ * Send `message` (wrapped by {@link wrapSessionEnvelope}) to every session in `sessions`. The
+ * envelope is serialised once, whatever the number of recipients; a session whose socket is dead
+ * is skipped, and one whose send queue is full is cut off by `Session` itself.
+ */
+export function broadcast(sessions: Iterable<Session>, message: unknown): void {
+  let text: string;
+  try {
+    text = JSON.stringify(wrapSessionEnvelope(message));
+  } catch {
+    return; // not serialisable: no session could take it
+  }
+  for (const s of sessions) {
+    try {
+      s.sendText(text);
+    } catch {
+      /* ignore dead sockets */
+    }
+  }
+}
+
+/**
+ * Load `config.json` for a start. A file that cannot be used is a refusal, like an unprotected bind:
+ * log the error (path and problem), set the exit code, call `onFatalError`, throw. Nothing has been
+ * started yet and the file is left as it is.
+ */
+function loadConfigOrRefuse(
+  configPath: string,
+  logger: Logger,
+  opts: Pick<DaemonOptions, "onFatalError">,
+): PersistedConfig {
+  try {
+    return loadConfig(configPath, process.env);
+  } catch (err) {
+    if (!(err instanceof ConfigUnreadableError)) throw err;
+    logger.error({ path: err.path, code: err.code }, err.message);
+    process.exitCode = 1;
+    opts.onFatalError?.(err);
+    throw err;
+  }
+}
+
+/**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
  * `close()` for graceful shutdown.
  */
@@ -283,7 +268,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const logTap = opts.logTap ?? new LogTap();
   const logger = opts.logger ?? createDaemonLogger(home, { tap: logTap });
   const configPath = opts.configPath ?? join(home, "config.json");
-  const config: PersistedConfig = loadConfig(configPath, process.env);
+  const config = loadConfigOrRefuse(configPath, logger, opts);
   let listen: { host: string; port: number };
   try {
     const configured = parseDaemonListen(config.daemon.listen);
@@ -306,9 +291,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     opts.onFatalError?.(err);
     throw err;
   }
-  const serverId = resolveServerId(home, opts.serverId);
-  const daemonKeypairB64 = resolveDaemonKeypair(home);
-  writePidLock(home);
+  const serverId = resolveServerId(home, logger, opts.serverId);
+  const daemonKeypairB64 = resolveDaemonKeypair(home, logger);
+  // The PID file is written once `listen` has succeeded (see the "listening" handler below).
   logger.info({ home, configPath, serverId }, "daemon starting");
 
   // ── Preinstalled-extensions sync (constructed here; kicked off after the WS server is
@@ -325,19 +310,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // ── Real provider resolution (pi spawns `pi --mode rpc`; mock is opt-in) ─────
   const resolveClient = (provider: string): AgentClient =>
     resolveProviderClient(provider, config, { logger });
-
-  // ── Broadcast helper ─────────────────────────────────────────────────────────
-  // See `wrapSessionEnvelope` above for the full rationale.
-  const broadcast = (sessions: Iterable<Session>, message: unknown) => {
-    const envelope = wrapSessionEnvelope(message);
-    for (const s of sessions) {
-      try {
-        s.send(envelope);
-      } catch {
-        /* ignore dead sockets */
-      }
-    }
-  };
 
   const relaySessions = new Set<Session>();
   const relayCapabilityStore = createInMemoryCapabilityStore();
@@ -376,7 +348,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const manager = new AgentManager({
     home,
     saveAgent: (record) => saveAgent(home, record),
-    loadAllAgents: () => loadAllAgents(home),
+    loadAllAgents: () => loadAllAgents(home, logger),
     // `onSessionAttached` is a single slot: compose every bridge that watches a new session.
     onSessionAttached: (agentId, session) => {
       agentUiService.attach(agentId, session);
@@ -452,13 +424,13 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       ? {
           install: (version) => binaryUpdate.install(version),
           updateExtensions: () =>
-            binaryUpdate.updateExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+            binaryUpdate.updateExtensions({ config, spawn: extensionsService.installSpawn }),
           spawnHelper: (target, previous) => binaryUpdate.spawnHelper(target, previous),
         }
       : {
           install: (version) => npmGlobalInstall(PACKAGE_NAME, version),
           updateExtensions: () =>
-            updateInstalledExtensions({ config, spawn: opts.extensionsInstallSpawn }),
+            updateInstalledExtensions({ config, spawn: extensionsService.installSpawn }),
           spawnHelper: (target, previous) =>
             spawnUpdateHelper({
               oldPid: process.pid,
@@ -497,7 +469,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     ...opts.updateTestSeams?.service,
   });
   registerDaemonUpdateHandlers(registry, { service: updateService });
-  /** The current status, right after `server_info` (direct and relay handshakes). */
+  /**
+   * The current status, right after `server_info` (direct and relay handshakes); each of the two
+   * call sites then asks `updateService.checkIfStale()` for a check when the last one is old.
+   */
   const sendUpdateStatus = (session: Session): void => {
     try {
       session.send(
@@ -581,8 +556,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   });
 
   // ── Projects / workspaces (real disk registry) ────────────────────────────────
-  const workspaceRegistry = new WorkspaceRegistryService(home);
-  const openProject = new OpenProjectService({ home, broadcast, registry: workspaceRegistry });
+  const workspaceRegistry = new WorkspaceRegistryService(home, logger);
+  const openProject = new OpenProjectService({ broadcast, registry: workspaceRegistry });
   openProject.registerHandlers(registry, getActiveSessions);
 
   const statusOf = (cwd: string): "running" | "error" | "idle" => {
@@ -737,30 +712,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
   // multi-MB read/decode never blocks the event loop — every other session (agent streams,
   // terminal output, heartbeats) shares this thread.
-  registry.register("file_read_request", async (ctx) => {
-    const filePath = String(ctx.message.path ?? "");
-    const resolved = expandHome(filePath);
-    try {
-      const st = await stat(resolved);
-      if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (st.size > MAX_INLINE_FILE_READ_BYTES)
-        return {
-          type: "file_read_response",
-          ok: false,
-          error: "file_too_large",
-          size: st.size,
-          maxBytes: MAX_INLINE_FILE_READ_BYTES,
-        };
-      const content = await readFile(resolved, "utf8");
-      return { type: "file_read_response", ok: true, path: resolved, content, size: st.size };
-    } catch (e: unknown) {
-      return {
-        type: "file_read_response",
-        ok: false,
-        error: (e as Error).message ?? "read_failed",
-      };
-    }
-  });
+  registry.register("file_read_request", async (ctx) =>
+    readInlineFile(String(ctx.message.path ?? "")),
+  );
 
   // ── Terminals: manager + control RPCs + binary stream ─────────────────────────
   const terminalManager = new TerminalManager({ logger });
@@ -770,6 +724,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       manager: terminalManager,
       broadcast,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
+      subscriptions,
     },
     getActiveSessions,
   );
@@ -833,6 +788,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
       sendUpdateStatus(session);
+      void updateService.checkIfStale();
     },
     onSessionClose: disposeSession,
     onMessage: (session, frame) => {
@@ -887,6 +843,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
             onSessionOpen: (session) => {
               relaySessions.add(session);
               sendUpdateStatus(session);
+              void updateService.checkIfStale();
             },
             onSessionClose: (session) => {
               relaySessions.delete(session);
@@ -908,14 +865,17 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     },
   );
 
-  // Fail cleanly on a bind error (e.g. EADDRINUSE) instead of an unhandled 'error' throw.
+  // A listen failure (e.g. EADDRINUSE) fails cleanly instead of an unhandled 'error' throw, and
+  // runs the same shutdown as every other exit: the relay, the update service and agent recovery
+  // are already running by now, and the PID file is left alone (never written, and
+  // `removePidLock` skips one that names another process).
   //
   // Deliberately does NOT call `process.exit()` itself: `startDaemon` is a library entry point
   // (embedded by `packages/desktop`, and booted in-process by the daemon integration tests), and a
   // library must never kill its host. Killing the process here made a port collision in the test
   // suite surface as an opaque, misattributed "process.exit unexpectedly called with 1" unhandled
   // rejection with every test still reported green. The process-level decision belongs to the
-  // process entry point, which passes `onFatalError` (see `daemon/main.ts`).
+  // process entry point, which passes `onFatalError` (see `daemon/run.ts`).
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       logger.error(
@@ -926,7 +886,14 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
       logger.error({ err: err.message }, "http server error");
     }
     process.exitCode = 1;
-    void wsHandle.close().finally(() => opts.onFatalError?.(err));
+    void closeDaemon().finally(() => opts.onFatalError?.(err));
+  });
+
+  // Only a daemon that holds the port names itself in the PID file: a second daemon that loses the
+  // bind must not overwrite the first one's. Not after a shutdown has begun: it has already
+  // removed (or skipped) the file, and nothing would remove this one.
+  httpServer.on("listening", () => {
+    if (closing === undefined) writePidLock(home);
   });
 
   httpServer.listen(listen.port, listen.host);
@@ -946,21 +913,46 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   void updateService.start();
 
   // One shutdown for every caller (signal handler, fatal error, the update pipeline, tests): a
-  // second `close()` returns the first one's promise instead of re-running it.
+  // second `close()` returns the first one's promise instead of re-running it. The steps go through
+  // `runShutdown`: each is isolated, the whole is bounded, and the PID file goes on every path.
   let closing: Promise<void> | undefined;
   function closeDaemon(): Promise<void> {
     closing ??= (async () => {
-      updateService.close();
       logger.info("daemon shutting down");
-      await manager.closeAll();
-      terminalManager.killAll();
-      fileWatchService.close();
-      daemonStatusService.dispose();
-      daemonLogsService.dispose();
-      relayHandle?.close();
-      await wsHandle.close();
-      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-      removePidLock(home);
+      await runShutdown(
+        [
+          {
+            // First, so nothing new starts while the agents close: no upgrades, no dials, no
+            // requests (`shutting_down`), no update check.
+            name: "stop accepting",
+            run: () => {
+              registry.stopAccepting();
+              wsHandle.stopAccepting();
+              relayHandle?.stopAccepting();
+              updateService.close();
+            },
+          },
+          { name: "agents", run: () => manager.closeAll() },
+          { name: "terminals", run: () => terminalManager.killAll() },
+          {
+            // Queued syncs and skills operations reject; the install children are killed.
+            name: "installs",
+            run: async () => {
+              await Promise.all([extensionsService.close(), resourceService.close()]);
+            },
+          },
+          { name: "login flows", run: () => providerAuthService.close() },
+          { name: "transfers", run: () => fileTransfer.close() },
+          { name: "file watch", run: () => fileWatchService.close() },
+          { name: "status service", run: () => daemonStatusService.dispose() },
+          { name: "log service", run: () => daemonLogsService.dispose() },
+          { name: "relay", run: () => relayHandle?.close() },
+          { name: "sockets", run: () => wsHandle.close() },
+          { name: "http", run: () => closeHttpServer(httpServer) },
+          { name: "pid file", run: () => removePidLock(home), always: true },
+        ],
+        logger,
+      );
     })();
     return closing;
   }

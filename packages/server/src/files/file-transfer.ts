@@ -156,7 +156,16 @@ async function discardTemp(upload: PendingUpload, journal: UploadJournal | null)
   upload.tempPath = null;
   if (!path) return;
   await rm(path, { force: true }).catch(() => {});
-  void journal?.remove(path);
+  await journal?.remove(path);
+}
+
+/** Stop downloads whose session or daemon is going away: they read no further and release their file. */
+function stopDownloads(downloads: Iterable<ActiveDownload>): void {
+  for (const active of downloads) {
+    active.stop = "closed";
+    active.wake?.();
+    void active.handle?.close().catch(() => {});
+  }
 }
 
 export class FileTransferService {
@@ -597,24 +606,41 @@ export class FileTransferService {
    */
   disposeSession(session: Session): void {
     for (const [stream, upload] of this.uploads) {
-      if (upload.sessionId !== session.id) continue;
-      this.uploads.delete(stream);
-      upload.done = true;
-      upload.chain = upload.chain.then(async () => {
-        await upload.handle?.close().catch(() => {});
-        upload.handle = null;
-        await discardTemp(upload, this.journal);
-      });
+      if (upload.sessionId === session.id) void this.discardUpload(stream, upload);
     }
     if (this.pausedSessions.delete(session.id)) session.resumeReading();
     const mine = this.downloads.get(session.id);
     if (!mine) return;
     this.downloads.delete(session.id);
-    for (const active of mine.values()) {
-      active.stop = "closed";
-      active.wake?.();
-      void active.handle?.close().catch(() => {});
-    }
+    stopDownloads(mine.values());
+  }
+
+  /**
+   * Ends every transfer for good (the daemon is shutting down): the uploads in flight lose their
+   * stream id and, once the frames already in flight finish, their file handle is closed and their
+   * temporary file removed and unlisted from the journal; the downloads stop reading and release
+   * their file. Nothing is sent: the sockets close next. Resolves when those files are gone.
+   */
+  async close(): Promise<void> {
+    const ending = [...this.uploads].map(([stream, upload]) => this.discardUpload(stream, upload));
+    for (const mine of this.downloads.values()) stopDownloads(mine.values());
+    this.downloads.clear();
+    await Promise.all(ending);
+  }
+
+  /** Free an upload's stream id now; once its queued frames are done, close its file and remove
+   *  the temporary file. The returned promise settles when that cleanup is finished. */
+  private discardUpload(stream: number, upload: PendingUpload): Promise<void> {
+    this.uploads.delete(stream);
+    upload.done = true;
+    upload.chain = upload.chain
+      .catch(() => {})
+      .then(async () => {
+        await upload.handle?.close().catch(() => {});
+        upload.handle = null;
+        await discardTemp(upload, this.journal);
+      });
+    return upload.chain;
   }
 
   private async handleUploadFrame(

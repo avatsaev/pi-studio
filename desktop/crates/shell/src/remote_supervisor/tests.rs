@@ -307,6 +307,22 @@ fn start_failures() {
 }
 
 #[test]
+fn a_host_daemon_that_refuses_to_start_says_why() {
+    let (s, _) = supervisor(vec![
+        linux("0.0.131"),
+        out(1, r#"{"up":false,"host":"127.0.0.1","port":1,"error":"unprotected_bind"}"#),
+        linux("0.0.131"),
+        out(1, r#"{"up":false,"host":"127.0.0.1","port":1,"error":"config_unreadable"}"#),
+        linux("0.0.131"),
+        out(1, r#"{"up":false,"error":"something_new"}"#),
+    ]);
+    assert_eq!(s.carry_out(RemoteAction::Start, PORT, false), failed(RemoteFailReason::UnprotectedBind));
+    // The damaged file is named by its path on the host.
+    assert_eq!(s.carry_out(RemoteAction::Start, PORT, false), failed_with(RemoteFailReason::ConfigUnreadable, &format!("{FOLDER}/config.json")));
+    assert_eq!(s.carry_out(RemoteAction::Start, PORT, false), failed(RemoteFailReason::NotHealthy));
+}
+
+#[test]
 fn start_with_no_binary_starts_nothing() {
     let (s, log) = supervisor(vec![linux("")]);
     assert_eq!(s.carry_out(RemoteAction::Start, PORT, false), RemoteState::NotInstalled);

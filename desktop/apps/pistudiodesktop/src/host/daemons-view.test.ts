@@ -101,6 +101,8 @@ describe("parseDaemonsView remote", () => {
     "checksum_mismatch",
     "send_failed",
     "install_failed",
+    "unprotected_bind",
+    "config_unreadable",
   ])("keeps failed %s", (reason) => {
     expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason } })?.remote).toEqual({ state: "failed", reason });
   });
@@ -164,7 +166,17 @@ describe("parseDaemonsView local states", () => {
     { state: "downloading", received: 1024, total: 67_980_464 },
     { state: "installing" },
     { state: "outdated", version: "0.0.118" },
-    ...["not_healthy", "timeout", "bad_output", "spawn_failed", "download_failed", "checksum_mismatch", "install_failed"].map(
+    ...[
+      "not_healthy",
+      "timeout",
+      "bad_output",
+      "spawn_failed",
+      "download_failed",
+      "checksum_mismatch",
+      "install_failed",
+      "unprotected_bind",
+      "config_unreadable",
+    ].map(
       (reason) => ({ state: "failed", reason }),
     ),
   ])("keeps the local state %j exactly as the app serializes it", (local) => {
@@ -190,6 +202,15 @@ describe("parseDaemonsView local states", () => {
     }
     for (const reason of ["download_failed", "checksum_mismatch"]) {
       expect(parseDaemonsView({ ...VIEW, remote: { state: "failed", reason } })?.remote).toEqual({ state: "failed", reason });
+    }
+  });
+
+  it("keeps a refused start with the damaged file's path on the host, or without", () => {
+    const path = "/home/ana/.pi-studio/config.json";
+    const damaged = { state: "failed", reason: "config_unreadable" };
+    for (const where of ["local", "remote"] as const) {
+      expect(parseDaemonsView({ ...VIEW, [where]: { ...damaged, output: path } })?.[where]).toEqual({ ...damaged, output: path });
+      expect(parseDaemonsView({ ...VIEW, [where]: damaged })?.[where]).toEqual(damaged);
     }
   });
 

@@ -172,6 +172,22 @@ describe("openRelayConnection", () => {
     expect([...side.binaries[0]!]).toEqual([9, 8]);
   });
 
+  it("calls onReady once when the key exchange is done, and at once for a handler added later", async () => {
+    const { control } = await startAll();
+    const { client, connectionId } = await dial(control);
+    const conn = open(connectionId);
+    let ready = 0;
+    conn.onReady(() => void ready++);
+    expect(ready).toBe(0);
+
+    await startClientChannel(client, connectionId);
+    await until(() => ready === 1);
+    let late = 0;
+    conn.onReady(() => void late++);
+    expect(late).toBe(1);
+    expect(ready).toBe(1);
+  });
+
   it("reports a numeric bufferedAmount that rises while the client is paused", async () => {
     const { control } = await startAll();
     const { client, connectionId } = await dial(control);
@@ -195,6 +211,35 @@ describe("openRelayConnection", () => {
     client.ws.resume();
     await until(() => side.binaries.length === 128, 10_000);
     await until(() => conn.bufferedAmount === 0);
+  });
+
+  it("terminate() drops what the data socket still has queued after a close, and onClose fires once with the close code", async () => {
+    const { control } = await startAll();
+    const { client, connectionId } = await dial(control);
+    const conn = open(connectionId);
+    await startClientChannel(client, connectionId);
+    await until(() => conn.isOpen);
+    const closes: Array<[number, string]> = [];
+    conn.onClose((c, r) => closes.push([c, r]));
+
+    client.ws.pause(); // a client that stops reading
+    const chunk = new Uint8Array(256 * 1024);
+    for (let i = 0; i < 128; i++) {
+      conn.sendBinary(chunk);
+      if (i % 8 === 7) await wait(5);
+    }
+    await wait(50);
+    expect(conn.bufferedAmount).toBeGreaterThan(0);
+
+    conn.close(1013, "send queue full");
+    conn.terminate();
+
+    await until(() => conn.bufferedAmount === 0); // released once the destroyed socket has closed
+    expect(conn.isOpen).toBe(false);
+    await wait(20);
+    expect(closes).toEqual([[1013, "send queue full"]]);
+    client.ws.resume();
+    await client.closed;
   });
 
   it("forwards close(1008, reason) to the client", async () => {

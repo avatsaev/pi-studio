@@ -5,7 +5,7 @@ import type { AgentStreamEvent, ImageAttachment } from "@av-pi-studio/protocol";
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { Logger } from "../logging/logger.js";
 import { agentStreamRecipients, type Session } from "../ws/session.js";
-import type { HandlerRegistry } from "../ws/router.js";
+import type { HandlerRegistry, RpcHandlerContext } from "../ws/router.js";
 import { AgentManager } from "./agent-manager.js";
 import type {
   AgentClient,
@@ -45,10 +45,113 @@ function acceptsHistory(manager: AgentManager, agentId: string): boolean {
   return record !== undefined && !record.archivedAt;
 }
 
+/** Longest `turn_failed.error` the service writes itself, in characters. */
+const TURN_ERROR_MAX_CHARS = 2048;
+
+/** Per-prompt options: what the provider's `run` takes, plus what only the service reads. */
+type TurnOptions = RunOptions & { clientMessageId?: string; autoArchive?: boolean };
+
+/** Schedules work to run once the router has sent the request's answer (`RpcHandlerContext`). */
+export type AfterReply = RpcHandlerContext["afterReply"];
+
+/** Answer to `create_agent_request`: the agent exists; a prompt's turn runs on after it. */
+export interface CreateAgentAnswer {
+  type: "create_agent_response";
+  requestId: string;
+  payload: { agentId: string };
+}
+
+/** Answer to `send_agent_prompt` (the router adds the `requestId`): the turn runs on after it. */
+export interface SendPromptAnswer {
+  type: "agent_prompt_response";
+  payload: { agentId: string };
+}
+
+/**
+ * One prompt's hold on its agent, from acceptance until its turn has settled: the busy claim
+ * (`AgentManager.claim`), the promise `AgentService.turnSettled` hands out, and the one thing that
+ * can end the turn early — an interrupt while the provider session is still starting.
+ */
+class TurnClaim {
+  /** True until the prompt is handed to the provider; only then can an interrupt cancel the turn. */
+  private starting = true;
+  private cancelRequested = false;
+  private readonly cancelSignal = Promise.withResolvers<void>();
+  private readonly settleSignal = Promise.withResolvers<void>();
+
+  constructor(private readonly releaseBusy: () => void) {}
+
+  /** Settles once the turn has ended and the claim is released; never rejects. */
+  get settled(): Promise<void> {
+    return this.settleSignal.promise;
+  }
+
+  /** Settles when `cancelStart` ended the turn before the provider got its prompt. */
+  get canceled(): Promise<void> {
+    return this.cancelSignal.promise;
+  }
+
+  get wasCanceled(): boolean {
+    return this.cancelRequested;
+  }
+
+  /** The turn goes to the provider now: from here an interrupt is the provider's to handle. */
+  handToProvider(): void {
+    this.starting = false;
+  }
+
+  /** An interrupt arrived: true when the turn has not reached the provider yet and is now canceled. */
+  cancelStart(): boolean {
+    if (!this.starting) return false;
+    this.cancelRequested = true;
+    this.cancelSignal.resolve();
+    return true;
+  }
+
+  release(): void {
+    this.releaseBusy();
+    this.settleSignal.resolve();
+  }
+}
+
+/** A prompt the service accepted: its claim is held and the agent is `running`. */
+interface AcceptedTurn {
+  agentId: string;
+  prompt: string;
+  getSessions: () => Iterable<Session>;
+  opts: TurnOptions;
+  claim: TurnClaim;
+  /** The store the turn records into; stays valid if an archive or delete evicts it mid-turn. */
+  timeline: AgentTimelineStore;
+  userMessageId: string;
+  startedAt: number;
+}
+
+/** The text a failure carries on the timeline: its message, capped. */
+function failureText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.slice(0, TURN_ERROR_MAX_CHARS);
+}
+
+/** A provider event that ends a turn. */
+function isTurnEnd(event: AgentStreamEvent): boolean {
+  return (
+    event.kind === "turn_completed" ||
+    event.kind === "turn_failed" ||
+    event.kind === "turn_canceled"
+  );
+}
+
+/** The agent was archived or deleted: a turn still in flight has nothing left to settle. */
+function agentIsClosed(manager: AgentManager, agentId: string): boolean {
+  const managed = manager.get(agentId);
+  return !managed || managed.record.lastStatus === "closed";
+}
+
 /**
  * Record `event` on `timeline` (`agentId`'s store, from `timelineFor`) and broadcast it as an
  * `agent_stream` frame carrying the daemon-owned seq/timestamp. The one append-and-broadcast path
- * for stream events: `runTurn`'s subscription and any operation that subscribes outside a turn
+ * for stream events: a turn's subscription and any operation that subscribes outside a turn
  * (today: compaction) both use it. Taking the store rather than looking it up means no caller can
  * append to an unseeded one.
  *
@@ -107,7 +210,7 @@ export function ensureTimelineSeeded(
 
 /**
  * The one way to get a timeline store to append to: seeds it from the provider's durable history
- * first (`ensureTimelineSeeded`), then returns the existing or a fresh store. `runTurn` and
+ * first (`ensureTimelineSeeded`), then returns the existing or a fresh store. A turn and
  * compaction append through it, so whichever of send, compact or fetch comes first after a
  * restart, earlier history is already in the store.
  *
@@ -241,6 +344,8 @@ async function spawnSession(
 
 export class AgentService {
   private readonly now: () => string;
+  /** The claim of every prompt between its acceptance and its settle, by agent id. */
+  private readonly turns = new Map<string, TurnClaim>();
 
   constructor(private readonly deps: AgentServiceDeps) {
     this.now = deps.now ?? (() => new Date().toISOString());
@@ -248,22 +353,69 @@ export class AgentService {
 
   registerHandlers(registry: HandlerRegistry, getActiveSessions: () => Iterable<Session>): void {
     registry.register("create_agent_request", (ctx) =>
-      this.handleCreate(ctx.message, getActiveSessions, ctx.session),
+      this.handleCreate(ctx.message, getActiveSessions, ctx.afterReply, ctx.session),
     );
     registry.register("send_agent_prompt", (ctx) =>
-      this.handleSendPrompt(ctx.message, getActiveSessions),
+      this.handleSendPrompt(ctx.message, getActiveSessions, ctx.afterReply),
     );
+  }
+
+  /**
+   * Resolves once no prompt is in flight for `agentId`: its turn has settled (the status is `idle`
+   * or `error`, `autoArchive` has run) and the agent can take another. At once when none is.
+   * `create_agent_request` and `send_agent_prompt` answer when a prompt is accepted, so this is
+   * how a caller (a test, an in-process client) waits for the turn they started. Never rejects.
+   */
+  turnSettled(agentId: string): Promise<void> {
+    return this.turns.get(agentId)?.settled ?? Promise.resolve();
+  }
+
+  /** Whether a prompt is in flight for `agentId`: its turn claim is held, from acceptance to settle. */
+  hasTurn(agentId: string): boolean {
+    return this.turns.has(agentId);
+  }
+
+  /**
+   * Cancel the turn of `agentId` if the provider has not got its prompt yet (its session is still
+   * being spawned or resumed): the turn settles once, as `turn_canceled` and `idle`, while the
+   * start carries on and the next prompt finds that session. False when no turn is in that window
+   * (none in flight, or Pi already has the prompt, which `AgentSession.interrupt` reaches).
+   */
+  cancelPendingStart(agentId: string): boolean {
+    return this.turns.get(agentId)?.cancelStart() ?? false;
   }
 
   private broadcastAll(sessions: Iterable<Session>, message: unknown): void {
     this.deps.broadcast(sessions, message);
   }
 
+  /**
+   * Accept a prompt for `agentId`'s turn: take the agent's claim now (the caller releases it when
+   * the turn settles, or at once if the request is refused). Throws `busy` when it is held.
+   */
+  private claimTurn(agentId: string): TurnClaim {
+    const releaseBusy = this.deps.manager.claim(agentId, "turn");
+    const claim: TurnClaim = new TurnClaim(() => {
+      releaseBusy();
+      if (this.turns.get(agentId) === claim) this.turns.delete(agentId);
+    });
+    this.turns.set(agentId, claim);
+    return claim;
+  }
+
+  /**
+   * `create_agent_request`: the agent exists, and with an `initialPrompt` its turn is accepted
+   * (the claim is held, the status is `running`); the answer carries the agent id at once. What
+   * follows — the spawn, the turn, its settle, `autoArchive` — runs after the answer
+   * (`afterReply`), and its outcome reaches clients as stream rows and one `agent_update`. Without
+   * a prompt the agent is a deferred draft and nothing runs.
+   */
   async handleCreate(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
-    wsSession?: Session,
-  ): Promise<unknown> {
+    afterReply: AfterReply,
+    wsSession?: Pick<Session, "supports">,
+  ): Promise<CreateAgentAnswer> {
     const requestId = (msg.requestId as string) ?? randomUUID();
     const config = msg.config as Record<string, unknown> | undefined;
     if (!config) throw new Error("missing config");
@@ -332,41 +484,43 @@ export class AgentService {
       return { type: "create_agent_response", requestId, payload: { agentId } };
     }
 
-    // 3. Eager path: spawn now and run the initial prompt. The agent is the turn's until it ends:
-    // a send that arrives once `agent_update` has announced the id is refused with `busy`.
-    await this.deps.manager.runExclusive(agentId, "turn", async () => {
-      const session = await this.deps.manager.spawnOnce(agentId, async () => {
-        const created = await this.createEagerSession(agentId, provider, cwd, effectiveConfig);
-        this.deps.manager.attachSession(agentId, created);
+    // 3. Eager path: accept the prompt now, spawn and run it after the answer. The agent is the
+    // turn's from here on: a send that arrives once `agent_update` has announced the id is refused
+    // with `busy`. Acceptance puts the agent in `running` (it never reads `idle`: it goes
+    // `initializing` -> `running` -> the turn's outcome) and the answer goes out; the user's
+    // message, the spawn and the turn follow (`runAccepted`), so a spawn that fails still leaves
+    // its reason on the timeline and the status (`startSession`).
+    const turn = await this.acceptPrompt(
+      agentId,
+      initialPrompt,
+      getSessions,
+      { clientMessageId, autoArchive, images: msg.images as ImageAttachment[] | undefined },
+      this.claimTurn(agentId),
+    );
+    afterReply(() =>
+      this.runAccepted(turn, async () => {
+        const created = await this.deps.manager.spawnOnce(agentId, async () => {
+          const spawned = await this.createEagerSession(agentId, provider, cwd, effectiveConfig);
+          this.deps.manager.attachSession(agentId, spawned);
+          return spawned;
+        });
+        await this.deps.manager.persistSessionHandle(agentId);
+        this.deps.logger?.info(
+          {
+            agentId,
+            provider,
+            model: config.model,
+            cwd,
+            title,
+            autoArchive: autoArchive || undefined,
+          },
+          "agent created",
+        );
         return created;
-      });
-      await this.deps.manager.persistSessionHandle(agentId);
-      await this.deps.manager.setStatus(agentId, "idle");
-      this.deps.logger?.info(
-        {
-          agentId,
-          provider,
-          model: config.model,
-          cwd,
-          title,
-          autoArchive: autoArchive || undefined,
-        },
-        "agent created",
-      );
-      this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
+      }),
+    );
 
-      await this.runTurn(agentId, session, initialPrompt, getSessions, {
-        clientMessageId,
-        autoArchive,
-        images: msg.images as ImageAttachment[] | undefined,
-      });
-    });
-
-    return {
-      type: "create_agent_response",
-      requestId,
-      payload: { agentId },
-    };
+    return { type: "create_agent_response", requestId, payload: { agentId } };
   }
 
   /** First spawn of a freshly created agent (`handleCreate` step 3); logs a provider failure. */
@@ -400,107 +554,183 @@ export class AgentService {
     }
   }
 
+  /**
+   * `send_agent_prompt`: the prompt is accepted (the agent exists, its claim is taken, its status
+   * is `running`) and the answer carries the agent id at once. A refusal — an invalid request, an
+   * unknown or archived agent, `busy` — throws, and nothing was started. The user's message, the
+   * provider session's spawn or resume, the turn and its settle run after the answer
+   * (`afterReply`); their outcome reaches clients as stream rows and one `agent_update`.
+   */
   async handleSendPrompt(
     msg: Record<string, unknown>,
     getSessions: () => Iterable<Session>,
-  ): Promise<unknown> {
+    afterReply: AfterReply,
+  ): Promise<SendPromptAnswer> {
     const agentId = msg.agentId as string;
-    const prompt = msg.prompt as string;
-    const managed = this.deps.manager.get(agentId);
-    if (!managed) throw new Error(`unknown agent: ${agentId}`);
+    const { prompt } = msg;
+    if (typeof prompt !== "string") throw new Error("invalid request: prompt must be a string");
+    if (!this.deps.manager.get(agentId)) throw new Error(`unknown agent: ${agentId}`);
 
-    // One turn at a time: claimed before the spawn below, so two concurrent sends cannot both
+    // One turn at a time: claimed before anything starts, so two concurrent sends cannot both
     // start a turn (each would subscribe and broadcast every later event twice). The workbench
     // steers while a turn runs instead of sending; a send that loses the race gets `busy`.
-    await this.deps.manager.runExclusive(agentId, "turn", async () => {
-      // No live provider session — either a daemon restart (reloads records but never
-      // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
-      // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a
-      // draft that was never spawned, spawns it for the first time and replays its pinned model.
-      const session = await ensureSession(this.deps, agentId);
-
-      await this.runTurn(agentId, session, prompt, getSessions, {
+    const turn = await this.acceptPrompt(
+      agentId,
+      prompt,
+      getSessions,
+      {
         clientMessageId: msg.clientMessageId as string | undefined,
         images: msg.images as ImageAttachment[] | undefined,
-      });
-    });
-    return { type: "agent_prompt_response", agentId, status: "idle" };
+      },
+      this.claimTurn(agentId),
+    );
+    // No live provider session — either a daemon restart (reloads records but never
+    // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
+    // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a
+    // draft that was never spawned, spawns it for the first time and replays its pinned model.
+    afterReply(() => void this.runAccepted(turn, () => ensureSession(this.deps, agentId)));
+    return { type: "agent_prompt_response", payload: { agentId } };
   }
 
-  async runTurn(
+  /**
+   * Accept a prompt for `agentId` under `claim`, which the caller just took: the agent is
+   * `running` from here until the turn's outcome (`settleTurn`). Nothing is sent to clients yet:
+   * the answer to the request comes first, then `beginTurn`. Throws, having released the claim and
+   * recorded nothing, when the agent is gone, archived or cannot become `running`.
+   */
+  private async acceptPrompt(
     agentId: string,
-    session: AgentSession,
     prompt: string,
     getSessions: () => Iterable<Session>,
-    opts: RunOptions & { clientMessageId?: string; autoArchive?: boolean } = {},
-  ): Promise<void> {
-    const timeline = timelineFor(this.deps, agentId);
-    timeline.startEpoch();
+    opts: TurnOptions,
+    claim: TurnClaim,
+  ): Promise<AcceptedTurn> {
+    try {
+      const timeline = timelineFor(this.deps, agentId);
+      await this.deps.manager.setStatus(agentId, "running");
+      const userMessageId = opts.clientMessageId ?? randomUUID();
+      return {
+        agentId,
+        prompt,
+        getSessions,
+        opts,
+        claim,
+        timeline,
+        userMessageId,
+        startedAt: Date.now(),
+      };
+    } catch (error) {
+      claim.release();
+      throw error;
+    }
+  }
 
-    await this.deps.manager.setStatus(agentId, "running");
-    const turnStartedAt = Date.now();
+  /**
+   * Everything an accepted prompt does after its answer was sent, under its claim: tell clients
+   * the agent is `running` and show the user's message (`beginTurn`), get the provider session
+   * (`startSession`), run the turn and settle it (`executeTurn`). The claim is released when the
+   * turn has settled, whatever happened. Never rejects: the outcome of a failure is already on the
+   * timeline and in the status (`startSession`, `executeTurn`), and an error that got past those
+   * is only logged, so a detached turn can never become an unhandled rejection.
+   */
+  private async runAccepted(turn: AcceptedTurn, start: () => Promise<AgentSession>): Promise<void> {
+    try {
+      this.beginTurn(turn);
+      const session = await this.startSession(turn, start);
+      if (session) await this.executeTurn(turn, session);
+    } catch (error) {
+      this.deps.logger?.error(
+        { agentId: turn.agentId, err: failureText(error) },
+        "turn ended on an unexpected error",
+      );
+    } finally {
+      turn.claim.release();
+    }
+  }
+
+  /**
+   * The first frames of an accepted turn, in this order: the agent is `running`, then the user's
+   * message, which is also the turn's first row. The row is keyed by `clientMessageId`, else a new
+   * id; a provider that echoes it back does not add a second one (`executeTurn`'s subscription).
+   * It is recorded before the provider session is spawned or resumed, so whatever goes wrong after
+   * it (`startSession`, `executeTurn`) has a message to answer.
+   */
+  private beginTurn(turn: AcceptedTurn): void {
+    const { agentId, prompt, getSessions, opts, timeline } = turn;
+    timeline.startEpoch();
     // Log prompt SIZE, never the prompt itself — message contents are user data, not ops metadata.
     this.deps.logger?.info({ agentId, promptChars: prompt.length }, "turn started");
     this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "running" });
+    appendStreamEvent(
+      agentId,
+      timeline,
+      { kind: "user_message", messageId: turn.userMessageId, text: prompt, images: opts.images },
+      this.deps.broadcast,
+      getSessions(),
+    );
+  }
+
+  /**
+   * Get the accepted turn's provider session from `start` (a spawn, a resume or the attached one),
+   * or end the turn without one and return undefined. A failure — Pi cannot start or resume, the
+   * process dies before the prompt — ends it as a `turn_failed` row and the status `error`
+   * (`failTurn`). An interrupt while the session is still starting ends it as `turn_canceled` and
+   * `idle` (`cancelTurn`); the start itself carries on, so the next prompt finds the session.
+   */
+  private async startSession(
+    turn: AcceptedTurn,
+    start: () => Promise<AgentSession>,
+  ): Promise<AgentSession | undefined> {
+    const { claim } = turn;
+    let started: Promise<AgentSession>;
+    let session: AgentSession | undefined;
+    try {
+      started = start();
+      session = await Promise.race([started, claim.canceled.then(() => undefined)]);
+    } catch (error) {
+      await this.failTurn(turn, error);
+      return undefined;
+    }
+    if (session && !claim.wasCanceled) {
+      claim.handToProvider();
+      return session;
+    }
+    started.catch((error: unknown) =>
+      this.deps.logger?.warn(
+        { agentId: turn.agentId, err: failureText(error) },
+        "session start of a canceled turn failed",
+      ),
+    );
+    await this.cancelTurn(turn);
+    return undefined;
+  }
+
+  /**
+   * Run the accepted turn on `session` and settle it: the events the provider emits are recorded
+   * and broadcast as they come, then the status is settled to `idle` or `error` with one
+   * `agent_update`, whether or not the turn left a `turn_*` row (a slash command an extension
+   * handles inline leaves none). A `run` that rejects is the turn's failure, recorded and logged
+   * like any other: there is no caller left to throw it to.
+   */
+  private async executeTurn(turn: AcceptedTurn, session: AgentSession): Promise<void> {
+    const { agentId, prompt, getSessions, opts, timeline } = turn;
     // Fire-and-forget: runs concurrently with the turn below, never delays it. See
     // `maybeGenerateTitle` for the write-once/decline-retry contract.
     this.maybeGenerateTitle(agentId, session, prompt, getSessions);
 
-    let userMessageEmitted = false;
-    let userMessageId: string | undefined;
-
+    let providerEndedTurn = false;
     const unsubscribe = session.subscribe((event: AgentStreamEvent) => {
-      // Canonical user_message: emit exactly once keyed by provider message id.
-      if (event.kind === "user_message" && !userMessageEmitted) {
-        const msgId = event.messageId ?? opts.clientMessageId ?? randomUUID();
-        if (userMessageId === undefined || userMessageId === msgId) {
-          userMessageId = msgId;
-          userMessageEmitted = true;
-          const userRow = timeline.append({
-            kind: "user_message",
-            messageId: msgId,
-            text: prompt,
-            images: opts.images,
-          });
-          this.broadcastAll(agentStreamRecipients(getSessions()), {
-            type: "session",
-            message: {
-              type: "agent_stream",
-              agentId,
-              seq: userRow.seq,
-              timestamp: userRow.timestamp,
-              event: { kind: "user_message", messageId: msgId, text: prompt, images: opts.images },
-            },
-          });
-          return;
-        }
+      // The canonical user_message is already recorded (`beginTurn`): the provider's own copy
+      // of it is not a second row.
+      if (
+        event.kind === "user_message" &&
+        (event.messageId === undefined || event.messageId === turn.userMessageId)
+      ) {
+        return;
       }
-
-      // All other events: append + broadcast.
+      if (isTurnEnd(event)) providerEndedTurn = true;
       appendStreamEvent(agentId, timeline, event, this.deps.broadcast, getSessions());
     });
-
-    // If provider never emits a user_message, emit one ourselves.
-    if (!userMessageEmitted) {
-      const msgId = opts.clientMessageId ?? randomUUID();
-      userMessageId = msgId;
-      const row = timeline.append({
-        kind: "user_message",
-        messageId: msgId,
-        text: prompt,
-        images: opts.images,
-      });
-      this.broadcastAll(agentStreamRecipients(getSessions()), {
-        type: "session",
-        message: {
-          type: "agent_stream",
-          agentId,
-          seq: row.seq,
-          timestamp: row.timestamp,
-          event: { kind: "user_message", messageId: msgId, text: prompt, images: opts.images },
-        },
-      });
-    }
 
     // A turn MUST always leave the agent in a recoverable state, on every exit path. `session.run`
     // can reject outright rather than ending with a terminal event: a Pi ack rejected at preflight
@@ -508,8 +738,8 @@ export class AgentService {
     // straight out of `run`/`runSlashPrompt`. Finalizing only on the happy path pinned the agent at
     // "running" forever — the composer then offers Steer instead of Send, steering an agent with no
     // live turn answers `{ok:false}`, and every later message in that conversation rendered
-    // "failed to send" with no way back. The rejection is still rethrown below, after the status is
-    // settled, so the caller's RPC fails as before.
+    // "failed to send" with no way back. The rejection is recorded as the turn's `turn_failed` row
+    // (unless the provider already ended the turn), after which the status is settled.
     let runError: unknown;
     let runRejected = false;
     try {
@@ -523,37 +753,79 @@ export class AgentService {
 
     // The agent was archived or deleted while the turn ran (the close ended it): nothing is left to
     // settle, and the rejection `run()` may carry is the close's own doing, not a failure.
-    const finalManaged = this.deps.manager.get(agentId);
-    if (!finalManaged || finalManaged.record.lastStatus === "closed") {
+    if (agentIsClosed(this.deps.manager, agentId)) {
       this.deps.logger?.info({ agentId }, "turn ended: agent closed");
       return;
     }
     const lastEvent = timeline.allRows().at(-1)?.event;
+    if (runRejected && !providerEndedTurn) this.recordTurnFailure(turn, runError);
     const newStatus =
       runRejected || lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error"
         ? "error"
         : "idle";
-    this.deps.logger?.info(
-      { agentId, outcome: newStatus, durationMs: Date.now() - turnStartedAt },
-      newStatus === "error" ? "turn failed" : "turn finished",
-    );
-
-    await this.deps.manager.setStatus(agentId, newStatus);
-    this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: newStatus });
+    await this.settleTurn(turn, newStatus);
 
     // autoArchive hook (worktree coupling wired in sprint-008).
-    if (
-      opts.autoArchive &&
-      (lastEvent?.kind === "turn_completed" ||
-        lastEvent?.kind === "turn_failed" ||
-        lastEvent?.kind === "turn_canceled") &&
-      finalManaged
-    ) {
+    if (opts.autoArchive && lastEvent && isTurnEnd(lastEvent)) {
       await this.deps.manager.archiveAgent(agentId);
     }
+  }
 
-    // Status is settled and broadcast; surface the original failure to the caller unchanged.
-    if (runRejected) throw runError;
+  /**
+   * End an accepted turn that never reached `session.run`: the reason becomes the turn's
+   * `turn_failed` row and the status settles to `error`. An agent archived or deleted meanwhile
+   * is left alone (its own notice is the signal).
+   */
+  private async failTurn(turn: AcceptedTurn, error: unknown): Promise<void> {
+    if (agentIsClosed(this.deps.manager, turn.agentId)) {
+      this.deps.logger?.info({ agentId: turn.agentId }, "turn ended: agent closed");
+      return;
+    }
+    this.recordTurnFailure(turn, error);
+    await this.settleTurn(turn, "error");
+  }
+
+  /**
+   * End an accepted turn that an interrupt canceled before it reached `session.run`: a
+   * `turn_canceled` row, as the provider writes for a turn it cancels, and the status `idle`.
+   */
+  private async cancelTurn(turn: AcceptedTurn): Promise<void> {
+    if (agentIsClosed(this.deps.manager, turn.agentId)) {
+      this.deps.logger?.info({ agentId: turn.agentId }, "turn ended: agent closed");
+      return;
+    }
+    appendStreamEvent(
+      turn.agentId,
+      turn.timeline,
+      { kind: "turn_canceled" },
+      this.deps.broadcast,
+      turn.getSessions(),
+    );
+    await this.settleTurn(turn, "idle");
+  }
+
+  /** Append and broadcast the turn's `turn_failed` row, carrying `error`'s message (capped); logs it. */
+  private recordTurnFailure(turn: AcceptedTurn, error: unknown): void {
+    const text = failureText(error);
+    this.deps.logger?.warn({ agentId: turn.agentId, err: text }, "turn failure recorded");
+    appendStreamEvent(
+      turn.agentId,
+      turn.timeline,
+      { kind: "turn_failed", error: text },
+      this.deps.broadcast,
+      turn.getSessions(),
+    );
+  }
+
+  /** The turn's end signal: persist the status and broadcast the one `agent_update` that ends it. */
+  private async settleTurn(turn: AcceptedTurn, status: "idle" | "error"): Promise<void> {
+    const { agentId, getSessions } = turn;
+    this.deps.logger?.info(
+      { agentId, outcome: status, durationMs: Date.now() - turn.startedAt },
+      status === "error" ? "turn failed" : "turn finished",
+    );
+    await this.deps.manager.setStatus(agentId, status);
+    this.broadcastAll(getSessions(), { type: "agent_update", agentId, status });
   }
 
   /**

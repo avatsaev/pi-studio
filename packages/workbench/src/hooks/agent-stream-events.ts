@@ -3,7 +3,10 @@
  * (`use-agent-stream.ts`), which attaches the instant a session's `agentId` is bound —
  * including a freshly materialized draft, before its first turn can possibly start streaming
  * (`Composer.tsx`'s file header) — so there is no separate raw-broadcast/first-turn-gate path
- * here anymore.
+ * here anymore. The event goes to the timeline reducer, and `turn_started` also moves the
+ * session's status through `lib/agent-status.ts`, the same rule that applies `agent_update`'s
+ * status (`use-session-restore.ts` — the only thing that ENDS a turn) and the daemon's acceptance
+ * of a send (`composer-send.ts`).
  */
 
 import type { PiStudioClient } from "@av-pi-studio/client";
@@ -37,19 +40,8 @@ export function applyAgentStreamEvent({
 }: ApplyAgentStreamEventArgs): void {
   const sessionStore = useSessionStore.getState();
   sessionStore.applyStreamEvent(sessionId, event, timestamp);
+  sessionStore.applyStatusSignal(sessionId, { source: "stream", event });
   switch (event.kind) {
-    case "turn_started":
-      sessionStore.setStatus(sessionId, "running");
-      break;
-    case "turn_completed":
-      sessionStore.setStatus(sessionId, "idle");
-      break;
-    case "turn_failed":
-      sessionStore.setStatus(sessionId, "error");
-      break;
-    case "turn_canceled":
-      sessionStore.setStatus(sessionId, "idle");
-      break;
     case "compaction":
       // Pi reports null context usage after a compaction until the next LLM reply, so the
       // estimate is the only fresh number there is. Live-only: replayed history never reaches this
