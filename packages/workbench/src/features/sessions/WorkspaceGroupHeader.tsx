@@ -1,8 +1,8 @@
 /**
  * Collapsible workspace header in the sidebar tree — one per distinct session `cwd`
- * (POC_TO_APP_PLAN_UI.md §4.3 workspace grouping). Rendered as a full-bleed band (design spec
- * § 03): `surface2` fill, no card frame, same look expanded or collapsed — expansion is expressed
- * only by the chevron rotation and the presence of session rows below it. Clicking anywhere on
+ * (POC_TO_APP_PLAN_UI.md §4.3 workspace grouping). Rendered as a transparent 34px row (radius 6,
+ * `surface1` on hover, plain chevron, no tile), same look expanded or collapsed — expansion is
+ * expressed only by the chevron rotation and the presence of session rows below it. Clicking anywhere on
  * the header (or its chevron) toggles collapse/expand; opening a session is a separate, explicit
  * action (click a session row). New session / Delete workspace live behind the "⋮" button's
  * `WorkspaceContextMenu` — a single consolidated menu instead of two always-visible icon buttons

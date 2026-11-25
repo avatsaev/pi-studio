@@ -724,8 +724,8 @@ src/
                             SessionEntry→sidebar-row-state module, sprint-062), SessionItem
                             (presentational frameless row — status-only meta, `draggable` decided
                             by SessionList, sprint-062 redesign), SessionContextMenu,
-                            WorkspaceGroupHeader (full-bleed `surface2` band — chevron/avatar/bold
-                            name/collapsed-only attention dot/count pill, sprint-062 redesign; its
+                            WorkspaceGroupHeader (transparent 34px row, `surface1` on hover — plain chevron/avatar/medium
+                            name/collapsed-only attention dot/count pill, v2 sidebar redesign; its
                             "⋮" keeps the per-workspace delete button alongside "New
                             conversation"), open-chat-tab.ts (shared "open a session as a chat
                             tab" dispatch — the sibling of files/open-file-tab.ts, and required
@@ -2796,19 +2796,20 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
 - **No cwd, agent id, message count, timestamp, or cost in the sidebar meta line.** § 03's row
   redesign reduced the meta line to status only (plus a short failure reason for a failed turn);
   do not reintroduce any of those fields into `SessionItem`'s meta row.
-- **The workspace band is `surface2`, edge-to-edge, with a top+bottom `border`, and its hover lift
-  applies in both expanded and collapsed states.** `surfaceWorkspace` (the token the band used
-  before sprint-062) has no remaining consumer in `SessionList.module.css` — it stays emitted in
-  `ThemeColors` (part of the theme contract; the token guard, `design-tokens.test.ts`, only checks
-  reference → emitted, never the reverse) but must not be reintroduced for the band.
-- **Session-row selection is fill + inset ring + `accentForeground` + a left bar; activity is the
-  `StatusDot` ring, never the fill.** A running-but-unselected row keeps the idle fill and shows
-  only the ring — sprint-062 deliberately dropped § 03's mock's half-opacity activity bar so
-  "selected" and "running" stay two independent, unambiguous signals.
+- **The sidebar is one quiet tree: background marks only hover and selection.** Workspace headers
+  are transparent 34px rows (radius `md`, `surface1` on hover whether open or collapsed, plain
+  chevron with no tile, count pill on `surface2`); session rows are transparent with a
+  `surface1` hover and no group frame. `surfaceWorkspace` has no consumer in
+  `SessionList.module.css` — it stays emitted in `ThemeColors` (the token guard only checks
+  reference → emitted) but must not be reintroduced for headers.
+- **Session-row selection is a 14% `accent` fill + 1px solid `accent` border; the title stays
+  `foreground` (never `accentForeground`, which is dark in zinc) and there is no left bar.** State
+  lives only in the `StatusDot` (7px) and the meta label colour (`metaNeedsInput`, `metaFailed`);
+  there is no failed wash and no `.activeBar`. A running-but-unselected row shows only its dot, so
+  "selected" and "running" stay independent signals.
 - **`SessionItem`'s `StatusDot` renders in the meta row, immediately before the status text — not
-  in the title row.** Stacking it against the title row's reserved `⋮` box left it floating with
-  dead space before the row's true right edge once the label's `flex: 1 1 auto` pushed that
-  cluster flush right; the title row is label + reserved `⋮` only. `.meta`/`.metaDot`/`.metaLabel`
+  in the title row.** The row is a `.body` column (title, then
+  meta) beside the `⋮` button, vertically centred on the row. `.meta`/`.metaDot`/`.metaLabel`
   in `SessionList.module.css` lay the dot directly before `view.meta` and shrink it via the
   `--status-dot-size`/`--status-dot-border-width` custom properties `StatusDot.tsx`/
   `.module.css` read with their normal 8px/12px fallbacks — every other `StatusDot` call site
@@ -2827,14 +2828,13 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   (task-008) are now built, but neither is a *dot* signal, so this discipline is unaffected by
   either landing; `setWidget`/`setStatus`/`setTitle` rendering (§ 09/§ 10) remains the one open
   surface, deferred to a later sprint (070 became the thinking-level selector).
-- **The sidebar's reserved-`⋮` pattern mirrors `TabStrip.module.css`'s `.tabClose`.** Both the
-  workspace band's and the session row's `⋮` occupy a fixed box (`opacity`-toggled, never
-  `display`-toggled) so hover/focus never shifts the label's truncation point, and both are
-  unconditionally visible below the `575px` breakpoint or on a coarse pointer
-  (`@media (max-width: 575px), (hover: none)`) — a new hover-reveal affordance in this file should
-  follow the same box-reservation contract rather than inventing a new visibility rule.
+- **The sidebar's `⋮` buttons (workspace header and session row) are always visible** in
+  `foregroundMuted`, so there is nothing to reserve or reveal on hover and no
+  `@media (hover: none)` override; the label's truncation point never moves. A new hover-reveal
+  affordance elsewhere should still follow `TabStrip.module.css`'s `.tabClose` box-reservation
+  contract.
 - **Exactly one open-workspace affordance lives in the sidebar: the pinned footer row.**
-  `SessionList.tsx`'s footer (`+ Add workspace`, outside the scrolling `.list` container) is the
+  `SessionList.tsx`'s footer (`+ Add workspace` in `.footerWrap`, outside the scrolling `.list` container) is the
   sidebar's sole `openCwdPicker()` entry point since sprint-062 removed the header's icon button;
   `TabPanelHost.tsx`'s "No workspace open" empty-state button is a separate surface (a different
   empty state, not the sidebar) and is unaffected by this rule.

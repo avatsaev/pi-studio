@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Studio · Workspace sidebar mockup</title>
+<!-- Inter is only a stand-in for the app's system-ui stack. Remove this line to see the platform font. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  /* ── Tokens: default "dark" theme, named exactly like the app's --pi-* variables ───────── */
+  :root {
+    --pi-color-surfaceSidebar: #141716;
+    --pi-color-surface0: #181B1A;
+    --pi-color-surface1: #1E2120;
+    --pi-color-surface2: #272A29;
+    --pi-color-border: #252B2A;
+    --pi-color-foreground: #fafafa;
+    --pi-color-foregroundMuted: #A1A5A4;
+    --pi-color-accent: #2e5cb8;
+    --pi-color-accentBright: #a2b4d7;
+    --pi-color-statusWarning: #f59e0b;
+    --pi-color-statusDanger: #dc2626;
+    --pi-color-destructive: #c64f43;
+    --dot-idle: #71717a;              /* StatusDot foregroundMuted variant, as drawn in the mockup */
+    --dot-running: #3b82f6;           /* app uses `accent` via StatusDot; mockup drew statusInfo */
+
+    --pi-font-size-3xs: 11px;
+    --pi-font-size-2xs: 12px;
+    --pi-font-size-xs: 13px;
+    --pi-font-size-sm: 14px;
+    --pi-font-weight-medium: 500;
+    --pi-font-weight-semibold: 600;
+    --pi-font-weight-bold: 700;
+    --pi-radius-md: 6px;
+    --pi-radius-full: 9999px;
+    --pi-font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    background: var(--pi-color-surface0);
+    color: var(--pi-color-foreground);
+    font-family: var(--pi-font-ui);
+    font-size: var(--pi-font-size-sm);
+  }
+  button { font: inherit; color: inherit; }
+  svg { flex-shrink: 0; display: block; }
+
+  /* ── Panel ─────────────────────────────────────────────────────────────────────────────── */
+  .sidebar {
+    width: 248px;
+    height: 100vh;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--pi-color-surfaceSidebar);
+    border-right: 1px solid var(--pi-color-border);
+  }
+
+  /* Section header: "WORKSPACES · 3" + optional search */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 12px 8px;
+    flex-shrink: 0;
+  }
+  .header h3 {
+    margin: 0;
+    font-size: var(--pi-font-size-3xs);
+    font-weight: var(--pi-font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pi-color-foregroundMuted);
+  }
+
+  .list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 6px 8px;
+  }
+
+  /* Small square icon button (⋮, search) */
+  .iconBtn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--pi-radius-md);
+    background: transparent;
+    color: var(--pi-color-foregroundMuted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .iconBtn:hover { color: var(--pi-color-foreground); background: var(--pi-color-surface2); }
+
+  /* ── Workspace header row ─────────────────────────────────────────────────────────────── */
+  .workspaceHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 6px;
+    border-radius: var(--pi-radius-md);
+    background: transparent;
+    color: var(--pi-color-foreground);
+    cursor: pointer;
+    user-select: none;
+  }
+  .workspaceHeader:hover { background: var(--pi-color-surface1); }
+  .chevron {
+    width: 14px;
+    height: 14px;
+    display: flex;
+    color: var(--pi-color-foregroundMuted);
+  }
+  .chevron svg { transform: rotate(0deg); }          /* instant, no transition (matches app) */
+  .workspace.open .chevron svg { transform: rotate(90deg); }
+  .avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    color: #fff;
+    font-size: var(--pi-font-size-3xs);
+    font-weight: var(--pi-font-weight-bold);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .workspaceLabel {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--pi-font-size-sm);
+    font-weight: var(--pi-font-weight-medium);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .attentionDot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--pi-radius-full);
+    background: var(--pi-color-statusWarning);
+    flex-shrink: 0;
+    display: none;
+  }
+  .workspace:not(.open).attention .attentionDot { display: block; }
+  .count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--pi-radius-full);
+    background: var(--pi-color-surface2);
+    color: var(--pi-color-foregroundMuted);
+    font-size: var(--pi-font-size-3xs);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* ── Sessions ─────────────────────────────────────────────────────────────────────────── */
+  .sessions {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 10px;
+    margin-bottom: 6px;
+  }
+  .workspace.open .sessions { display: flex; }
+
+  .item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--pi-radius-md);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+  .item:hover { background: var(--pi-color-surface1); }
+  .item.active {
+    background: color-mix(in srgb, var(--pi-color-accent) 14%, transparent);
+    border-color: var(--pi-color-accent);
+  }
+  .body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .titleLabel {
+    font-size: var(--pi-font-size-sm);
+    font-weight: var(--pi-font-weight-semibold);
+    color: var(--pi-color-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item.empty .titleLabel { font-style: italic; }
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--pi-font-size-2xs);
+    color: var(--pi-color-foregroundMuted);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .item.empty .meta { opacity: 0.5; }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--pi-radius-full);
+    flex-shrink: 0;
+  }
+  .dot.idle { background: var(--dot-idle); }
+  .dot.running { background: var(--dot-running); }
+  .dot.input { background: var(--pi-color-statusWarning); animation: pulse 1.6s ease-out infinite; }
+  .dot.error { background: var(--pi-color-statusDanger); }
+  .meta .warn { color: var(--pi-color-statusWarning); }
+  .meta .fail { color: var(--pi-color-destructive); }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pi-color-statusWarning) 55%, transparent); }
+    100% { box-shadow: 0 0 0 4px transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) { .dot.input { animation: none; } }
+
+  .newSession {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--pi-radius-md);
+    background: transparent;
+    color: var(--pi-color-foregroundMuted);
+    font-size: var(--pi-font-size-xs);
+    cursor: pointer;
+  }
+  .newSession:hover { background: var(--pi-color-surface1); color: var(--pi-color-foreground); }
+
+  /* ── Empty / disconnected ─────────────────────────────────────────────────────────────── */
+  .emptyState {
+    margin: 24px 0 0;
+    text-align: center;
+    font-size: var(--pi-font-size-sm);
+    color: var(--pi-color-foregroundMuted);
+  }
+
+  /* ── Footer ───────────────────────────────────────────────────────────────────────────── */
+  .footerWrap {
+    flex-shrink: 0;
+    padding: 8px;
+    border-top: 1px solid var(--pi-color-border);
+  }
+  .footer {
+    width: 100%;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: var(--pi-radius-md);
+    background: transparent;
+    color: var(--pi-color-foregroundMuted);
+    font-size: var(--pi-font-size-xs);
+    cursor: pointer;
+  }
+  .footer:hover:not(:disabled) { background: var(--pi-color-surface1); color: var(--pi-color-foreground); }
+  .footer:disabled, .newSession:disabled { opacity: 0.5; cursor: default; }
+
+  /* Focus ring for every interactive element */
+  .workspaceHeader:focus-visible, .item:focus-visible, .iconBtn:focus-visible,
+  .newSession:focus-visible, .footer:focus-visible {
+    outline: 2px solid var(--pi-color-accentBright);
+    outline-offset: -2px;
+  }
+
+  /* ── Demo controls (NOT part of the design) ───────────────────────────────────────────── */
+  .demo {
+    padding: 24px 28px;
+    max-width: 440px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--pi-color-foregroundMuted);
+  }
+  .demo h1 { margin: 0 0 6px; font-size: 15px; color: var(--pi-color-foreground); }
+  .demo p { margin: 0 0 14px; }
+  .demo label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--pi-color-foreground); cursor: pointer; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" aria-label="Workspaces">
+  <div class="header">
+    <h3 id="wsHeading">Workspaces · 3</h3>
+    <button type="button" class="iconBtn" aria-label="Search sessions" title="Search sessions">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+    </button>
+  </div>
+
+  <div class="list" id="list"><!-- rendered by script below --></div>
+
+  <div class="footerWrap">
+    <button type="button" class="footer" id="addWorkspace" title="Open a workspace folder">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+      Add workspace
+    </button>
+  </div>
+</aside>
+
+<div class="demo">
+  <h1>Workspace sidebar mockup</h1>
+  <p>Reference for the redesign of <code>features/sessions/SessionList</code>. Click a workspace to collapse it and a session to select it. Use Tab to see the focus ring. The controls below are not part of the design.</p>
+  <label><input type="checkbox" id="optConnected" checked> Connected</label>
+  <label><input type="checkbox" id="optAllStates"> Show failed and empty rows too</label>
+</div>
+
+<script>
+  // Icons (Lucide paths, 2px stroke)
+  const ICON = {
+    chevron: '<path d="m9 18 6-6-6-6"></path>',
+    more: '<circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle>',
+    plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
+  };
+  const svg = (name, size) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
+
+  // Same data as the design canvas
+  const state = {
+    connected: true,
+    allStates: false,
+    activeId: "s1",
+    workspaces: [
+      { cwd: "/tmp/pi-demo", name: "pi-demo", letter: "P", color: "#dc2626", open: true, sessions: [
+        { id: "s1", title: "Add API-key rotation", status: "idle" },
+        { id: "s2", title: "Fix flaky auth test", status: "running" },
+        { id: "s3", title: "Choose a migration path", status: "input" },
+      ]},
+      { cwd: "~/DEV/pi-studio", name: "pi-studio", letter: "S", color: "#0d9488", open: false, attention: true, sessions: [
+        { id: "s4", title: "Wire desktop transfers", status: "idle" },
+        { id: "s5", title: "Bounded shutdown", status: "idle" },
+        { id: "s6", title: "Daemon self-update", status: "idle" },
+        { id: "s7", title: "Relay pairing", status: "idle" },
+        { id: "s8", title: "Context compaction", status: "input" },
+      ]},
+      { cwd: "~/DEV/website", name: "website", letter: "W", color: "#7c3aed", open: false, sessions: [
+        { id: "s9", title: "Landing page copy", status: "idle" },
+      ]},
+    ],
+  };
+  const EXTRA = [
+    { id: "x1", title: "Upgrade to Node 22", status: "error", reason: "exit 1" },
+    { id: "x2", title: "New chat", status: "empty" },
+  ];
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function metaHtml(s) {
+    switch (s.status) {
+      case "running": return '<span class="dot running"></span><span>running</span>';
+      case "input":   return '<span class="dot input"></span><span class="warn">needs input</span>';
+      case "error":   return `<span class="dot error"></span><span><span class="fail">error</span> · ${esc(s.reason || "")}</span>`;
+      case "empty":   return "<span>no messages yet</span>";
+      default:        return '<span class="dot idle"></span><span>idle</span>';
+    }
+  }
+
+  function render() {
+    const list = document.getElementById("list");
+    document.getElementById("wsHeading").textContent =
+      `Workspaces · ${state.connected ? state.workspaces.length : 0}`;
+    document.getElementById("addWorkspace").disabled = !state.connected;
+
+    if (!state.connected) {
+      list.innerHTML = '<p class="emptyState">Not connected</p>';
+      return;
+    }
+
+    list.innerHTML = state.workspaces.map((w, wi) => {
+      const sessions = wi === 0 && state.allStates ? w.sessions.concat(EXTRA) : w.sessions;
+      const rows = sessions.map((s) => `
+        <div class="item${s.id === state.activeId ? " active" : ""}${s.status === "empty" ? " empty" : ""}"
+             data-session="${s.id}" tabindex="0">
+          <span class="body">
+            <span class="titleLabel">${esc(s.title)}</span>
+            <span class="meta">${metaHtml(s)}</span>
+          </span>
+          <button type="button" class="iconBtn" data-menu="session" aria-label="Actions" title="Actions">${svg("more", 14)}</button>
+        </div>`).join("");
+      return `
+        <div class="workspace${w.open ? " open" : ""}${w.attention ? " attention" : ""}">
+          <div class="workspaceHeader" data-ws="${wi}" title="${esc(w.cwd)}" tabindex="0"
+               role="button" aria-expanded="${w.open}">
+            <span class="chevron">${svg("chevron", 14)}</span>
+            <span class="avatar" style="background:${w.color}">${esc(w.letter)}</span>
+            <span class="workspaceLabel">${esc(w.name)}</span>
+            <span class="attentionDot" aria-label="${esc(w.name)} — a session needs input"></span>
+            <span class="count">${sessions.length}</span>
+            <button type="button" class="iconBtn" data-menu="workspace" aria-label="Workspace actions" title="Workspace actions">${svg("more", 14)}</button>
+          </div>
+          <div class="sessions">
+            ${rows}
+            <button type="button" class="newSession">${svg("plus", 13)}New session</button>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  document.getElementById("list").addEventListener("click", (e) => {
+    if (e.target.closest("[data-menu]")) { e.stopPropagation(); return; } // menus open here in the app
+    const header = e.target.closest("[data-ws]");
+    if (header) {
+      const w = state.workspaces[Number(header.dataset.ws)];
+      w.open = !w.open;
+      render();
+      return;
+    }
+    const row = e.target.closest("[data-session]");
+    if (row) { state.activeId = row.dataset.session; render(); }
+  });
+  document.getElementById("list").addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-ws], [data-session]")) {
+      e.preventDefault();
+      e.target.click();
+    }
+  });
+  document.getElementById("optConnected").addEventListener("change", (e) => { state.connected = e.target.checked; render(); });
+  document.getElementById("optAllStates").addEventListener("change", (e) => { state.allStates = e.target.checked; render(); });
+
+  render();
+</script>
+</body>
+</html>

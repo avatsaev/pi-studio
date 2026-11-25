@@ -40,12 +40,7 @@ export function SessionItem({
 
   return (
     <div
-      className={clsx(
-        styles.item,
-        active && styles.active,
-        // A selected row always reads as selected first — the failed tint only applies unselected.
-        !active && view.state === "failed" && styles.itemFailed,
-      )}
+      className={clsx(styles.item, active && styles.active)}
       data-session-row={session.id}
       // Not a tab stop — focusable only so closing the rename dialog can return focus here.
       tabIndex={-1}
@@ -57,53 +52,46 @@ export function SessionItem({
         onOpenMenu(ev.clientX, ev.clientY);
       }}
     >
-      {/* The needs-input accent bar does not yield to selection (§ 08: "the accent bar still
-          shows") — unlike `.itemFailed`'s wash, which does. */}
-      {(active || view.state === "needsInput") && (
-        <span
-          className={clsx(
-            styles.activeBar,
-            view.state === "needsInput" && styles.activeBarNeedsInput,
-          )}
-          aria-hidden
-        />
-      )}
-      <div className={styles.title}>
+      <div className={styles.body}>
         <span className={clsx(styles.titleLabel, view.titleItalic && styles.titleItalic)}>
           {session.title}
         </span>
-        <IconButton
-          className={styles.menuBtn}
-          hoverBase="var(--pi-color-surfaceSidebar)"
-          title="Actions"
-          onClick={(ev) => {
-            ev.stopPropagation();
-            const rect = ev.currentTarget.getBoundingClientRect();
-            onOpenMenu(rect.left, rect.bottom);
-          }}
-        >
-          <Icon icon={MoreVertical} size="sm" />
-        </IconButton>
-      </div>
-      <div className={clsx(styles.meta, view.state === "empty" && styles.metaEmpty)}>
-        {view.dot && (
-          <StatusDot {...view.dot} className={styles.metaDot} pulse={view.state === "needsInput"} />
-        )}
-        <span className={styles.metaLabel}>
-          <span
-            className={
-              view.state === "failed"
-                ? styles.metaFailed
-                : view.state === "needsInput"
-                  ? styles.metaNeedsInput
-                  : undefined
-            }
-          >
-            {view.meta}
+        <div className={clsx(styles.meta, view.state === "empty" && styles.metaEmpty)}>
+          {view.dot && (
+            <StatusDot
+              {...view.dot}
+              className={styles.metaDot}
+              pulse={view.state === "needsInput"}
+            />
+          )}
+          <span className={styles.metaLabel}>
+            <span
+              className={
+                view.state === "failed"
+                  ? styles.metaFailed
+                  : view.state === "needsInput"
+                    ? styles.metaNeedsInput
+                    : undefined
+              }
+            >
+              {view.meta}
+            </span>
+            {view.reason && <> · {view.reason}</>}
           </span>
-          {view.reason && <> · {view.reason}</>}
-        </span>
+        </div>
       </div>
+      <IconButton
+        className={styles.menuBtn}
+        hoverBase="var(--pi-color-surface2)"
+        title="Actions"
+        onClick={(ev) => {
+          ev.stopPropagation();
+          const rect = ev.currentTarget.getBoundingClientRect();
+          onOpenMenu(rect.left, rect.bottom);
+        }}
+      >
+        <Icon icon={MoreVertical} size="sm" />
+      </IconButton>
     </div>
   );
 }

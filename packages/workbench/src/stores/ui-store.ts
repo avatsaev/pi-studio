@@ -13,7 +13,7 @@ import { create } from "zustand";
 
 export const MIN_SIDEBAR_WIDTH = 100;
 export const MAX_SIDEBAR_WIDTH = 480;
-const DEFAULT_LEFT_SIDEBAR_WIDTH = 220;
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 248;
 const DEFAULT_RIGHT_SIDEBAR_WIDTH = 280;
 
 function clampSidebarWidth(width: number): number {
