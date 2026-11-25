@@ -1,10 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { silentLogger } from "../logging/logger.js";
+import { workspacesPath } from "../persistence/entity-stores.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
 import {
   deriveProjectKey,
   normalizePath,
@@ -103,5 +105,121 @@ describe("WorkspaceRegistryService — workspaces", () => {
     expect(archived?.archivedAt).toBeTruthy();
     expect(await svc.listActiveWorkspaces()).toHaveLength(0);
     expect(await svc.listWorkspaces()).toHaveLength(1);
+  });
+});
+
+describe("WorkspaceRegistryService — concurrent calls", () => {
+  it("two concurrent workspace registrations for different folders are both recorded", async () => {
+    const svc = new WorkspaceRegistryService(home, silentLogger());
+    const [a, b] = await Promise.all([
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/a", kind: "directory" }),
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/b", kind: "directory" }),
+    ]);
+    expect([a.created, b.created]).toEqual([true, true]);
+    const cwds = (await svc.listWorkspaces()).map((workspace) => workspace.cwd);
+    expect(cwds.toSorted()).toEqual(["/w/a", "/w/b"]);
+  });
+
+  it("two concurrent registrations of the same folder create one workspace", async () => {
+    const svc = new WorkspaceRegistryService(home, silentLogger());
+    const results = await Promise.all([
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/a", kind: "directory" }),
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/a/", kind: "directory" }),
+    ]);
+    expect(results.map((result) => result.created)).toEqual([true, false]);
+    expect(await svc.listWorkspaces()).toHaveLength(1);
+  });
+
+  it("two concurrent project registrations for different roots are both recorded", async () => {
+    const svc = new WorkspaceRegistryService(home, silentLogger());
+    await Promise.all([
+      svc.resolveOrCreateProject({ rootPath: "/w/a", kind: "git" }),
+      svc.resolveOrCreateProject({ rootPath: "/w/b", kind: "git" }),
+    ]);
+    const roots = (await svc.listProjects()).map((project) => project.rootPath);
+    expect(roots.toSorted()).toEqual(["/w/a", "/w/b"]);
+  });
+
+  it("an archive racing a registration loses neither change", async () => {
+    const svc = new WorkspaceRegistryService(home, silentLogger());
+    const { workspace } = await svc.resolveOrCreateWorkspace({
+      projectId: "p",
+      cwd: "/w/a",
+      kind: "directory",
+    });
+    await Promise.all([
+      svc.archiveWorkspace(workspace.workspaceId),
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/b", kind: "directory" }),
+    ]);
+    expect((await svc.listActiveWorkspaces()).map((active) => active.cwd)).toEqual(["/w/b"]);
+    expect(await svc.listWorkspaces()).toHaveLength(2);
+  });
+});
+
+function workspaceJson(workspaceId: string): Record<string, unknown> {
+  return {
+    workspaceId,
+    projectId: "p",
+    cwd: `/w/${workspaceId}`,
+    kind: "directory",
+    displayName: workspaceId,
+    createdAt: "2026-06-11T12:00:00.000Z",
+    updatedAt: "2026-06-11T12:00:00.000Z",
+    archivedAt: null,
+  };
+}
+
+/** Write a `workspaces.json` whose middle record is invalid; returns the file's bytes. */
+async function writeDamagedRegistry(): Promise<string> {
+  const path = workspacesPath(home);
+  await mkdir(dirname(path), { recursive: true });
+  const original = JSON.stringify([
+    workspaceJson("w1"),
+    { ...workspaceJson("w2"), kind: "bogus" },
+    workspaceJson("w3"),
+  ]);
+  await writeFile(path, original, "utf8");
+  return original;
+}
+
+/** The contents of every file set aside next to `workspaces.json`. */
+async function readSetAside(): Promise<string[]> {
+  const dir = dirname(workspacesPath(home));
+  const names = (await readdir(dir)).filter((name) => name.includes(".corrupt-"));
+  return Promise.all(names.map((name) => readFile(join(dir, name), "utf8")));
+}
+
+describe("WorkspaceRegistryService — a registry with an invalid record", () => {
+  it("a registration after it keeps the valid records instead of making the loss permanent", async () => {
+    const original = await writeDamagedRegistry();
+    const { logger, lines } = recordingLogger();
+    const svc = new WorkspaceRegistryService(home, logger);
+
+    const { workspace } = await svc.resolveOrCreateWorkspace({
+      projectId: "p",
+      cwd: "/w/new",
+      kind: "directory",
+    });
+
+    const ids = (await svc.listWorkspaces()).map((record) => record.workspaceId);
+    expect(ids).toEqual(["w1", "w3", workspace.workspaceId]);
+    expect(await readSetAside()).toEqual([original]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ level: "error" });
+  });
+
+  it("a read racing a registration sets the file aside once and loses nothing", async () => {
+    const original = await writeDamagedRegistry();
+    const svc = new WorkspaceRegistryService(home, silentLogger());
+
+    const [listed, created] = await Promise.all([
+      svc.listWorkspaces(),
+      svc.resolveOrCreateWorkspace({ projectId: "p", cwd: "/w/new", kind: "directory" }),
+    ]);
+
+    expect(listed.map((record) => record.workspaceId)).toEqual(["w1", "w3"]);
+    const ids = (await svc.listWorkspaces()).map((record) => record.workspaceId);
+    expect(ids).toEqual(["w1", "w3", created.workspace.workspaceId]);
+    expect(await readSetAside()).toEqual([original]);
   });
 });

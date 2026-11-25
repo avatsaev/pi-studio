@@ -68,4 +68,14 @@ describe("OpenProjectService.openProject", () => {
     expect(b.created).toBe(false);
     expect(b.workspace.workspaceId).toBe(a.workspace.workspaceId);
   });
+
+  it("records both folders when two are opened at once", async () => {
+    const { svc } = makeService();
+    const results = await Promise.all([svc.openProject(repo), svc.openProject(plain)]);
+
+    const registry = new WorkspaceRegistryService(home, silentLogger());
+    const workspaceIds = (await registry.listWorkspaces()).map((w) => w.workspaceId);
+    expect(workspaceIds.toSorted()).toEqual(results.map((r) => r.workspace.workspaceId).toSorted());
+    expect(await registry.listProjects()).toHaveLength(2);
+  });
 });

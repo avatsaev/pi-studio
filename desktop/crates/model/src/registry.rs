@@ -797,6 +797,11 @@ pub enum FailReason {
     /// The archive could not be unpacked, or the binary in it does not answer `--version` with the
     /// pinned version; the state carries the output's last lines.
     InstallFailed,
+    /// The daemon refused to start: it would listen beyond this machine with no password; the state carries
+    /// nothing more.
+    UnprotectedBind,
+    /// The daemon refused to start: its `config.json` is damaged; the state carries the file's path.
+    ConfigUnreadable,
 }
 
 impl FailReason {
@@ -810,6 +815,8 @@ impl FailReason {
             FailReason::DownloadFailed => "download_failed",
             FailReason::ChecksumMismatch => "checksum_mismatch",
             FailReason::InstallFailed => "install_failed",
+            FailReason::UnprotectedBind => "unprotected_bind",
+            FailReason::ConfigUnreadable => "config_unreadable",
         }
     }
 }
@@ -843,8 +850,8 @@ pub enum LocalState {
     },
     Failed {
         reason: FailReason,
-        /// The last lines of what a failed install printed, for `install_failed`: shown to the
-        /// user, never parsed.
+        /// For `install_failed`: the last lines of what the install printed. For `config_unreadable`: the
+        /// path of the damaged file. Shown to the user, never parsed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
     },
@@ -871,6 +878,10 @@ pub enum RemoteFailReason {
     /// The host could not unpack the archive or run what is in it (no `tar`, a `noexec` home, a C library too
     /// old); the state carries the host's last lines.
     InstallFailed,
+    /// The host's daemon refused to start: it would listen beyond the host with no password.
+    UnprotectedBind,
+    /// The host's daemon refused to start: its `config.json` is damaged; the state carries the file's path on the host.
+    ConfigUnreadable,
 }
 
 impl RemoteFailReason {
@@ -885,6 +896,8 @@ impl RemoteFailReason {
             RemoteFailReason::ChecksumMismatch => "checksum_mismatch",
             RemoteFailReason::SendFailed => "send_failed",
             RemoteFailReason::InstallFailed => "install_failed",
+            RemoteFailReason::UnprotectedBind => "unprotected_bind",
+            RemoteFailReason::ConfigUnreadable => "config_unreadable",
         }
     }
 
@@ -938,8 +951,8 @@ pub enum RemoteState {
     },
     Failed {
         reason: RemoteFailReason,
-        /// The last lines the host printed, for `install_failed` and `send_failed`: shown to the user,
-        /// never parsed, never logged.
+        /// For `send_failed` and `install_failed`: the last lines the host printed. For `config_unreadable`: the
+        /// path of the damaged file on the host. Shown to the user, never parsed, never logged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
     },
@@ -1140,6 +1153,11 @@ mod tests {
                 LocalState::Failed { reason: FailReason::InstallFailed, output: Some("unpack: refused".into()) },
                 json!({"state":"failed","reason":"install_failed","output":"unpack: refused"}),
             ),
+            (LocalState::Failed { reason: FailReason::UnprotectedBind, output: None }, json!({"state":"failed","reason":"unprotected_bind"})),
+            (
+                LocalState::Failed { reason: FailReason::ConfigUnreadable, output: Some("/home/me/.pi-studio/config.json".into()) },
+                json!({"state":"failed","reason":"config_unreadable","output":"/home/me/.pi-studio/config.json"}),
+            ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);
@@ -1161,6 +1179,8 @@ mod tests {
             (FailReason::DownloadFailed, "download_failed"),
             (FailReason::ChecksumMismatch, "checksum_mismatch"),
             (FailReason::InstallFailed, "install_failed"),
+            (FailReason::UnprotectedBind, "unprotected_bind"),
+            (FailReason::ConfigUnreadable, "config_unreadable"),
         ];
         for (reason, code) in codes {
             assert_eq!(reason.code(), code);
@@ -1202,6 +1222,11 @@ mod tests {
                 RemoteState::Failed { reason: RemoteFailReason::InstallFailed, output: Some("tar: command not found".into()) },
                 json!({"state":"failed","reason":"install_failed","output":"tar: command not found"}),
             ),
+            (failed(RemoteFailReason::UnprotectedBind), json!({"state":"failed","reason":"unprotected_bind"})),
+            (
+                RemoteState::Failed { reason: RemoteFailReason::ConfigUnreadable, output: Some("/home/me/.pi-studio/config.json".into()) },
+                json!({"state":"failed","reason":"config_unreadable","output":"/home/me/.pi-studio/config.json"}),
+            ),
         ];
         for (state, value) in cases {
             assert_eq!(serde_json::to_value(&state).unwrap(), value);
@@ -1224,6 +1249,8 @@ mod tests {
             (RemoteFailReason::BadOutput, false),
             (RemoteFailReason::ExecFailed, false),
             (RemoteFailReason::NoShell, false),
+            (RemoteFailReason::UnprotectedBind, false),
+            (RemoteFailReason::ConfigUnreadable, false),
         ] {
             assert_eq!(reason.is_install(), install, "{reason:?}");
         }

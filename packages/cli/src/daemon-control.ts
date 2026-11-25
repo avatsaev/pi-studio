@@ -1,9 +1,26 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 
-import { daemonCommand, waitForProcessExit } from "@av-pi-studio/server";
+import {
+  daemonCommand,
+  generateDaemonKeypair,
+  rawObject,
+  readRawConfig,
+  waitForProcessExit,
+  writeDaemonKeypair,
+} from "@av-pi-studio/server";
 import { SHUTDOWN_DEADLINE_MS } from "@av-pi-studio/server/shutdown";
 import bcrypt from "bcryptjs";
 
@@ -213,39 +230,53 @@ export async function daemonStatus(
 
 /**
  * Write a bcrypt-hashed password into `config.json` (daemon.auth.password). The daemon enforces it
- * on its next (re)start. Preserves existing config; creates the file/home if missing.
+ * on its next (re)start. Preserves existing config; creates the file/home if missing. Throws
+ * `ConfigUnreadableError` (file untouched) when the existing file cannot be read.
  */
 export function setDaemonPassword(home: string, plaintext: string, runtime: DaemonRuntime): void {
+  updateConfigFile(home, (daemon) => {
+    const auth = rawObject(daemon, "auth");
+    auth.password = runtime.hash(plaintext);
+    daemon.auth = auth;
+  });
+}
+
+/**
+ * Read-merge-write `config.json` for the CLI: `change` edits the `daemon` object of the RAW contents
+ * (unknown keys survive, nothing is defaulted), then `version: 1` is set when absent and the file is
+ * written with {@link writeConfigFile}. A file that cannot be read throws `ConfigUnreadableError`
+ * before anything is written.
+ */
+function updateConfigFile(home: string, change: (daemon: Record<string, unknown>) => void): void {
   const path = daemonPaths(home).config;
-  let config: Record<string, unknown> = {};
-  if (existsSync(path)) {
-    try {
-      config = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    } catch {
-      config = {};
-    }
-  }
-  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
-  const auth = (daemon.auth as Record<string, unknown> | undefined) ?? {};
-  auth.password = runtime.hash(plaintext);
-  daemon.auth = auth;
+  const config = readRawConfig(path);
+  const daemon = rawObject(config, "daemon");
+  change(daemon);
   config.daemon = daemon;
   if (config.version === undefined) config.version = 1;
-
   writeConfigFile(home, path, config);
 }
 
 /**
- * Persist `config.json` owner-only (0600): it can carry the daemon password hash. `mode` only
- * applies on creation, so an explicit chmod re-tightens files written before this was enforced.
+ * Persist `config.json` atomically (temp file in the same directory, fsync, rename) and owner-only
+ * (0600): it can carry the daemon password hash. The temp file is created 0600, so the renamed file
+ * is too, also when it replaces one written before this was enforced.
  */
 function writeConfigFile(home: string, path: string, config: Record<string, unknown>): void {
   mkdirSync(home, { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
-    chmodSync(path, 0o600);
-  } catch {
-    /* best-effort */
+    const fd = openSync(tmp, "wx", 0o600);
+    try {
+      writeFileSync(fd, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, path);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
   }
 }
 
@@ -284,34 +315,22 @@ export function persistRelayEnvOverrides(
 ): void {
   if (!RELAY_ENV_KEYS.some((key) => env[key] !== undefined)) return;
 
-  const path = daemonPaths(home).config;
-  let config: Record<string, unknown> = {};
-  if (existsSync(path)) {
-    try {
-      config = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    } catch {
-      config = {};
+  updateConfigFile(home, (daemon) => {
+    const relay = rawObject(daemon, "relay");
+
+    if (env.PI_STUDIO_RELAY_ENABLED !== undefined)
+      relay.enabled = envBool(env.PI_STUDIO_RELAY_ENABLED);
+    if (env.PI_STUDIO_RELAY_ENDPOINT) relay.endpoint = env.PI_STUDIO_RELAY_ENDPOINT;
+    if (env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT)
+      relay.publicEndpoint = env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT;
+    if (env.PI_STUDIO_RELAY_USE_TLS !== undefined)
+      relay.useTls = envBool(env.PI_STUDIO_RELAY_USE_TLS);
+    if (env.PI_STUDIO_RELAY_PUBLIC_USE_TLS !== undefined) {
+      relay.publicUseTls = envBool(env.PI_STUDIO_RELAY_PUBLIC_USE_TLS);
     }
-  }
-  const daemon = (config.daemon as Record<string, unknown> | undefined) ?? {};
-  const relay = (daemon.relay as Record<string, unknown> | undefined) ?? {};
 
-  if (env.PI_STUDIO_RELAY_ENABLED !== undefined)
-    relay.enabled = envBool(env.PI_STUDIO_RELAY_ENABLED);
-  if (env.PI_STUDIO_RELAY_ENDPOINT) relay.endpoint = env.PI_STUDIO_RELAY_ENDPOINT;
-  if (env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT)
-    relay.publicEndpoint = env.PI_STUDIO_RELAY_PUBLIC_ENDPOINT;
-  if (env.PI_STUDIO_RELAY_USE_TLS !== undefined)
-    relay.useTls = envBool(env.PI_STUDIO_RELAY_USE_TLS);
-  if (env.PI_STUDIO_RELAY_PUBLIC_USE_TLS !== undefined) {
-    relay.publicUseTls = envBool(env.PI_STUDIO_RELAY_PUBLIC_USE_TLS);
-  }
-
-  daemon.relay = relay;
-  config.daemon = daemon;
-  if (config.version === undefined) config.version = 1;
-
-  writeConfigFile(home, path, config);
+    daemon.relay = relay;
+  });
 }
 
 /** The `daemon stop` answer: `stopped` is true only once the process has exited. */
@@ -353,9 +372,10 @@ export async function stopDaemon(home: string, runtime: DaemonRuntime): Promise<
 }
 
 /**
- * Delete `$PI_STUDIO_HOME/daemon-keypair.json` so the daemon mints a fresh Curve25519 identity on
- * its next boot (`packages/server/src/daemon/bootstrap.ts#resolveDaemonKeypair` regenerates when the
- * file is missing/unreadable). Returns true when a keypair was actually removed.
+ * Replace `$PI_STUDIO_HOME/daemon-keypair.json` with a new Curve25519 pair, written atomically and
+ * owner-only (0600), so the file is never missing or half-written and the daemon reads the new
+ * identity on its next boot. Returns true when a keypair existed before (false: none was there to
+ * revoke, and a first one is now written).
  *
  * This is credential revocation, not housekeeping: a pairing link's `offer=` key IS the credential
  * for a relay-routed connection (the password is not consulted on that path), and the relay
@@ -367,10 +387,9 @@ export async function stopDaemon(home: string, runtime: DaemonRuntime): Promise<
  * callers are expected to stop the daemon first (see `daemon rotate-key`).
  */
 export function rotateDaemonKeypair(home: string): boolean {
-  const path = daemonPaths(home).keypair;
-  if (!existsSync(path)) return false;
-  rmSync(path, { force: true });
-  return true;
+  const existed = existsSync(daemonPaths(home).keypair);
+  writeDaemonKeypair(home, generateDaemonKeypair());
+  return existed;
 }
 
 /** Poll the health endpoint until the daemon is up or attempts are exhausted. */

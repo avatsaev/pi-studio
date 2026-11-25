@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,7 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { persistedConfigSchema } from "../config/daemon-config.js";
 import { silentLogger } from "../logging/logger.js";
-import { effectivePiHomeKey, loadExtensionsState } from "./extensions-state.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
+import {
+  effectivePiHomeKey,
+  extensionsStatePath,
+  loadExtensionsState,
+} from "./extensions-state.js";
 import type { SyncPlan } from "./sync-planner.js";
 
 // `resolveBundledPiCli` always resolves successfully in this dev environment (the real dependency
@@ -421,6 +426,72 @@ describe("executePlan — stop", () => {
       }),
     ).rejects.toThrow("the daemon is shutting down");
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+describe("executePlan — credentials never leave the failure path", () => {
+  const URL_SECRET = "hunter2-secret";
+  const QUERY_SECRET = "abc123token";
+  const STDERR =
+    `fatal: unable to access 'https://user:${URL_SECRET}@git.example/repo.git/'\n` +
+    `retry https://registry.example/pkg?token=${QUERY_SECRET}&x=1\n`;
+  const credentialed = {
+    identity: "repo",
+    pack: "core",
+    source: `git:https://user:${URL_SECRET}@git.example/repo.git?token=${QUERY_SECRET}`,
+  };
+
+  async function failWith(spawn: InstallSpawn): Promise<{
+    stateFile: string;
+    logText: string;
+    reportText: string;
+  }> {
+    const home = await tempHome();
+    const { logger, lines } = recordingLogger();
+    const report = await executePlan(planOf([credentialed]), {
+      home,
+      piHomeKey: PI_HOME_KEY,
+      config: CONFIG,
+      spawn,
+      logger,
+    });
+    return {
+      stateFile: await readFile(extensionsStatePath(home), "utf8"),
+      logText: JSON.stringify(lines),
+      reportText: JSON.stringify(report),
+    };
+  }
+
+  function expectNoSecrets(text: string): void {
+    expect(text).not.toContain(URL_SECRET);
+    expect(text).not.toContain(QUERY_SECRET);
+  }
+
+  it("a non-zero exit keeps neither secret in the state file, the log lines or the report", async () => {
+    const { stateFile, logText, reportText } = await failWith(async () => ({
+      exitCode: 1,
+      stderr: STDERR,
+    }));
+    for (const text of [stateFile, logText, reportText]) expectNoSecrets(text);
+    expect(stateFile).toContain("git.example/repo.git/");
+    expect(logText).toContain("failed to install recommended extension");
+  });
+
+  it("a thrown error's text is redacted the same way", async () => {
+    const { stateFile, logText, reportText } = await failWith(async () => {
+      throw new Error(STDERR);
+    });
+    for (const text of [stateFile, logText, reportText]) expectNoSecrets(text);
+    expect(stateFile).toContain("retry https://registry.example/pkg");
+  });
+
+  it("the update step's error is redacted too", async () => {
+    const error = await updateInstalledExtensions({
+      config: CONFIG,
+      spawn: async () => ({ exitCode: 1, stderr: STDERR }),
+    }).catch((e: unknown) => e);
+    if (!(error instanceof Error)) throw new Error("expected a rejection");
+    expectNoSecrets(error.message);
   });
 });
 

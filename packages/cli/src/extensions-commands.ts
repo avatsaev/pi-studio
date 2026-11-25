@@ -27,6 +27,7 @@ import {
   withDaemon,
 } from "./cli-core.js";
 import { resolveHome } from "./client-id.js";
+import { reportingConfigErrors } from "./daemon-commands.js";
 import { renderJson, renderTable } from "./output.js";
 
 /**
@@ -252,7 +253,9 @@ export function registerExtensionsCommands(
     )
     .action(async (o: { local?: boolean }) => {
       if (o.local) {
-        setExit(await listExtensionsLocal(ctx, g()));
+        setExit(
+          await reportingConfigErrors(ctx, g().host, g().json, () => listExtensionsLocal(ctx, g())),
+        );
         return;
       }
       setExit(await withDaemon(ctx, g(), (client) => listExtensions(client, ctx, g())));

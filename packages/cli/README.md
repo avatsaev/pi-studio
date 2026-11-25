@@ -184,7 +184,7 @@ does the same thing.
 With the global `--json` flag, `daemon start`, `restart`, `pair` and `stop` each print exactly one
 line of JSON and nothing else (no QR): `start`/`restart` →
 `{"up":true,"started":true|false,"host","port","pairingUrl","relay"}` (failure:
-`{"up":false,"host","port","error":"not_healthy"}`, `"error":"unprotected_bind"` (a non-loopback `-H` host and no password: nothing is spawned), or `"error":"no_keypair"` with `up:true` when
+`{"up":false,"host","port","error":"not_healthy"}`, `"error":"unprotected_bind"` (a non-loopback `-H` host and no password: nothing is spawned), `"error":"config_unreadable"` (`config.json` is damaged or fails its schema: nothing is spawned or stopped, and the file is left as it is; `daemon pair` and `extensions list --local` refuse the same way, and `daemon set-password` refuses a file that is not valid JSON), or `"error":"no_keypair"` with `up:true` when
 the daemon is healthy but has no key file yet), `pair` → `{"pairingUrl","relay"}` (failure
 `{"error":"no_keypair"}`), `stop` → `{"stopped":true|false}`. Failures exit non-zero. `relay` is the
 relay endpoint the link routes through, or `null`. `pairingUrl` is a credential on relay links.

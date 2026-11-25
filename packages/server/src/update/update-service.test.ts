@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { link, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate as flush } from "node:timers/promises";
@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DaemonUpdateStatus } from "@av-pi-studio/protocol";
 
+import { recordingLogger } from "../test-support/recording-logger.js";
 import {
   classifyInstallFailure,
   createFileSkipStore,
@@ -17,6 +18,7 @@ import {
   readAndRemoveUpdateResult,
   RESULT_POLL_MS,
   RESULT_WATCH_MS,
+  UPDATE_CONNECT_CHECK_MIN_AGE_MS,
   UpdateService,
   type UpdateLastResult,
   type UpdatePipeline,
@@ -211,6 +213,25 @@ describe("UpdateService check", () => {
     expect(broadcasts).toEqual([]);
   });
 
+  it("a failed check, automatic or manual, leaves a line in the log with why", async () => {
+    const { logger, lines } = recordingLogger();
+    const { service } = setup({ fetchLatest: async () => null, logger });
+    await service.check("automatic");
+    await service.check("manual");
+    expect(lines).toEqual([
+      {
+        level: "info",
+        msg: "update: check found no release",
+        obj: { by: "automatic", failure: "offline" },
+      },
+      {
+        level: "info",
+        msg: "update: check found no release",
+        obj: { by: "manual", failure: "offline" },
+      },
+    ]);
+  });
+
   it("a manual check broadcasts checking then the result; an automatic one only the result", async () => {
     const manual = setup();
     await manual.service.check("manual");
@@ -380,6 +401,160 @@ describe("UpdateService start and timer", () => {
     await second.service.start();
     second.service.close();
     expect(second.resultTimer.cleared).toEqual([second.resultTimer.sets[0]]);
+  });
+});
+
+describe("UpdateService check on connect", () => {
+  const MIN = UPDATE_CONNECT_CHECK_MIN_AGE_MS;
+
+  /**
+   * A service whose clock and release channel the test moves, after its start-up check at 1 000 ms
+   * (`latest` is what the registry answers, `null` for no answer). The counters start from zero.
+   */
+  async function started(
+    latest: string | null = "0.0.10",
+    overrides: Partial<UpdateServiceDeps> = {},
+  ) {
+    const clock = { now: 1_000 };
+    const registry = { latest };
+    const fetchLatest = vi.fn(async () => registry.latest);
+    const made = setup({ now: () => clock.now, fetchLatest, ...overrides });
+    await made.service.start();
+    fetchLatest.mockClear();
+    made.broadcasts.length = 0;
+    return { ...made, clock, registry, fetchLatest };
+  }
+
+  it("runs one check on a connect 10 minutes after the last attempt and broadcasts what it finds, silently", async () => {
+    const { service, clock, registry, fetchLatest, broadcasts } = await started();
+    clock.now += MIN;
+    registry.latest = "0.0.11";
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+    // No `checking` state: the only broadcast is the result.
+    expect(broadcasts.map((status) => status.state)).toEqual([
+      { kind: "available", version: "0.0.11" },
+    ]);
+  });
+
+  it("does not check on a connect one millisecond short of the age", async () => {
+    const { service, clock, fetchLatest } = await started();
+    clock.now += MIN - 1;
+    await service.checkIfStale();
+    expect(fetchLatest).not.toHaveBeenCalled();
+  });
+
+  it("ten connects within a minute run no check after a start-up check, and one after the age", async () => {
+    const { service, clock, fetchLatest } = await started();
+    for (let i = 0; i < 10; i += 1) {
+      clock.now += 5_000;
+      await service.checkIfStale();
+    }
+    expect(fetchLatest).not.toHaveBeenCalled();
+
+    clock.now = 1_000 + MIN;
+    await Promise.all(Array.from({ length: 10 }, () => service.checkIfStale()));
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+    clock.now += 30_000;
+    await Promise.all(Array.from({ length: 10 }, () => service.checkIfStale()));
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts no check while one is running", async () => {
+    const answer = Promise.withResolvers<string>();
+    const fetchLatest = vi.fn(() => answer.promise);
+    const clock = { now: 1_000 };
+    const { service } = setup({ now: () => clock.now, fetchLatest });
+    const running = service.check("manual");
+    clock.now += MIN;
+    await service.checkIfStale();
+    answer.resolve("0.0.11");
+    await running;
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts no check while an update runs", async () => {
+    const { service, clock, fetchLatest } = await started("0.0.11", { pipeline: hangingPipeline });
+    expect(service.apply()).toEqual({ ok: true });
+    clock.now += MIN;
+    await service.checkIfStale();
+    expect(fetchLatest).not.toHaveBeenCalled();
+    expect(service.status().state).toEqual({ kind: "installing", version: "0.0.11" });
+  });
+
+  it("retries a failed start-up check on a connect 10 minutes later, not one minute later", async () => {
+    const { service, clock, registry, fetchLatest, broadcasts } = await started(null);
+    expect(service.status().checkedAt).toBeUndefined();
+
+    registry.latest = "0.0.11";
+    clock.now += 60_000;
+    await service.checkIfStale();
+    expect(fetchLatest).not.toHaveBeenCalled();
+
+    clock.now = 1_000 + MIN;
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+    expect(broadcasts.at(-1)?.state).toEqual({ kind: "available", version: "0.0.11" });
+  });
+
+  it("counts a failed connect check as an attempt, and shows nothing of it", async () => {
+    const { service, clock, registry, fetchLatest, broadcasts } = await started();
+    registry.latest = null;
+    clock.now += MIN;
+    const before = service.status();
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+    expect(service.status()).toEqual(before);
+    expect(broadcasts).toEqual([]);
+
+    clock.now += 60_000;
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a manual check as an attempt", async () => {
+    const { service, clock, fetchLatest } = await started();
+    clock.now += MIN;
+    await service.check("manual");
+    clock.now += 60_000;
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer a version skipped after a rollback", async () => {
+    const { service, clock, fetchLatest, broadcasts } = await started("0.0.11", {
+      skipStore: memorySkipStore("0.0.11"),
+    });
+    expect(service.status().state).toEqual({ kind: "idle" });
+    clock.now += MIN;
+    await service.checkIfStale();
+    expect(fetchLatest).toHaveBeenCalledTimes(1);
+    expect(service.status().state).toEqual({ kind: "idle" });
+    expect(broadcasts.map((status) => status.state.kind)).not.toContain("available");
+  });
+
+  it("starts no check with auto-check off, at start-up or switched off later", async () => {
+    const off = await started("0.0.11", { autoCheck: false });
+    off.clock.now += MIN;
+    await off.service.checkIfStale();
+    expect(off.fetchLatest).not.toHaveBeenCalled();
+
+    const toggled = await started("0.0.11");
+    await toggled.service.setAutoCheck(false);
+    toggled.clock.now += MIN;
+    await toggled.service.checkIfStale();
+    expect(toggled.fetchLatest).not.toHaveBeenCalled();
+    await toggled.service.setAutoCheck(true);
+    await toggled.service.checkIfStale();
+    expect(toggled.fetchLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts no check after close()", async () => {
+    const { service, clock, fetchLatest } = await started();
+    service.close();
+    clock.now += MIN;
+    await service.checkIfStale();
+    expect(fetchLatest).not.toHaveBeenCalled();
   });
 });
 
@@ -800,5 +975,29 @@ describe("skipped version (D14)", () => {
     expect(await store.read()).toBe("1.2.3");
     await store.clear();
     expect(await store.read()).toBeUndefined();
+  });
+
+  it("a file store writes a new file and renames it into place: the previous file is never modified", async () => {
+    const previousBytes = JSON.stringify({ version: "1.2.3" });
+    const path = await tempFile(previousBytes);
+    const previous = `${path}.previous`;
+    await link(path, previous); // a second name for the same file: an in-place write would change it
+
+    const store = createFileSkipStore(path);
+    await store.write("1.2.4");
+
+    expect(await readFile(previous, "utf8")).toBe(previousBytes);
+    expect(await store.read()).toBe("1.2.4");
+  });
+
+  it("a file store refuses a version that is not plain, and keeps the previous file", async () => {
+    const previousBytes = JSON.stringify({ version: "1.2.3" });
+    const path = await tempFile(previousBytes);
+    const store = createFileSkipStore(path);
+
+    await expect(store.write("1.2.4-beta")).rejects.toBeDefined();
+
+    expect(await readFile(path, "utf8")).toBe(previousBytes);
+    expect(await store.read()).toBe("1.2.3");
   });
 });

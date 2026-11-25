@@ -30,6 +30,8 @@ const FAIL_REASONS = [
   "download_failed",
   "checksum_mismatch",
   "install_failed",
+  "unprotected_bind",
+  "config_unreadable",
 ] as const;
 const REMOTE_FAIL_REASONS = [
   "not_healthy",
@@ -41,6 +43,8 @@ const REMOTE_FAIL_REASONS = [
   "checksum_mismatch",
   "send_failed",
   "install_failed",
+  "unprotected_bind",
+  "config_unreadable",
 ] as const;
 const REMOTE_STAGES = ["downloading", "sending", "unpacking", "starting"] as const;
 const ENTRY_KINDS = ["local", "direct", "relay", "ssh"] as const;

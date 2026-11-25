@@ -1,8 +1,16 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { waitForProcessExit } from "@av-pi-studio/server";
+import { ConfigUnreadableError, waitForProcessExit } from "@av-pi-studio/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CliContext } from "./cli-core.js";
@@ -529,22 +537,35 @@ describe("ensureLocalDaemonAndPair on a non-loopback host", () => {
 // ─── rotate-key ───────────────────────────────────────────────────────────────
 
 describe("rotateDaemonKeypair", () => {
-  it("removes the keypair so the daemon mints a fresh identity on next boot", () => {
+  it("replaces the keypair with a new one, owner-only, leaving no temp file", () => {
     const home = tmpHome();
     const path = join(home, "daemon-keypair.json");
     writeFileSync(path, JSON.stringify({ publicKeyB64: "LEAKED", secretKeyB64: "S" }));
+    chmodSync(path, 0o644);
     expect(readDaemonPublicKey(home)).toBe("LEAKED");
 
     expect(rotateDaemonKeypair(home)).toBe(true);
-    expect(existsSync(path)).toBe(false);
-    expect(readDaemonPublicKey(home)).toBeNull();
+
+    const fresh = readDaemonPublicKey(home);
+    expect(fresh).toEqual(expect.any(String));
+    expect(fresh).not.toBe("LEAKED");
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(Buffer.from(written.publicKeyB64, "base64")).toHaveLength(32);
+    expect(Buffer.from(written.secretKeyB64, "base64")).toHaveLength(32);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(readdirSync(home)).toEqual(["daemon-keypair.json"]);
   });
 
-  it("reports false when there was no keypair to revoke", () => {
-    expect(rotateDaemonKeypair(tmpHome())).toBe(false);
+  it("reports false when there was no keypair to revoke, and writes a first one", () => {
+    const home = tmpHome();
+
+    expect(rotateDaemonKeypair(home)).toBe(false);
+
+    expect(readDaemonPublicKey(home)).toEqual(expect.any(String));
+    expect(statSync(join(home, "daemon-keypair.json")).mode & 0o777).toBe(0o600);
   });
 
-  it("invalidates the leaked pairing link: the next boot's link carries a different offer key", async () => {
+  it("invalidates the leaked pairing link: the next link carries a different offer key", async () => {
     const home = tmpHome();
     writeFileSync(
       join(home, "daemon-keypair.json"),
@@ -553,18 +574,14 @@ describe("rotateDaemonKeypair", () => {
     const leakedLink = buildPairingUrl(readDaemonPublicKey(home)!, { host: "127.0.0.1:6767" });
 
     rotateDaemonKeypair(home);
-    // Stand in for the daemon's own boot-time regeneration
-    // (server/src/daemon/bootstrap.ts#resolveDaemonKeypair regenerates when the file is missing).
-    writeFileSync(
-      join(home, "daemon-keypair.json"),
-      JSON.stringify({ publicKeyB64: "FRESH", secretKeyB64: "S2" }),
-    );
 
     const { ctx, out } = ctxWith(home, fakeRuntime({ probe: async () => true }));
     const code = await printPairing(ctx, home, "127.0.0.1:6767");
     expect(code).toBe(0);
     const printed = out.join("\n");
-    expect(printed).toContain("FRESH");
+    expect(printed).toContain(
+      buildPairingUrl(readDaemonPublicKey(home)!, { host: "127.0.0.1:6767" }),
+    );
     expect(printed).not.toContain("LEAKED");
     expect(printed).not.toContain(leakedLink);
   });
@@ -1056,5 +1073,119 @@ describe("desktop app contract: CLI output read by the desktop app", () => {
     });
     expect(stderr).toBe("");
     expect(stdout).toMatch(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\n$/);
+  });
+});
+
+// ─── a damaged config.json ────────────────────────────────────────────────────────
+
+const DAMAGED_CONFIG = '{ "daemon": { "auth": { "password": "$2a$10$abcdefghijklmnopqrstuv"';
+
+/** A home whose config.json is truncated mid-password-hash, with a keypair and no other file. */
+function damagedHome(): { home: string; configPath: string } {
+  const home = tmpHome();
+  writeKeypair(home);
+  const configPath = join(home, "config.json");
+  writeFileSync(configPath, DAMAGED_CONFIG);
+  return { home, configPath };
+}
+
+describe("a damaged config.json", () => {
+  it.each([
+    ["daemon start", ["daemon", "start"]],
+    ["daemon restart", ["daemon", "restart"]],
+    ["daemon pair", ["daemon", "pair"]],
+    ["daemon set-password", ["daemon", "set-password", "pw"]],
+    ["extensions list --local", ["extensions", "list", "--local"]],
+  ])(
+    "%s --json prints one config_unreadable line, exits non-zero, spawns and stops nothing",
+    async (_name, args) => {
+      const { home, configPath } = damagedHome();
+      const start = vi.fn(async () => 1);
+      const kill = vi.fn(() => true);
+      const { out, err, code } = await runCli(home, fakeRuntime({ start, kill }), [
+        "--json",
+        ...args,
+      ]);
+
+      expect(code).toBe(1);
+      expect(err).toEqual([]);
+      expect(out).toHaveLength(1);
+      expect(JSON.parse(out[0] as string)).toEqual({
+        up: false,
+        host: "127.0.0.1",
+        port: 6767,
+        error: "config_unreadable",
+      });
+      expect(start).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalled();
+      expect(readFileSync(configPath, "utf8")).toBe(DAMAGED_CONFIG);
+      expect(readdirSync(home).toSorted()).toEqual(["config.json", "daemon-keypair.json"]);
+    },
+  );
+
+  it.each([
+    ["daemon start", ["daemon", "start"]],
+    ["daemon restart", ["daemon", "restart"]],
+    ["daemon pair", ["daemon", "pair"]],
+    ["daemon set-password", ["daemon", "set-password", "pw"]],
+    ["extensions list --local", ["extensions", "list", "--local"]],
+  ])("%s prints the message naming the file on stderr and exits non-zero", async (_name, args) => {
+    const { home, configPath } = damagedHome();
+    const { out, err, code } = await runCli(home, fakeRuntime(), args);
+
+    expect(code).toBe(1);
+    expect(out).toEqual([]);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain(configPath);
+    expect(readFileSync(configPath, "utf8")).toBe(DAMAGED_CONFIG);
+  });
+
+  it("start with a relay env var does not rewrite the damaged file", async () => {
+    const { home, configPath } = damagedHome();
+    const saved = process.env.PI_STUDIO_RELAY_ENABLED;
+    process.env.PI_STUDIO_RELAY_ENABLED = "true";
+    try {
+      const { code } = await runCli(home, fakeRuntime(), ["--json", "daemon", "start"]);
+      expect(code).toBe(1);
+    } finally {
+      if (saved === undefined) delete process.env.PI_STUDIO_RELAY_ENABLED;
+      else process.env.PI_STUDIO_RELAY_ENABLED = saved;
+    }
+    expect(readFileSync(configPath, "utf8")).toBe(DAMAGED_CONFIG);
+  });
+
+  it("setDaemonPassword throws config_unreadable and leaves the file byte-identical", () => {
+    const { home, configPath } = damagedHome();
+    expect(() => setDaemonPassword(home, "pw", fakeRuntime())).toThrow(ConfigUnreadableError);
+    expect(readFileSync(configPath, "utf8")).toBe(DAMAGED_CONFIG);
+    expect(readdirSync(home).toSorted()).toEqual(["config.json", "daemon-keypair.json"]);
+  });
+
+  it("persistRelayEnvOverrides throws config_unreadable and leaves the file byte-identical", () => {
+    const { home, configPath } = damagedHome();
+    expect(() => persistRelayEnvOverrides(home, { PI_STUDIO_RELAY_ENABLED: "true" })).toThrow(
+      ConfigUnreadableError,
+    );
+    expect(readFileSync(configPath, "utf8")).toBe(DAMAGED_CONFIG);
+  });
+
+  it("a config that fails the schema is refused the same way", async () => {
+    const home = tmpHome();
+    writeKeypair(home);
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ agents: { providers: { other: {} } } }),
+    );
+    const { out, code } = await runCli(home, fakeRuntime(), ["--json", "daemon", "start"]);
+    expect(code).toBe(1);
+    expect(JSON.parse(out[0] as string)).toMatchObject({ error: "config_unreadable" });
+  });
+
+  it("writers leave no temp file behind and keep 0600 on success", () => {
+    const home = tmpHome();
+    setDaemonPassword(home, "pw", fakeRuntime());
+    persistRelayEnvOverrides(home, { PI_STUDIO_RELAY_ENABLED: "true" });
+    expect(readdirSync(home)).toEqual(["config.json"]);
+    expect(statSync(join(home, "config.json")).mode & 0o777).toBe(0o600);
   });
 });

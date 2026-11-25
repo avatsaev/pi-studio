@@ -72,9 +72,23 @@ function atomicWriteJson(path, data):
     write to {path}.tmp in the SAME directory
     fsync + rename {path}.tmp → {path}        # atomic on POSIX
 
-function loadStore(path, schema):
-    if not exists: return defaults
-    parse JSON; schema.safeParse; normalize legacy entries; return value or defaults
+function loadStore(path, schema, defaults, logger):
+    if not exists: return defaults                  # silent: the ordinary first-boot state
+    read the file; any other read error → throw     # not known to be damaged: never replaced
+    parse JSON; schema.safeParse
+    if either fails:
+        rename path → {path}.corrupt-<UTC timestamp>    # -1, -2… if that name is taken
+        log an error with the path, the new path and the reason
+        return defaults                              # the next save writes a fresh file
+    return value
+
+function loadRegistry(path, recordSchema, logger):  # projects.json, workspaces.json
+    items = loadStore(path, array of anything)      # not JSON / not an array: set aside, empty
+    valid = the items that pass recordSchema
+    if some were invalid:
+        rename path → {path}.corrupt-<UTC timestamp>, log an error with the number dropped
+        atomicWriteJson(path, valid)                 # the valid records are kept
+    return valid
 ```
 - **No versioned migrations.** Legacy provider entries are normalized inline on load
   (`persisted-config.ts`, `migrateProviderSettings`). Forward-compat = optional fields + defaults.
@@ -89,11 +103,18 @@ function loadStore(path, schema):
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |
 |-----------|-------------------|
-| Missing store file | Return defaults |
-| Corrupt/partial JSON | Reject or fall back to defaults; never crash the daemon |
+| Missing store file | Return defaults, silently |
+| Corrupt/partial JSON, or a file that fails its schema | Set aside as `<name>.corrupt-<UTC timestamp>`, log an error, return defaults; the next save writes a fresh file and never overwrites the damaged one; never crash the daemon |
+| Registry (`projects.json`, `workspaces.json`) with some invalid records | The original is set aside, the valid records are kept and written back, the number dropped is logged |
+| Agent record that is damaged | Set aside and logged; the other agents load |
+| Entry in `agents/` that cannot be read (dangling symlink, directory called `x.json`, permissions) | Logged as an error and skipped; recovery goes on |
+| File that cannot be read at all (permissions, a directory) | The read throws; the file is not replaced |
 | Legacy field shapes | Normalize inline on load |
-| Concurrent writes | Atomic rename prevents torn files |
+| Concurrent writes | Atomic rename prevents torn files; writes to one path run one at a time; a registry's read-modify-write runs under one lock |
 | Crash mid-write | Temp file discarded; previous file intact |
+
+`config.json` is not loaded with `loadStore`: a damaged one is never set aside; it stops the daemon
+from starting (`packages/server/AGENTS.md` § Persistence).
 
 ## Dependencies
 - Internal: every feature that owns state; bootstrap opens the stores.

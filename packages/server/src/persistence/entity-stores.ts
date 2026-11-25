@@ -2,8 +2,10 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import type { Logger } from "../logging/logger.js";
-import { atomicWriteJson, loadStore } from "./atomic-store.js";
+import { atomicWriteJson, loadStore, quarantineFile } from "./atomic-store.js";
 import {
   type AgentRecord,
   agentRecordSchema,
@@ -69,18 +71,39 @@ export async function deleteAgent(home: string, cwd: string, id: string): Promis
   return true;
 }
 
-/** Load every persisted agent record across all `agents/{sanitized-cwd}/` directories. */
+/**
+ * Load every persisted agent record across all `agents/{sanitized-cwd}/` directories. A damaged
+ * record is set aside and logged by {@link loadStore}; an entry that cannot be read (a dangling
+ * symlink, permissions, a directory called `x.json`) is logged and skipped. The others load.
+ */
 export async function loadAllAgents(home: string, logger: Logger): Promise<AgentRecord[]> {
   const base = join(home, "agents");
   if (!existsSync(base)) return [];
   const records: AgentRecord[] = [];
   for (const entry of readdirSync(base)) {
     const dir = join(base, entry);
-    if (!statSync(dir).isDirectory()) continue;
-    for (const file of readdirSync(dir)) {
-      if (!file.endsWith(".json")) continue;
-      const record = await loadStore(join(dir, file), agentRecordSchema.nullable(), null, logger);
-      if (record) records.push(record);
+    let files: string[];
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+      files = readdirSync(dir).filter((file) => file.endsWith(".json"));
+    } catch (error) {
+      const err = error instanceof Error ? error.message : String(error);
+      logger.error({ path: dir, err }, "agent directory skipped");
+      continue;
+    }
+    for (const file of files) {
+      const path = join(dir, file);
+      if (!existsSync(path)) {
+        logger.error({ path }, "agent record skipped: dangling symlink");
+        continue;
+      }
+      try {
+        const record = await loadStore(path, agentRecordSchema.nullable(), null, logger);
+        if (record) records.push(record);
+      } catch (error) {
+        const err = error instanceof Error ? error.message : String(error);
+        logger.error({ path, err }, "agent record skipped");
+      }
     }
   }
   return records;
@@ -98,8 +121,47 @@ export function workspacesPath(home: string): string {
   return join(home, "projects", "workspaces.json");
 }
 
+/** The invalid records a {@link loadRegistry} names in its log line. */
+const MAX_DESCRIBED_RECORDS = 3;
+
+/**
+ * Load a registry file (an array of records). A record that fails `schema.element` costs only that
+ * record: the original file is set aside ({@link quarantineFile}, logged with the number dropped)
+ * and the valid records are written back, so the next save cannot lose them. A file that is not
+ * JSON or not an array is set aside by {@link loadStore} and the registry starts empty.
+ */
+async function loadRegistry<S extends z.ZodTypeAny>(
+  path: string,
+  schema: z.ZodArray<S>,
+  logger: Logger,
+): Promise<Array<z.output<S>>> {
+  const items = await loadStore(path, z.array(z.unknown()), [], logger);
+  const valid: Array<z.output<S>> = [];
+  const invalid: string[] = [];
+  items.forEach((item, index) => {
+    const parsed = schema.element.safeParse(item);
+    if (parsed.success) {
+      valid.push(parsed.data);
+      return;
+    }
+    const issue = parsed.error.issues[0];
+    invalid.push(`[${index}] ${issue?.path.join(".") || "(record)"}: ${issue?.message}`);
+  });
+  if (invalid.length === 0) return valid;
+
+  const shown = invalid.slice(0, MAX_DESCRIBED_RECORDS).join("; ");
+  const more = invalid.length - MAX_DESCRIBED_RECORDS;
+  await quarantineFile(
+    path,
+    `${invalid.length} of ${items.length} records invalid: ${shown}${more > 0 ? `; and ${more} more` : ""}`,
+    logger,
+  );
+  await atomicWriteJson(path, valid as Array<z.input<S>>, schema);
+  return valid;
+}
+
 export async function loadProjects(home: string, logger: Logger): Promise<ProjectRegistry> {
-  return loadStore(projectsPath(home), projectRegistrySchema, [], logger);
+  return loadRegistry(projectsPath(home), projectRegistrySchema, logger);
 }
 
 export async function saveProjects(home: string, projects: ProjectRegistry): Promise<void> {
@@ -107,7 +169,7 @@ export async function saveProjects(home: string, projects: ProjectRegistry): Pro
 }
 
 export async function loadWorkspaces(home: string, logger: Logger): Promise<WorkspaceRegistry> {
-  return loadStore(workspacesPath(home), workspaceRegistrySchema, [], logger);
+  return loadRegistry(workspacesPath(home), workspaceRegistrySchema, logger);
 }
 
 export async function saveWorkspaces(home: string, workspaces: WorkspaceRegistry): Promise<void> {

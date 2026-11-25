@@ -150,6 +150,8 @@ struct Work<'a> {
     bin_dir: PathBuf,
     /// `<bin_dir>/current/pi-studio`.
     program: PathBuf,
+    /// The daemon's `config.json`.
+    config: PathBuf,
     env: &'a [(String, String)],
     report: &'a dyn Fn(LocalState),
 }
@@ -208,7 +210,7 @@ impl Supervisor {
             return install_failed("There is no folder for the daemon: PI_STUDIO_HOME is not an absolute path and no home directory is known.");
         };
         let bin_dir = shell_env::bin_dir(&home);
-        let work = Work { program: bin_dir.join("current").join(BINARY), bin_dir, env, report };
+        let work = Work { program: bin_dir.join("current").join(BINARY), bin_dir, config: shell_env::config_file(&home), env, report };
         match request {
             LocalRequest::Update => self.update(&work),
             request => self.run_request(request, &work),
@@ -228,7 +230,7 @@ impl Supervisor {
             return state;
         }
         let state = match self.daemon_command(work, command) {
-            Ok(answer) => self.state_of(answer),
+            Ok(answer) => self.state_of(work, answer),
             Err(state) => state,
         };
         // Only a start that reached `running` makes the old versions removable: until the daemon of the current one
@@ -260,7 +262,7 @@ impl Supervisor {
             let outdated = matches!(&status, Ok(Answer::Running { host, port }) if self.outdated_version(host, *port).is_some());
             if current >= pin && !outdated {
                 return match status {
-                    Ok(answer) => self.state_of(answer),
+                    Ok(answer) => self.state_of(work, answer),
                     Err(state) => state,
                 };
             }
@@ -333,7 +335,7 @@ impl Supervisor {
     }
 
     /// The state an answer is: a running daemon older than `minDaemonVersion` is `outdated`.
-    fn state_of(&self, answer: Answer) -> LocalState {
+    fn state_of(&self, work: &Work, answer: Answer) -> LocalState {
         match answer {
             Answer::Running { host, port } => match self.outdated_version(&host, port) {
                 Some(version) => LocalState::Outdated { version },
@@ -342,6 +344,10 @@ impl Supervisor {
             Answer::Stopped => LocalState::Stopped,
             Answer::Failed(Failure::NotHealthy) => failed(FailReason::NotHealthy),
             Answer::Failed(Failure::BadOutput) => failed(FailReason::BadOutput),
+            Answer::Failed(Failure::UnprotectedBind) => failed(FailReason::UnprotectedBind),
+            Answer::Failed(Failure::ConfigUnreadable) => {
+                LocalState::Failed { reason: FailReason::ConfigUnreadable, output: Some(work.config.display().to_string()) }
+            }
         }
     }
 

@@ -72,8 +72,9 @@ src/
                                    `UpdatePipeline` (required dep; production: `createUpdatePipeline` —
                                    install → extensions → helper → pause → shutdown → exit, with
                                    `classifyInstallFailure`/`failureMessage`),
-                                   `setAutoCheck`, a 6 h unref'd timer (injected `UpdateTimer`), and
-                                   `readAndRemoveUpdateResult` for `update-result.json`. Not re-exported
+                                   `setAutoCheck`, a 6 h unref'd timer (injected `UpdateTimer`),
+                                   `checkIfStale()` (the check when a client connects, see "Daemon update
+                                   service"), and `readAndRemoveUpdateResult` for `update-result.json`. Not re-exported
                                    from the package index (daemon-only).
     helper.ts                     The restart helper: `HELPER_SCRIPT` (self-contained `node -e` text),
                                    `compileHelperLogic()` (test entry), `spawnUpdateHelper(params, env?,
@@ -119,6 +120,7 @@ src/
     binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
     loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
+    identity-files.ts             `resolveServerId`, `resolveDaemonKeypair` (called by `startDaemon`), `generateDaemonKeypair`/`writeDaemonKeypair` (also used by the CLI's `daemon rotate-key`): the `server-id` and `daemon-keypair.json` files, synchronous, written temp-then-rename (key pair 0600). See "Damaged identity files".
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files,
                                    provider auth, optional outbound relay).
@@ -360,6 +362,9 @@ src/
                                    `messageOf(frame)`, `WireFrame`. Compiled into `dist` (so the
                                    recorder script can import it) but not exported from the barrel.
     recording-logger.ts           `recordingLogger()` → `{logger, lines}`: a `Logger` that records every line (children share the list).
+    update-check-rig.ts           `updateCheckRig()` → `{seams, clock, registry, asked}`: `updateTestSeams` for the daemon tests of the
+                                   check on connect (a clock and a release channel the test moves, the other probes answered as an
+                                   updatable npm install; `asked.count` = asks of the channel).
     fake-process-host.ts          `fakeProcessHost()`: a `ProcessHost` that records handlers and exits instead of touching `process`.
     process-probe.ts              Real-process probes for tests: `isAlive` (zombies count as dead), `readPid`, `killQuietly`, `commandOf`, `descendantsOf`.
 
@@ -390,7 +395,8 @@ src/
   http/
     http-server.ts                HTTP server: `/api/health` and the Host allowlist; everything else is 404.
                                    `closeHttpServer(server)` stops listening and closes idle and active
-                                   connections instead of waiting for them.
+                                   connections instead of waiting for them. A connection that never
+                                   finishes its request headers is closed after `HELLO_TIMEOUT_MS`.
     host-allowlist.ts             Host header validation (prevents DNS rebinding).
     index.ts
 
@@ -399,14 +405,16 @@ src/
     index.ts
 
   config/
-    daemon-config.ts              DaemonConfig — env + config.json merge, listen/home/password/…
+    daemon-config.ts              DaemonConfig — env + config.json merge, listen/home/password/…;
+                                   ConfigUnreadableError, readRawConfig (a damaged file is never read as {}).
     project-config.ts             Per-project config (.pi-studio/config.json).
     index.ts
 
   persistence/
     entity-schemas.ts             Zod schemas for all persisted entities (passthrough, optional).
     entity-stores.ts              load*/save* functions — JSON file I/O per entity type; every loader
-                                   takes the daemon `Logger` (a damaged file is set aside and logged).
+                                   takes the daemon `Logger` (a damaged file is set aside and logged;
+                                   a registry keeps its valid records; `loadAllAgents` skips an entry it cannot read).
     atomic-store.ts               atomicWriteJson (temp, fsync, rename; one write per path at a time),
                                    loadStore (damaged file set aside), quarantineFile.
     index.ts
@@ -439,7 +447,9 @@ src/
                                     (task-001), shared by extensions-rpc.ts and the CLI's `--local`
                                     path so the two can never render different data for the same
                                     state. Total EntryStatus->wire-string map (build error if
-                                    either side gains an unhandled value).
+                                    either side gains an unhandled value). Redacts `source`,
+                                    `identity` and `lastError.message` on the way out, so text an
+                                    earlier version stored unredacted never reaches a client.
     sync-executor.ts               executePlan — spawns `pi install <spec>` per planned action via
                                     the required InstallSpawn seam (no default: callers pass
                                     `InstallProcesses.spawn` or a fake); one package failing never
@@ -448,8 +458,17 @@ src/
                                     the kill interrupted and rejects with the abort reason. Also
                                     updateInstalledExtensions — bundled `pi update --extensions`
                                     through the same seam/env (the self-update pipeline's step).
+                                    Nothing credential-bearing leaves a failure: the stderr tail
+                                    (last 2 KiB), a thrown error's text, the logged and stored
+                                    `source` and the report's identity/source go through
+                                    `redactSource` (redacted BEFORE the tail is cut). The state key
+                                    and `installedSpec` stay verbatim (the planner compares them
+                                    byte for byte; they come from the bundled manifest).
     install-processes.ts           InstallProcesses — the production InstallSpawn (`spawn`: child
-                                    via `tree-kill`, bounded stdout tail, settles on `exit`) plus a
+                                    via `tree-kill`, bounded stdout tail (16 KiB) and stderr tail
+                                    (64 KiB; a cut tail drops its leading partial token so no
+                                    credential is left split), settles on `close` so the last
+                                    output is never lost) plus a
                                     registry of the live children. `stop()` refuses new children,
                                     SIGTERMs each tree, SIGKILLs what is alive after `graceMs` (2 s;
                                     warn `an install process ignored SIGTERM: killed`) and resolves
@@ -479,9 +498,9 @@ src/
   viewers/                        Viewer settings — per-viewer enable/disable state
                                    (docs/MOLVIEWER_DECOUPLING.md § 4.4).
     viewer-settings-state.ts       viewer-settings.json store: viewerSettingsPath/
-                                    loadViewerSettings (soft-fallback — deliberately NOT
-                                    extensions-state.ts's "unreadable" sentinel)/
-                                    saveViewerSettings + the pure applyViewerSettingsPatch merge.
+                                    loadViewerSettings(home, logger) (a damaged file is set aside, then
+                                    all-enabled — deliberately NOT extensions-state.ts's "unreadable"
+                                    sentinel)/saveViewerSettings + the pure applyViewerSettingsPatch merge.
     viewer-settings-rpc.ts         registerViewerSettingsHandlers — viewer_settings_get/_set,
                                     serialized read-modify-write, broadcasts viewer_settings_update
                                     to every active session (including the caller) before
@@ -513,7 +532,7 @@ src/
     index.ts
 
   projects/
-    workspace-registry.ts         WorkspaceRegistry + ProjectRegistry — open/list/archive.
+    workspace-registry.ts         WorkspaceRegistry + ProjectRegistry — open/list/archive; one lock per registry.
     open-project.ts               open_project RPC — resolve git remote, create workspace record.
     git-operations.ts             Git shell helpers (status, branch, commit, diff, …).
     git-detect.ts                 Detect git root + remote from a cwd.
@@ -540,6 +559,8 @@ src/
     file-watch-rpc.ts             registerFileWatchHandlers — file_watch_subscribe/_unsubscribe
                                    RPCs, file_changed push.
     limits.ts                     MAX_INLINE_FILE_READ_BYTES (5 MiB) — file_read_request ceiling.
+    inline-read.ts                readInlineFile — shared file_read_request implementation
+                                   (regular files only, bounded read).
     resolve-path.ts               expandHome — the package's single `~`/`~/` expansion helper
                                    (task-001, sprint-045); every file-path RPC + `file-watch-
                                    service.ts`/`agent/providers/pi/rpc-transport.ts` (re-export)
@@ -1909,11 +1930,13 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 
 ### File operations (`files/`)
 
-**`file_read_request`** (`bootstrap.ts`/`dev-bootstrap.ts`, now `async`):
-- Reads a file synchronously into the WS response — **now uses `async` `stat` / `readFile` from
-  `node:fs/promises`** instead of the prior synchronous `statSync`/`readFileSync`. Before: a
-  multi-MB UTF-8 decode blocked the entire event loop (all agent streams, terminal bytes,
-  heartbeats shared this thread). After: long reads yield back to the event loop between chunks.
+**`file_read_request`** (`bootstrap.ts`/`dev-bootstrap.ts` both delegate to `readInlineFile` in
+`files/inline-read.ts`):
+- Async; a directory answers `is_directory`, any other non-regular file (FIFO, device, socket)
+  answers `not_a_file` from `stat` before it is opened (so `/dev/zero` and FIFOs cannot hang the
+  daemon). The file is opened `O_NONBLOCK`, re-checked with `fstat`, and at most
+  `MAX_INLINE_FILE_READ_BYTES + 1` bytes are read, so a file that grew after the size check still
+  answers `file_too_large`.
 - Size check: if `size > MAX_INLINE_FILE_READ_BYTES` (5 MiB in `files/limits.ts`, raised from a
   512 KiB literal previously duplicated in both bootstrap files), returns
   `{ ok: false, error: "file_too_large", size, maxBytes: MAX_INLINE_FILE_READ_BYTES }`.
@@ -2019,6 +2042,9 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
   across filesystems). Resolves only the *parent* of each path via `realpath`, then re-joins the
   basename — resolving the full source would follow a symlink to its target instead of moving the
   link itself.
+- `deleteFile` (sprint-156): same parent-only `realpath` + `lstat` as `moveEntry`, so deleting a
+  symlink removes the link and never its target (a link to a directory leaves the directory). `/`
+  and the home directory (however spelled, e.g. `~`, `/tmp/..`) are refused with `protected_path`.
 - `writeFile` / `file_write_request`: overwrite-only atomic save (temp file + `rename`; target must
   already exist; capped at the inline-read ceiling). Preserves the target's permission bits across
   the rename (creation `mode` from the pre-write `stat`, then an exact `chmod` on the temp file) so
@@ -2028,6 +2054,11 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 ### Projects / Git subsystem (`projects/`)
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.
+  `WorkspaceRegistryService` runs every access to a registry under that registry's lock
+  (`createLimiter(1)`, one for `projects.json`, one for `workspaces.json`): two concurrent
+  `open_project_request` calls for different folders both land, and a read that repairs a damaged
+  file cannot race a save. Code inside a lock reads with `loadProjects`/`loadWorkspaces`, never the
+  locked `list*` methods (a nested call would wait on its own lock).
 - **Project key derivation**: normalizes git remote URLs to `host/owner/repo` form for grouping.
 - **`WorkspaceKind`**: `local_checkout | worktree | directory`.
 - **`WorktreeService`**: `git worktree add/list/remove` via shell.
@@ -2053,6 +2084,41 @@ the next save replace it. `loadStore`'s callers pass their logger: `loadAgent`/`
 `bootstrap.ts` passes `loadAllAgents: () => loadAllAgents(home, logger)` to `AgentManager`
 (`loadAllAgents` is a required `AgentManagerDeps` member; no disk default). `OpenProjectService` and
 `WorktreeService` take their `registry` (required) instead of building one.
+
+**Registries and agent records** (sprint-155): `loadProjects`/`loadWorkspaces` validate record by
+record. A file with some invalid records is set aside whole (`quarantineFile`, so the set-aside file
+holds the original bytes; the error names the count, e.g. `1 of 3 records invalid`), and the valid
+records are written back at once with `atomicWriteJson`, so the next save cannot lose them. A file
+that is not JSON, or not an array, is set aside and the registry starts empty. `loadAllAgents`
+loads every `agents/<cwd>/<id>.json` it can: a damaged record is set aside and logged by `loadStore`;
+an entry it cannot read (a dangling symlink at either level, a directory called `x.json`,
+permissions) is logged as an error and skipped, so one bad entry never stops recovery. Set-aside
+files end in `.corrupt-<timestamp>`, so a later recovery ignores them.
+
+**Damaged `config.json`** (sprint-155): the one file that is never set aside. `readRawConfig(path)`
+(`config/daemon-config.ts`) returns the raw object (`{}` for a missing file) and throws
+`ConfigUnreadableError` (`code: "config_unreadable"`, exported with `CONFIG_UNREADABLE_CODE`, `path`
+and `problem`; the message names the path and says the file was not changed) for a file that cannot
+be read, is not valid JSON, or is not a JSON object. `loadConfig` goes through it and throws the same
+error for a schema failure (e.g. an `agents.providers` key other than `pi`); it never turns damage
+into `{}`, because that would start the daemon without its password. `startDaemon` loads the config
+first (`loadConfigOrRefuse`): on that error it logs one error with the path and code, sets
+`process.exitCode = 1`, calls `onFatalError` and throws, before the PID file, any service or any
+socket, like the `unprotected_bind` refusal (`daemon/config-refusal.test.ts`). The server writers
+`persistExtensionPacks` and `persistUpdateAutoCheck` share `updateRawConfig` (raw read via
+`readRawConfig`, merge, `atomicWriteJson`, chmod 0600) and throw the same error without writing; the
+CLI's `setDaemonPassword` and `persistRelayEnvOverrides` use `readRawConfig` and `rawObject` too.
+
+**Damaged identity files** (sprint-155, `daemon/identity-files.ts`): `startDaemon` needs the server id
+and the key pair before it listens, so these two files use synchronous helpers (same temp file, fsync,
+rename and `.corrupt-<UTC timestamp>` naming as `persistence/atomic-store.ts`). A missing file is
+created without a log line. `daemon-keypair.json` that is unreadable, not JSON or without both keys is
+renamed aside, one error is logged (path, set-aside path, reason, and that pairing links are revoked
+and devices must pair again) and a new pair is written atomically with mode 0600. `server-id` that is
+empty or unreadable is set aside the same way (error: a new id is used). A failed write is logged at
+error and the value is used for this run only; a file that cannot be set aside is logged, left as it
+is, and nothing is written over it. `PI_STUDIO_SERVER_ID` / the `serverId` option still win and touch
+no file. Tests: `daemon/identity-files.test.ts` (incl. a crash before the rename).
 
 **Entity file locations** (relative to `$PI_STUDIO_HOME`):
 - `agents/<sanitized-cwd>/<agentId>.json`
@@ -2113,7 +2179,9 @@ recommended extensions (features/preinstalled-extensions.md). Invariants:
   coercing would read as "deselect everything" and persist an empty selection); `packs` present
   and well-formed ⇒ validate against the catalog, unknown slug ⇒
   `{ ok: false, error }` with no persistence/sync, otherwise `service.setSelectedPacks(packs)`
-  (updates the in-memory selection *and* persists via `persistExtensionPacks`, in that order) then
+  (updates the in-memory selection *and* persists via `persistExtensionPacks`, in that order; a
+  `config.json` that cannot be read (`ConfigUnreadableError`) restores the previous selection
+  and answers `{ ok: false, error }` naming the file, with no sync, the file untouched) then
   `sync("selection")` (gated by `autoSync`, unlike manual). Both branches respond with fields
   recomputed from a fresh `describe()` call *after* the triggered sync completes, never a stale
   pre-sync view.
@@ -2239,8 +2307,9 @@ Production bootstrap (`daemon/bootstrap.ts`); the dev daemon uses the same servi
 (see "Dev daemon script" below). Constructed after the
 registry, `start()` runs after `listen()` and never delays readiness: it finds the install kind
 (`detectInstallKind`), reads **and removes** `$PI_STUDIO_HOME/update-result.json` into `lastResult`,
-then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once
-and arms a 6 h `unref`'d timer. The helper writes the result file only after it has seen this daemon
+then, when `daemon.update.autoCheck` (env `PI_STUDIO_UPDATE_AUTOCHECK` wins; default true), checks once,
+arms a 6 h `unref`'d timer, and from then on also checks when a client connects (below). The helper
+writes the result file only after it has seen this daemon
 answer, so after that start-up read: while `lastResult` is empty, `start()` also polls the file every
 500 ms for 30 s (`RESULT_POLL_MS`/`RESULT_WATCH_MS`, its own `resultTimer` seam); the first read takes
 it, sets `lastResult` and broadcasts. `close()` (run by the first shutdown step, "stop accepting")
@@ -2248,9 +2317,10 @@ clears both timers.
 
 - **Skipped version (D14, all install kinds).** Reading an `update-result.json` with outcome
   `rolled_back` or `failed` (at start-up or in the watch) writes `$PI_STUDIO_HOME/update-skip.json`
-  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; an
-  unreadable/malformed file is removed and logged; absent store = in-memory only, so bootstrap must
-  pass it). `status.skippedVersion` is set while one is held. An automatic check finding exactly
+  `{version: to}` through the optional `skipStore` dep (`createFileSkipStore(path, logger)`; written
+  with `atomicWriteJson`, so a crash leaves the previous file; an unreadable/malformed file is
+  removed and logged; absent store = in-memory only, so bootstrap must pass it). `status.skippedVersion`
+  is set while one is held. An automatic check finding exactly
   that version stays `idle`; a manual check offers it; a newer latest clears it (file removed).
   `outcome: "updated"` writes nothing. `MANUAL_UPDATE_COMMANDS.unmanaged_binary` is the releases page.
   A result taken by the watch arrives after this daemon's own start check, which had no skip to honour
@@ -2263,7 +2333,21 @@ clears both timers.
   (`updateBlocker`), `npm_missing` (`npmOnPath`), `not_writable` (`canWriteGlobalFolder(npm root -g)`),
   `unsupported_platform`, else `available`. `command` per reason is `MANUAL_UPDATE_COMMANDS`. A manual
   check broadcasts `checking`; an automatic one does not, and a failed automatic check changes nothing
-  (not even `checkedAt`/`checkError`). A running update owns the state: checks are no-ops.
+  (not even `checkedAt`/`checkError`) a client sees: the daemon log gets one `info` line, `update: check
+  found no release` (`by`, `failure`), the only trace of it. A running update owns the state: checks are no-ops.
+- **Check on connect (`checkIfStale()`).** A session that completed `hello` (direct: `onSession`; relay:
+  `onSessionOpen`; the one call each, after `sendUpdateStatus`) asks for an automatic check: it runs
+  unless auto-check is off, the service is closed, a check or an update is running, or the last
+  **attempt** began less than `UPDATE_CONNECT_CHECK_MIN_AGE_MS` (10 min) ago. An attempt is any
+  `check()` that ran (`lastAttemptAt`, set when it begins): the start-up check, the timer's, a manual
+  one, a connect's, successful or not (so a failed start-up check is retried by the first connect after
+  10 min, not before). The session still gets the stored status at once; what the check finds reaches it
+  through the broadcast, as any automatic check's result does: no `checking` state, a failure shows
+  nothing, a version skipped after a rollback is not offered. Ten connects in one tick start one check
+  (`checking` is set synchronously). The 6 h timer is unchanged and the dev daemon (`dev-bootstrap.ts`)
+  has no hook, so its scripted flow is unaffected. Tests: `update-service.test.ts` (fake clock and
+  registry), `daemon/update-e2e.test.ts` (direct) and the relay case in `daemon/bootstrap.test.ts`, on
+  `test-support/update-check-rig.ts`.
 - **Apply.** Refusals `in_progress` / `cannot_update` / `not_available`; otherwise `installing` is
   broadcast, `{ ok: true }` answers, and the injected `UpdatePipeline` (required dep; production:
   `createUpdatePipeline`) reports each stage through `setState`. A rejection becomes
@@ -2350,7 +2434,10 @@ clears both timers.
   sections of `packages/server/docs/binary-live-results.md`.
 - **Setting.** `daemon_update_set_auto_check_request` calls `persistUpdateAutoCheck` (raw
   read-merge-write like `persistExtensionPacks`, unknown keys kept, 0600), then re-reads the effective
-  value through `loadConfig` so an env override still wins in memory.
+  value through `loadConfig` so an env override still wins in memory. A `config.json` that cannot be
+  read makes the write throw `ConfigUnreadableError` before anything changes: the router answers an
+  `rpc_error` (`handler_error`, the message names the file), the file is left byte-identical and the
+  service keeps its current setting.
 - **Wire.** Responses are flat (`status` at the top level); every change is broadcast as
   `daemon_update_status`, and each session (direct and relay) gets the current status right after
   `server_info`. The root `vitest.config.ts` pins `PI_STUDIO_UPDATE_AUTOCHECK=false` so tests never ask
@@ -2424,13 +2511,16 @@ kill switch every future viewer plugin reads. Invariants:
 - **Absent row means enabled.** Defaults are never written to disk, so a fresh daemon's file
   (or a daemon with no file at all) looks identical to a client as a daemon that has always had
   every viewer enabled.
-- **Soft-fallback on a read failure, deliberately NOT `extensions-state.ts`'s `"unreadable"`
-  sentinel.** `loadViewerSettings` degrades a missing file, corrupt JSON, or a schema mismatch
-  to the all-enabled defaults (logged at `warn` only on an actual read failure, never on a
-  merely-absent file) — extensions must not silently re-offer a package after a corrupt read,
-  whereas an unreadable viewer setting must degrade toward *offering* the viewer. A corrupt file
-  must never end up hiding a file behind a "which viewer can open this" decision, and the read
-  itself never rewrites the corrupt file.
+- **Soft-fallback on a damaged file, deliberately NOT `extensions-state.ts`'s `"unreadable"`
+  sentinel.** `loadViewerSettings(home, logger)` is `loadStore`: a missing file is the all-enabled
+  defaults, silently; a file that is not JSON or fails the schema is set aside as
+  `viewer-settings.json.corrupt-<timestamp>`, logged as an error, and loads as the all-enabled
+  defaults, so the next `set` writes a fresh file and never overwrites the damaged one. A file that
+  cannot be read at all (permissions, a directory) throws, so `set` cannot replace it and `get`
+  answers an error, which a client treats like any failed fetch (every viewer enabled) — extensions
+  must not silently re-offer a package after a corrupt read, whereas an unreadable viewer setting
+  must degrade toward *offering* the viewer. A corrupt file must never end up hiding a file behind
+  a "which viewer can open this" decision.
 - **`set` serializes its read-modify-write.** Two clients toggling different viewer ids
   concurrently must not lose a row: `registerViewerSettingsHandlers` chains every `set` onto a
   module-local promise queue. "Last write wins" is the semantic rule for a single boolean; a

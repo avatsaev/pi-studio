@@ -276,7 +276,7 @@ the file both the CLI and every future agent spawn read, before any agent needs 
 | `daemon status`                           | Print health + PID                                                                                                           |
 | `daemon set-password <pw>`                | Bcrypt-hash the password into `$PI_STUDIO_HOME/config.json`                                                                  |
 | `daemon pair`                             | Print the pairing URL / QR for an already-running daemon                                                                     |
-| `daemon rotate-key`                       | Mint a fresh pairing keypair (stop → delete key → restart → print new QR); revokes every previously-issued pairing link |
+| `daemon rotate-key`                       | Mint a fresh pairing keypair (stop → write new key atomically → restart → print new QR); revokes every previously-issued pairing link |
 | `onboard` (top-level, not under `daemon`) | Alias for `daemon start`'s behavior — start a local daemon if needed and show the pairing QR                                 |
 
 `ensureLocalDaemonAndPair(ctx, opts)` — shared by the bare `pi-studio` default action, `daemon
@@ -298,7 +298,7 @@ byte-for-byte unchanged under `--json`); `restart` prints only the start result.
 
 | Command | Success (exit 0) | Failure (exit 1) |
 | --- | --- | --- |
-| `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}`; healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
+| `start`, `restart` | `{"up":true,"started":<bool>,"host","port","pairingUrl","relay"}` (`started:false` when already running) | `{"up":false,"host","port","error":"not_healthy"}` or `"error":"config_unreadable"` (damaged `config.json`, nothing spawned); healthy but no key file: `{"up":true,"started":<bool>,"host","port","error":"no_keypair"}` |
 | `pair` | `{"pairingUrl","relay"}` | `{"error":"no_keypair"}` |
 | `stop` | `{"stopped":true}` | `{"stopped":false}` (no daemon); `{"stopped":false,"error":"still_running"}` (it did not exit in 15 s) |
 | `restart` when the old daemon did not exit | — | `{"up":false,"host","port","error":"still_running"}` |
@@ -335,21 +335,35 @@ a plain `daemon start` can't force a config file into existence or clobber an al
 relay config. Mirrors `setDaemonPassword`'s read-merge-write shape; only the fields whose env var is
 actually present get overwritten.
 
-Both `setDaemonPassword` and `persistRelayEnvOverrides` write `config.json` through a shared
-`writeConfigFile` helper that enforces owner-only `0600` (the file can carry the daemon password
-hash) — including an explicit `chmod` to re-tighten configs written before this was enforced.
+`setDaemonPassword` and `persistRelayEnvOverrides` both go through `updateConfigFile`: it reads the
+raw `config.json` with the server's `readRawConfig`, edits the `daemon` object, and writes with the
+shared `writeConfigFile`, which is **atomic and owner-only**: a temp file in the same directory
+created `0600`, fsync, rename (so a config written before the `0600` rule is replaced by a `0600`
+file too). A `config.json` that exists but is not valid JSON or not an object makes
+`readRawConfig` throw `ConfigUnreadableError` (`code: "config_unreadable"`); nothing is written, the
+file stays byte-identical, and a missing file is still created.
 
-`rotateDaemonKeypair(home)` (`daemon-control.ts`) — deletes `$PI_STUDIO_HOME/daemon-keypair.json`;
-returns whether a key was actually removed. Credential revocation, not housekeeping: a pairing
+**Damaged `config.json`.** `reportingConfigErrors(ctx, hostArg, json, run)` (`daemon-commands.ts`,
+also used by `extensions list --local`) turns a `ConfigUnreadableError` into the error message on
+stderr, or with `--json` one `{up:false, host, port, error:"config_unreadable"}` line, and exit 1. It
+wraps `ensureLocalDaemonAndPair` (so `daemon start`, `restart`, `onboard`, `rotate-key`'s start and
+the bare default action), `daemon pair` and `daemon set-password`. `daemon restart` loads the config
+*before* it stops the running daemon, so a refused start never leaves the machine with no daemon.
+Every check runs before a daemon is spawned: `persistRelayEnvOverrides` and the unprotected-bind
+pre-check read the file first, and a schema failure surfaces from the same `loadConfig`.
+
+`rotateDaemonKeypair(home)` (`daemon-control.ts`) — replaces `$PI_STUDIO_HOME/daemon-keypair.json` with
+a new pair (`generateDaemonKeypair` + `writeDaemonKeypair` from the server package: temp file created
+0600 in the same directory, fsync, rename), so the file is never missing or half-written; returns
+whether a key existed before. Credential revocation, not housekeeping: a pairing
 link's `offer=` key IS the credential on a relay-routed connection (`connection-store.ts` ignores
 the password field in that mode), and the relay rendezvous id is
 `deriveRelaySessionId(publicKey)` — deterministic for the life of the key. A leaked pairing
 link/QR therefore grants access forever until the key behind it is replaced, which is what
 `daemon rotate-key` exists for. The command stops the daemon FIRST (a live daemon holds the old key
-in memory and keeps answering on the old relay session id, so deleting the file under it would
-revoke nothing), deletes the key, then goes through `ensureLocalDaemonAndPair` — the daemon mints a
-fresh identity on boot (`server/src/daemon/bootstrap.ts#resolveDaemonKeypair` regenerates when the
-file is missing/unreadable) and the new QR is printed. Deliberately touches nothing in
+in memory and keeps answering on the old relay session id, so replacing the file under it would
+revoke nothing), writes the new key, then goes through `ensureLocalDaemonAndPair` — the daemon reads
+the new pair on boot and the new QR is printed. Deliberately touches nothing in
 `config.json`: the password hash and relay config survive a rotation.
 
 ### `extensions` group (`extensions-commands.ts`)
@@ -611,7 +625,7 @@ browser/mobile client can scan/paste it to connect directly (`workbench`'s
 branches to `createRelayTransport` when it carries a relay offer).
 
 `readDaemonPublicKey(home)` reads the keypair from `$PI_STUDIO_HOME/daemon-keypair.json` (same file
-`@av-pi-studio/server`'s `bootstrap.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).
+`@av-pi-studio/server`'s `daemon/identity-files.ts` writes/reads — `{ publicKeyB64, secretKeyB64 }`).
 
 ---
 
@@ -707,7 +721,7 @@ branches to `createRelayTransport` when it carries a relay offer).
 The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
-- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — `config_unreadable` — a `config.json` that is not valid JSON or fails its schema, checked before anything is spawned or stopped — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1. `daemon pair` and `extensions list --local` print the same `config_unreadable` line under `--json`, and `daemon set-password` does for a file that is not valid JSON (it reads the raw file and does not check the schema).
 - `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 15 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 

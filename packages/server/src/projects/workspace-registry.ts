@@ -13,6 +13,7 @@ import {
   saveProjects,
   saveWorkspaces,
 } from "../persistence/entity-stores.js";
+import { createLimiter } from "../util/concurrency.js";
 
 /**
  * Project + workspace registries with `projectKey` derivation (features/projects-workspaces.md
@@ -71,17 +72,27 @@ export function deriveProjectKey(info: { remote?: string | null; rootPath: strin
   return `path:${normalizePath(info.rootPath)}`;
 }
 
+/**
+ * Every access to a registry runs under that registry's lock (`projectsLock`, `workspacesLock`; a
+ * limiter of one): a read-modify-write cannot interleave with another, so concurrent calls never
+ * lose a record, and a read that repairs a registry file (drops an invalid record, see
+ * `loadProjects`) cannot race a save. Code inside a lock reads with `loadProjects`/`loadWorkspaces`,
+ * never the locked `list*` methods.
+ */
 export class WorkspaceRegistryService {
+  private readonly projectsLock = createLimiter(1);
+  private readonly workspacesLock = createLimiter(1);
+
   constructor(
     private readonly home: string,
     private readonly logger: Logger,
   ) {}
 
   async listProjects(): Promise<ProjectRegistry> {
-    return loadProjects(this.home, this.logger);
+    return this.projectsLock(() => loadProjects(this.home, this.logger));
   }
   async listWorkspaces(): Promise<WorkspaceRegistry> {
-    return loadWorkspaces(this.home, this.logger);
+    return this.workspacesLock(() => loadWorkspaces(this.home, this.logger));
   }
   async listActiveProjects(): Promise<ProjectRecord[]> {
     return (await this.listProjects()).filter((p) => !p.archivedAt);
@@ -94,81 +105,87 @@ export class WorkspaceRegistryService {
    * Resolve (or create) the project for a detection result. Active git projects are unique by
    * normalized `rootPath`; reuse an existing active project sharing the same key.
    */
-  async resolveOrCreateProject(detection: {
+  resolveOrCreateProject(detection: {
     rootPath: string;
     remote?: string | null;
     kind: "git" | "non_git";
     displayName?: string;
   }): Promise<ProjectRecord> {
-    const projectId = deriveProjectKey(detection);
-    const projects = await this.listProjects();
-    const now = new Date().toISOString();
+    return this.projectsLock(async () => {
+      const projectId = deriveProjectKey(detection);
+      const projects = await loadProjects(this.home, this.logger);
+      const now = new Date().toISOString();
 
-    // Exact key match (active) — reuse.
-    const byKey = projects.find((p) => p.projectId === projectId && !p.archivedAt);
-    if (byKey) return byKey;
+      // Exact key match (active) — reuse.
+      const byKey = projects.find((p) => p.projectId === projectId && !p.archivedAt);
+      if (byKey) return byKey;
 
-    // Active git projects unique by normalized rootPath — reuse if an active one already exists.
-    const normRoot = normalizePath(detection.rootPath);
-    const byRoot = projects.find(
-      (p) => !p.archivedAt && p.kind === "git" && normalizePath(p.rootPath) === normRoot,
-    );
-    if (byRoot && detection.kind === "git") return byRoot;
+      // Active git projects unique by normalized rootPath — reuse if an active one already exists.
+      const normRoot = normalizePath(detection.rootPath);
+      const byRoot = projects.find(
+        (p) => !p.archivedAt && p.kind === "git" && normalizePath(p.rootPath) === normRoot,
+      );
+      if (byRoot && detection.kind === "git") return byRoot;
 
-    const record: ProjectRecord = {
-      projectId,
-      rootPath: detection.rootPath,
-      kind: detection.kind,
-      displayName: detection.displayName ?? defaultProjectName(projectId, detection.rootPath),
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: null,
-    };
-    projects.push(record);
-    await saveProjects(this.home, projects);
-    return record;
+      const record: ProjectRecord = {
+        projectId,
+        rootPath: detection.rootPath,
+        kind: detection.kind,
+        displayName: detection.displayName ?? defaultProjectName(projectId, detection.rootPath),
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+      };
+      projects.push(record);
+      await saveProjects(this.home, projects);
+      return record;
+    });
   }
 
   /** Resolve (or create) a workspace for a cwd under a project. Reuse an existing active record. */
-  async resolveOrCreateWorkspace(args: {
+  resolveOrCreateWorkspace(args: {
     projectId: string;
     cwd: string;
     kind: WorkspaceKind | string;
     displayName?: string;
   }): Promise<{ workspace: WorkspaceRecord; created: boolean }> {
-    const kind = normalizeWorkspaceKind(String(args.kind));
-    const workspaces = await this.listWorkspaces();
-    const now = new Date().toISOString();
-    const normCwd = normalizePath(args.cwd);
+    return this.workspacesLock(async () => {
+      const kind = normalizeWorkspaceKind(String(args.kind));
+      const workspaces = await loadWorkspaces(this.home, this.logger);
+      const now = new Date().toISOString();
+      const normCwd = normalizePath(args.cwd);
 
-    const existing = workspaces.find((w) => !w.archivedAt && normalizePath(w.cwd) === normCwd);
-    if (existing) return { workspace: existing, created: false };
+      const existing = workspaces.find((w) => !w.archivedAt && normalizePath(w.cwd) === normCwd);
+      if (existing) return { workspace: existing, created: false };
 
-    const record: WorkspaceRecord = {
-      workspaceId: randomUUID(),
-      projectId: args.projectId,
-      cwd: args.cwd,
-      kind,
-      displayName: args.displayName ?? defaultWorkspaceName(args.cwd),
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: null,
-    };
-    workspaces.push(record);
-    await saveWorkspaces(this.home, workspaces);
-    return { workspace: record, created: true };
+      const record: WorkspaceRecord = {
+        workspaceId: randomUUID(),
+        projectId: args.projectId,
+        cwd: args.cwd,
+        kind,
+        displayName: args.displayName ?? defaultWorkspaceName(args.cwd),
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+      };
+      workspaces.push(record);
+      await saveWorkspaces(this.home, workspaces);
+      return { workspace: record, created: true };
+    });
   }
 
   /** Soft-delete a workspace by id. Returns the archived record, or null if not found/active. */
-  async archiveWorkspace(workspaceId: string): Promise<WorkspaceRecord | null> {
-    const workspaces = await this.listWorkspaces();
-    const target = workspaces.find((w) => w.workspaceId === workspaceId);
-    if (!target || target.archivedAt) return target ?? null;
-    const now = new Date().toISOString();
-    target.archivedAt = now;
-    target.updatedAt = now;
-    await saveWorkspaces(this.home, workspaces);
-    return target;
+  archiveWorkspace(workspaceId: string): Promise<WorkspaceRecord | null> {
+    return this.workspacesLock(async () => {
+      const workspaces = await loadWorkspaces(this.home, this.logger);
+      const target = workspaces.find((w) => w.workspaceId === workspaceId);
+      if (!target || target.archivedAt) return target ?? null;
+      const now = new Date().toISOString();
+      target.archivedAt = now;
+      target.updatedAt = now;
+      await saveWorkspaces(this.home, workspaces);
+      return target;
+    });
   }
 }
 

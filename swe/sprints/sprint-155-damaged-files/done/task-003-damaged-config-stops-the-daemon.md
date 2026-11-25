@@ -1,7 +1,7 @@
 # Task 003 — A damaged `config.json` stops the daemon and is never overwritten
 
 - **Sprint:** sprints/sprint-155-damaged-files
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (config, bootstrap), packages/cli (daemon control and commands)
 - **Priority:** P1

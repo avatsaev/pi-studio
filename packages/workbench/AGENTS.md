@@ -602,6 +602,13 @@ src/
                             checksum and was deleted", `install_failed` "Installing the daemon failed"
                             with the install's last lines under it; `spawn_failed`/`bad_output` read
                             "The daemon could not be run" / "The daemon printed something unexpected".
+                            A daemon that refused to start (`unprotected_bind`, `config_unreadable`; the CLI's
+                            `error` on its `{up:false}` line, for a local entry and for an SSH host alike) has its
+                            own label ("Not started: no password on a network address" / "Not started: the
+                            configuration file is damaged") and a notice from `refusedNotice` (set a password or listen
+                            on 127.0.0.1 only; repair or remove the file, with its path on that machine in
+                            `LocalNotice.output`, taken from the state's `output`); Retry starts again. The same two
+                            codes are `DaemonErrorCode`s with a banner message. No view prints a raw code (tested).
                             There is no CLI-missing view and no `cliPath` setting; the switcher shows
                             the same labels (an error with Retry for `failed`/`outdated`).
                             The command-line tool (single-binary daemon, D11/S11): `CliToolBlock.tsx` in the

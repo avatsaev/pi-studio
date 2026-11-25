@@ -45,6 +45,8 @@ const CODES: Record<DaemonErrorCode, true> = {
   download_failed: true,
   checksum_mismatch: true,
   install_failed: true,
+  unprotected_bind: true,
+  config_unreadable: true,
   secret_missing: true,
   secret_unavailable: true,
   secret_store_failed: true,

@@ -7,14 +7,11 @@
  *
  * See: architecture/daemon-bootstrap.md, config.md, persistence.md, auth-security.md.
  */
-import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Server as HttpServer } from "node:http";
-import nacl from "tweetnacl";
 
 import { PACKAGE_NAME, SERVER_VERSION } from "../version.js";
 import { closeHttpServer, createHttpServer } from "../http/http-server.js";
@@ -33,6 +30,7 @@ import { createPasswordAuth, resolvePasswordHash } from "../auth/password-auth.j
 import { expandHome } from "../files/resolve-path.js";
 
 import {
+  ConfigUnreadableError,
   loadConfig,
   persistUpdateAutoCheck,
   type PersistedConfig,
@@ -61,7 +59,7 @@ import { FileExplorerService } from "../files/file-explorer.js";
 import { FileTransferService } from "../files/file-transfer.js";
 import { FileWatchService } from "../files/file-watch-service.js";
 import { registerFileWatchHandlers } from "../files/file-watch-rpc.js";
-import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
+import { readInlineFile } from "../files/inline-read.js";
 import { UploadJournal } from "../files/upload-journal.js";
 
 import { OpenProjectService } from "../projects/open-project.js";
@@ -109,6 +107,7 @@ import {
 } from "../update/update-service.js";
 
 import { SERVER_FEATURES } from "@av-pi-studio/protocol";
+import { resolveDaemonKeypair, resolveServerId } from "./identity-files.js";
 import { parseDaemonListen } from "./index.js";
 import { isUnprotectedBind, unprotectedBindError } from "./loopback.js";
 import { attachRelaySession } from "./relay-sessions.js";
@@ -152,8 +151,10 @@ export interface DaemonOptions {
     pipeline?: Partial<UpdatePipelineDeps>;
   };
   /**
-   * Called after an unrecoverable HTTP-server error (typically `EADDRINUSE` on bind) once the WS
-   * server has been torn down. `startDaemon` logs the error and sets `process.exitCode = 1`, but
+   * Called after an unrecoverable startup error: a refused start (an unusable `config.json`, an
+   * unprotected bind, a bad listen address — nothing has been started yet) or an HTTP-server error
+   * (typically `EADDRINUSE` on bind) once the WS server has been torn down. `startDaemon` logs the
+   * error and sets `process.exitCode = 1`, but
    * never terminates the process itself — a library must not kill its host. The process entry
    * point supplies the actual exit (`daemon/main.ts`); tests leave it unset so a bind failure
    * surfaces as a normal test failure instead of an opaque process kill.
@@ -174,65 +175,6 @@ export interface DaemonHandle {
 
 function resolveHome(opts: DaemonOptions): string {
   return opts.home ?? process.env.PI_STUDIO_HOME ?? join(homedir(), ".pi-studio");
-}
-
-/** Read a stable server id from `<home>/server-id`, generating + persisting one if absent. */
-function resolveServerId(home: string, override?: string): string {
-  if (override) return override;
-  if (process.env.PI_STUDIO_SERVER_ID) return process.env.PI_STUDIO_SERVER_ID;
-  const path = join(home, "server-id");
-  if (existsSync(path)) {
-    const value = readFileSync(path, "utf8").trim();
-    if (value) return value;
-  }
-  const id = randomUUID();
-  try {
-    mkdirSync(home, { recursive: true });
-    writeFileSync(path, id, "utf8");
-  } catch {
-    /* best-effort persistence */
-  }
-  return id;
-}
-
-/**
- * Read (or generate + persist) the daemon's stable Curve25519 keypair for pairing
- * (architecture/relay-e2ee.md § Pairing). Stored as base64 at `<home>/daemon-keypair.json`;
- * the CLI's `readDaemonPublicKey()` reads the same file/shape to build the pairing QR URL.
- */
-function resolveDaemonKeypair(home: string): { publicKeyB64: string; secretKeyB64: string } {
-  const path = join(home, "daemon-keypair.json");
-  if (existsSync(path)) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as {
-        publicKeyB64?: string;
-        secretKeyB64?: string;
-      };
-      if (parsed.publicKeyB64 && parsed.secretKeyB64) {
-        // Contains the secret key — re-tighten files written before mode 0600 was enforced.
-        try {
-          chmodSync(path, 0o600);
-        } catch {
-          /* best-effort */
-        }
-        return { publicKeyB64: parsed.publicKeyB64, secretKeyB64: parsed.secretKeyB64 };
-      }
-    } catch {
-      /* fall through to regenerate */
-    }
-  }
-  const { publicKey, secretKey } = nacl.box.keyPair();
-  const keypair = {
-    publicKeyB64: Buffer.from(publicKey).toString("base64"),
-    secretKeyB64: Buffer.from(secretKey).toString("base64"),
-  };
-  try {
-    mkdirSync(home, { recursive: true });
-    writeFileSync(path, JSON.stringify(keypair), { encoding: "utf8", mode: 0o600 });
-  } catch {
-    /* best-effort persistence */
-  }
-  return keypair;
 }
 
 /** Best-effort PID lock file so a stale daemon is discoverable. */
@@ -296,6 +238,27 @@ export function broadcast(sessions: Iterable<Session>, message: unknown): void {
 }
 
 /**
+ * Load `config.json` for a start. A file that cannot be used is a refusal, like an unprotected bind:
+ * log the error (path and problem), set the exit code, call `onFatalError`, throw. Nothing has been
+ * started yet and the file is left as it is.
+ */
+function loadConfigOrRefuse(
+  configPath: string,
+  logger: Logger,
+  opts: Pick<DaemonOptions, "onFatalError">,
+): PersistedConfig {
+  try {
+    return loadConfig(configPath, process.env);
+  } catch (err) {
+    if (!(err instanceof ConfigUnreadableError)) throw err;
+    logger.error({ path: err.path, code: err.code }, err.message);
+    process.exitCode = 1;
+    opts.onFatalError?.(err);
+    throw err;
+  }
+}
+
+/**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
  * `close()` for graceful shutdown.
  */
@@ -305,7 +268,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   const logTap = opts.logTap ?? new LogTap();
   const logger = opts.logger ?? createDaemonLogger(home, { tap: logTap });
   const configPath = opts.configPath ?? join(home, "config.json");
-  const config: PersistedConfig = loadConfig(configPath, process.env);
+  const config = loadConfigOrRefuse(configPath, logger, opts);
   let listen: { host: string; port: number };
   try {
     const configured = parseDaemonListen(config.daemon.listen);
@@ -328,8 +291,8 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     opts.onFatalError?.(err);
     throw err;
   }
-  const serverId = resolveServerId(home, opts.serverId);
-  const daemonKeypairB64 = resolveDaemonKeypair(home);
+  const serverId = resolveServerId(home, logger, opts.serverId);
+  const daemonKeypairB64 = resolveDaemonKeypair(home, logger);
   // The PID file is written once `listen` has succeeded (see the "listening" handler below).
   logger.info({ home, configPath, serverId }, "daemon starting");
 
@@ -506,7 +469,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     ...opts.updateTestSeams?.service,
   });
   registerDaemonUpdateHandlers(registry, { service: updateService });
-  /** The current status, right after `server_info` (direct and relay handshakes). */
+  /**
+   * The current status, right after `server_info` (direct and relay handshakes); each of the two
+   * call sites then asks `updateService.checkIfStale()` for a check when the last one is old.
+   */
   const sendUpdateStatus = (session: Session): void => {
     try {
       session.send(
@@ -746,30 +712,9 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // UTF-8 text; larger files must use the chunked binary download path instead). Async so a
   // multi-MB read/decode never blocks the event loop — every other session (agent streams,
   // terminal output, heartbeats) shares this thread.
-  registry.register("file_read_request", async (ctx) => {
-    const filePath = String(ctx.message.path ?? "");
-    const resolved = expandHome(filePath);
-    try {
-      const st = await stat(resolved);
-      if (st.isDirectory()) return { type: "file_read_response", ok: false, error: "is_directory" };
-      if (st.size > MAX_INLINE_FILE_READ_BYTES)
-        return {
-          type: "file_read_response",
-          ok: false,
-          error: "file_too_large",
-          size: st.size,
-          maxBytes: MAX_INLINE_FILE_READ_BYTES,
-        };
-      const content = await readFile(resolved, "utf8");
-      return { type: "file_read_response", ok: true, path: resolved, content, size: st.size };
-    } catch (e: unknown) {
-      return {
-        type: "file_read_response",
-        ok: false,
-        error: (e as Error).message ?? "read_failed",
-      };
-    }
-  });
+  registry.register("file_read_request", async (ctx) =>
+    readInlineFile(String(ctx.message.path ?? "")),
+  );
 
   // ── Terminals: manager + control RPCs + binary stream ─────────────────────────
   const terminalManager = new TerminalManager({ logger });
@@ -843,6 +788,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
         "ws client connected",
       );
       sendUpdateStatus(session);
+      void updateService.checkIfStale();
     },
     onSessionClose: disposeSession,
     onMessage: (session, frame) => {
@@ -897,6 +843,7 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
             onSessionOpen: (session) => {
               relaySessions.add(session);
               sendUpdateStatus(session);
+              void updateService.checkIfStale();
             },
             onSessionClose: (session) => {
               relaySessions.delete(session);

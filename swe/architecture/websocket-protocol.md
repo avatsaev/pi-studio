@@ -42,6 +42,21 @@ Liveness uses the JSON `ping`/`pong` envelope because browser/RN WebSocket APIs 
 protocol ping. RPC timeouts are operation failures and must **not** be treated as a dead socket.
 `pong` carries `{ requestId, clientSentAt?, serverReceivedAt, serverSentAt }`.
 
+Per-connection limits (daemon, `packages/server/src/ws/limits.ts`; relay sessions share all but the
+pings): the first text frame must be a valid `hello` within 10 s of the upgrade (relay: of the key
+exchange) or the socket is closed `1008`; a TCP connection that never completes its HTTP request
+headers (the upgrade included) is closed by the HTTP server after the same 10 s (`headersTimeout`,
+answering `408`; Node's own default was about a minute). A message above
+32 MiB closes the socket `1009`, and a session with 64 requests in flight answers the next one
+`rpc_error` `too_many_requests`. A direct socket is sent an RFC 6455 ping every 30 s and
+terminated when it showed no life (pong, ping or any frame) since the previous one, so a vanished
+peer leaves `daemon_status` 30–60 s later (measured: a client frozen with `SIGSTOP` was gone after
+51–56 s); browsers, `ws` and tungstenite answer without client code. A session whose socket has more
+than 16 MiB queued and unsent is cut off (`1013`, then terminated), so a client that stops reading
+costs the daemon at most that queue; the close frame sits behind the backlog and is discarded, so the
+peer sees `1006` and reconnects like for any other loss. Relay sockets have their own 90 s silence
+timer instead of the pings.
+
 ### Session message families (non-exhaustive)
 | Type(s) | Purpose |
 |---------|---------|

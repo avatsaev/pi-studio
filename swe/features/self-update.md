@@ -177,6 +177,11 @@ at start, after the daemon listens (never delays the start):
     result = readAndRemove(update-result.json)          # → status.lastResult
     if autoCheck: check(automatic); every 6 h: check(automatic)   # timer unref'd, cleared in close()
 
+when a client completes hello (direct or relay):                    # sprint 156, owner request
+    send the stored status                                         # as before, at once
+    if autoCheck and no check or update is running and the last attempt (any check, successful or
+       not) began 10 minutes or more ago:  check(automatic)       # UpdateService.checkIfStale
+
 check(by):
     if an update is running: return
     latest = kind is binary ? GET daemon-updates/latest.json (15 s; never the GitHub API, P15)
@@ -203,6 +208,18 @@ check(by):
 A failed automatic check changes nothing a user sees. A manual check answers with `checkError`.
 With no newer version, a daemon that cannot update stays `idle`: the reason is shown only when there
 is something to install (Settings shows the install kind at all times).
+
+**Check on connect.** The stored status can be up to 6 h old, and a check that failed at start-up (no
+network yet, a slow host) would otherwise stay unseen for 6 h, so a connecting client also starts an
+automatic check when the last attempt is old (`UPDATE_CONNECT_CHECK_MIN_AGE_MS` = 10 minutes). The
+rule lives in `UpdateService.checkIfStale()`, so every client gets it and no client changes. An
+attempt is any check that ran, whoever asked and however it ended; the first connect after a start
+lands while the start-up check runs or just after it, so it asks for nothing. The session gets the
+stored status at once; a change the check finds reaches it, and every other client, through the
+broadcast. It is an automatic check: no `checking` state, a failure shows nothing (the daemon log
+gets one `info` line, `update: check found no release`), a version skipped after a rollback is not
+offered. With auto-check off a connect checks nothing. The 6 h timer and the dev daemon's scripted
+flow (no hook there) are unchanged. A client-side "check now" on connect is not part of it.
 
 ### Apply (D4, D8, D11, D14)
 
@@ -444,6 +461,20 @@ Milestone 6 (built; proof on Linux live in a Node-less container, D16: `packages
       exists.
 - [x] A corrupted asset ends in `failed` and the running daemon keeps running.
 
+Sprint 156 (owner request: an update check when a client connects; `UpdateService.checkIfStale`):
+
+- [x] A connect 10 minutes or more after the last attempt runs one check, and an update it finds is
+      broadcast to the connected session; ten connects within a minute run at most one check; a
+      connect during a running check or an apply runs none; a failed start-up check is retried by a
+      connect 10 minutes later, not 1 minute later; with auto-check off a connect runs none; the check
+      is silent and does not offer a skipped version. *(Fake clock and registry:
+      `update-service.test.ts`; both handshakes on the production bootstrap: `daemon/update-e2e.test.ts`
+      (direct) and `daemon/bootstrap.test.ts` (relay). Live: the compiled binary run as the app runs
+      one on an SSH host, a local release channel. The start-up check found the channel down; a
+      connect at +3 s and one at +60 s asked nothing (one request in all); the channel then named a
+      newer release and a connect at +607 s got the stored `idle` at once and, 11 ms later, the
+      broadcast `available 0.0.133` (the channel's second request).)*
+
 ## Resolved by the build (2026-11-23/24, sprints 135–138)
 
 - `pi --mode rpc` exits by itself within 1 s when the daemon is killed with SIGKILL (idle or stuck
@@ -461,6 +492,22 @@ Milestone 6 (built; proof on Linux live in a Node-less container, D16: `packages
 - Found in the desktop run: the SSH update must pass `-H 127.0.0.1:<port>`; a manual disconnect must
   end `idle`; a restart longer than the probe must not mark the local daemon `stopped`; Update must be
   allowed after a failed update.
+- Found in sprint 156 (owner request, no pill after Start and connect on an SSH entry; the cause on the
+  owner's host is not established). Run the way the app runs a daemon on a host
+  (`<home>/bin/current/pi-studio --json -H 127.0.0.1:<port> daemon start`, the binary under
+  `<home>/bin/versions/<v>/`, a local release channel through `PI_STUDIO_DAEMON_UPDATE_URL`): the
+  install kind is `binary` and managed (the `current` link is resolved), so it is not an install that
+  cannot update; with a newer release named when the daemon starts, a connecting client is given
+  `available` at once. Two ways to no pill were reproduced: a start-up check that failed (channel
+  unreachable at that moment) shows nothing and is not retried for 6 h, and leaves nothing in the log;
+  a result computed before a release was published stays the stored status for every connect until
+  the next tick (an SSH daemon the app left running keeps its result for hours). Both are what the
+  check on connect closes, and a failed lookup now leaves one `info` line in the daemon log. Not
+  excluded: no newer release than the app's pin (the committed `desktop/daemon-pin.json` names 0.0.131,
+  the release tags go to `daemon-v0.0.132`; whether `latest.json` named it was not read), and a host
+  that cannot reach the channel at all (still silent to clients; Settings → "Check now" shows
+  `checkError`). The workbench draws the pill for `available` whatever the entry (read in the code;
+  not run in the desktop webview).
 
 ## TODO(verify)
 
@@ -472,4 +519,5 @@ Milestone 6 (built; proof on Linux live in a Node-less container, D16: `packages
 - macOS and Windows: no live run (owner's decision); Windows hosts report
   `cannot_update(unsupported_platform)`.
 - Not seen live: a hoisted npm layout; the 6 h timer; dialog counts with agents running in the real
-  app; a truly old CLI's update output; a rollback seen from the desktop app.
+  app; a truly old CLI's update output; a rollback seen from the desktop app; the pill on an SSH
+  entry's daemon in the desktop webview.

@@ -38,6 +38,9 @@ export function createDaemonRuntimeInfo(
 // Production daemon bootstrap: startDaemon(), DaemonOptions, DaemonHandle, wrapSessionEnvelope().
 export * from "./bootstrap.js";
 
+// The daemon's pairing key pair, for `pi-studio daemon rotate-key`: made and written atomically (0600).
+export { generateDaemonKeypair, writeDaemonKeypair, type DaemonKeypair } from "./identity-files.js";
+
 // The open-bind rule shared with `pi-studio daemon start`: `isUnprotectedBind`, `unprotectedBindMessage`.
 export * from "./loopback.js";
 

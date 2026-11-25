@@ -1,4 +1,4 @@
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -170,6 +170,24 @@ describe("viewer_settings_set_request", () => {
 
     const res = await rpcSet(registry, { molviewer: { enabled: "not-a-boolean" } });
     expect(res.payload.settings.viewers["molviewer"]).toEqual({ enabled: false });
+  });
+
+  it("a damaged file is set aside before the change is written, which lands in a fresh file", async () => {
+    const home = await tempHome();
+    await writeFile(join(home, "viewer-settings.json"), "{ torn", "utf8");
+    const { registry } = boot(home);
+
+    const res = await rpcSet(registry, { molviewer: { enabled: false } });
+    expect(res.payload.settings).toEqual({
+      version: 1,
+      viewers: { molviewer: { enabled: false } },
+    });
+
+    const entries = await readdir(home);
+    expect(entries).toContain("viewer-settings.json");
+    const setAside = entries.find((name) => name.startsWith("viewer-settings.json.corrupt-"));
+    expect(setAside).toBeDefined();
+    expect(await readFile(join(home, String(setAside)), "utf8")).toBe("{ torn");
   });
 
   it("two concurrent sets on two different viewer ids both survive (no lost update)", async () => {

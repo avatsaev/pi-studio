@@ -1,7 +1,7 @@
 # Task 001 — Deleting a symlink removes the link, not what it points to
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (file explorer)
 - **Priority:** P1

@@ -1,7 +1,7 @@
 # Task 005 — The desktop app says why a daemon did not start
 
 - **Sprint:** sprints/sprint-155-damaged-files
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** desktop (crates shell and model, the app's host), packages/workbench (Daemons screen)
 - **Priority:** P2

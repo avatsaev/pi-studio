@@ -5,7 +5,8 @@
 #   FAKE_PI_UPDATE   what `update` does: fail (prints two lines to stderr, exits 1) | noop (changes nothing) | sleep;
 #                    otherwise it records the call in `updates` and makes `--version` print FAKE_PI_UPDATED_VERSION (default 0.0.130)
 #   FAKE_PI_PORT     the port it reports (default 6767)
-#   FAKE_PI_MODE     garbage | sleep | not_healthy | slow (0.4 s per call, for overlap checks)
+#   FAKE_PI_MODE     garbage | sleep | not_healthy | unprotected_bind | config_unreadable (the last two: `start` refuses with that
+#                    `error`) | slow (0.4 s per call, for overlap checks)
 dir=$FAKE_PI_DIR
 if [ "$1" = "--version" ]; then
     if [ -f "$dir/version" ]; then cat "$dir/version"; else echo "${FAKE_PI_VERSION:-0.0.130}"; fi
@@ -37,13 +38,14 @@ case $cmd in
     status)
         if [ -f "$dir/running" ]; then up; else echo '{"up":false}'; fi ;;
     start)
-        if [ "${FAKE_PI_MODE:-}" = not_healthy ]; then
-            echo '{"up":false}'
-        else
-            [ -f "$dir/running" ] || echo start >> "$dir/starts"
-            touch "$dir/running"
-            up
-        fi ;;
+        case ${FAKE_PI_MODE:-} in
+            not_healthy) echo '{"up":false}' ;;
+            unprotected_bind|config_unreadable) printf '{"up":false,"host":"127.0.0.1","port":%s,"error":"%s"}\n' "$port" "$FAKE_PI_MODE" ;;
+            *)
+                [ -f "$dir/running" ] || echo start >> "$dir/starts"
+                touch "$dir/running"
+                up ;;
+        esac ;;
     restart)
         echo restart >> "$dir/starts"
         touch "$dir/running"

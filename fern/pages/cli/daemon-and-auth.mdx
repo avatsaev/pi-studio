@@ -21,6 +21,12 @@ does the same thing. Starting on a non-loopback `-H` host with no password (`PI_
 `daemon set-password` first. See [Daemon configuration](/configuration/daemon) for the environment
 variables and `config.json` fields that shape how a started daemon behaves.
 
+A `config.json` that is not valid JSON, or fails its schema, stops the daemon from starting: the
+daemon never falls back to defaults, because that would run it without its password. `daemon start`,
+`restart`, `pair` and `extensions list --local` print what is wrong, name the file and exit non-zero
+(under `--json`, one line with `"error": "config_unreadable"`); `set-password` refuses a file that is
+not valid JSON the same way. Nothing rewrites the file. Fix it or move it aside, then start again.
+
 ## `auth`
 
 | Command | Description |

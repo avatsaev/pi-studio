@@ -56,10 +56,14 @@ pub enum Command {
 /// Why an answer is a failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
-    /// The daemon was asked to start and is not up.
+    /// The daemon was asked to start and is not up, or said an `error` this app does not know.
     NotHealthy,
     /// The output is not an answer this app understands.
     BadOutput,
+    /// The daemon refused to start: it would listen beyond the machine with no password (`error: "unprotected_bind"`).
+    UnprotectedBind,
+    /// The daemon refused to start: its `config.json` is damaged (`error: "config_unreadable"`).
+    ConfigUnreadable,
 }
 
 /// What a `daemon` command said.
@@ -100,7 +104,11 @@ pub fn parse_answer(command: Command, stdout: &str) -> Answer {
     match map.get("up") {
         Some(Value::Bool(true)) => running(&map).unwrap_or(bad),
         Some(Value::Bool(false)) if command == Command::Status => Answer::Stopped,
-        Some(Value::Bool(false)) => Answer::Failed(Failure::NotHealthy),
+        Some(Value::Bool(false)) => Answer::Failed(match map.get("error").and_then(Value::as_str) {
+            Some("unprotected_bind") => Failure::UnprotectedBind,
+            Some("config_unreadable") => Failure::ConfigUnreadable,
+            _ => Failure::NotHealthy,
+        }),
         _ => bad,
     }
 }
@@ -176,6 +184,8 @@ mod tests {
     fn status_rows() {
         assert_eq!(parse_answer(Command::Status, r#"{"up":true,"host":"127.0.0.1","port":6767}"#), run("127.0.0.1", 6767));
         assert_eq!(parse_answer(Command::Status, r#"{"up":false}"#), Answer::Stopped);
+        // Only a start or restart reads `error`; a status that is down is stopped.
+        assert_eq!(parse_answer(Command::Status, r#"{"up":false,"error":"config_unreadable"}"#), Answer::Stopped);
         assert_eq!(parse_answer(Command::Status, r#"{"up":true,"host":"h"}"#), BAD);
         assert_eq!(parse_answer(Command::Status, r#"{"up":true,"host":"h","port":"1"}"#), BAD);
         assert_eq!(parse_answer(Command::Status, r#"{"up":true,"host":"h","port":70000}"#), BAD);
@@ -189,6 +199,12 @@ mod tests {
             assert_eq!(parse_answer(c, r#"{"up":true,"host":"h","port":2}"#), run("h", 2));
             assert_eq!(parse_answer(c, r#"{"up":true,"host":"h","port":2,"error":"no_keypair"}"#), run("h", 2));
             assert_eq!(parse_answer(c, r#"{"up":false}"#), Answer::Failed(Failure::NotHealthy));
+            assert_eq!(parse_answer(c, r#"{"up":false,"host":"h","port":2,"error":"not_healthy"}"#), Answer::Failed(Failure::NotHealthy));
+            assert_eq!(parse_answer(c, r#"{"up":false,"host":"h","port":2,"error":"unprotected_bind"}"#), Answer::Failed(Failure::UnprotectedBind));
+            assert_eq!(parse_answer(c, r#"{"up":false,"host":"h","port":2,"error":"config_unreadable"}"#), Answer::Failed(Failure::ConfigUnreadable));
+            // An unknown code, or one that is not text, stays "not healthy".
+            assert_eq!(parse_answer(c, r#"{"up":false,"error":"something_new"}"#), Answer::Failed(Failure::NotHealthy));
+            assert_eq!(parse_answer(c, r#"{"up":false,"error":7}"#), Answer::Failed(Failure::NotHealthy));
             assert_eq!(parse_answer(c, r#"{"up":true}"#), BAD);
         }
     }

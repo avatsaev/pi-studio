@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { z } from "zod";
 
 import type {
@@ -8,6 +8,7 @@ import type {
 } from "@av-pi-studio/protocol";
 
 import type { Logger } from "../logging/logger.js";
+import { atomicWriteJson } from "../persistence/atomic-store.js";
 import { redactSource } from "../resources/spawn-runner.js";
 import { RELEASES_PAGE } from "./binary-manifest.js";
 import type { CannotUpdateReason } from "./install-kind.js";
@@ -18,12 +19,19 @@ type InstallFailureCode = Extract<DaemonUpdateState, { kind: "failed" }>["code"]
 
 /**
  * Daemon self-update state machine (features/self-update.md § Check, § Apply). Memory-only state,
- * a 6 h check timer, single flight, and an injected apply pipeline. Every probe (npm, filesystem,
- * clock, timer, platform) is an injected seam so each path is tested without npm. The install, the
- * helper and the restart are the pipeline's job (`createUpdatePipeline`).
+ * a 6 h check timer, a check when a client connects (`checkIfStale`), single flight, and an injected
+ * apply pipeline. Every probe (npm, filesystem, clock, timer, platform) is an injected seam so each
+ * path is tested without npm. The install, the helper and the restart are the pipeline's job
+ * (`createUpdatePipeline`).
  */
 
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * A client that connects (`hello` done) starts an automatic check, unless the last attempt, successful
+ * or not, is younger than this (`UpdateService.checkIfStale`).
+ */
+export const UPDATE_CONNECT_CHECK_MIN_AGE_MS = 10 * 60_000;
 
 export const UPDATE_RESULT_FILE = "update-result.json";
 export const UPDATE_SKIP_FILE = "update-skip.json";
@@ -270,6 +278,8 @@ export class UpdateService {
   private probed: Promise<void> | undefined;
   private resultWatch: unknown;
   private skippedVersion: string | undefined;
+  /** When the last check began, whoever asked and however it ended; `undefined` before the first. */
+  private lastAttemptAt: number | undefined;
   /** The version the last automatic check offered, `undefined` after any other check outcome. */
   private automaticOffer: string | undefined;
 
@@ -431,7 +441,26 @@ export class UpdateService {
     return this.checking;
   }
 
+  /**
+   * A client has connected: starts one automatic check (`check("automatic")`, so silent: no
+   * `checking` state, a failure shows nothing, a skipped version is not offered) unless auto-check
+   * is off, a check or an update is running, or the last attempt began less than
+   * `UPDATE_CONNECT_CHECK_MIN_AGE_MS` ago. What the check finds reaches the session through the
+   * broadcast. Resolves when the check has ended, at once when none was started.
+   */
+  async checkIfStale(): Promise<void> {
+    if (this.closed || !this.autoCheck || this.checking || isRunning(this.state)) return;
+    if (
+      this.lastAttemptAt !== undefined &&
+      this.now() - this.lastAttemptAt < UPDATE_CONNECT_CHECK_MIN_AGE_MS
+    ) {
+      return;
+    }
+    await this.check("automatic");
+  }
+
   private async runCheck(by: "manual" | "automatic"): Promise<DaemonUpdateStatus> {
+    this.lastAttemptAt = this.now();
     await this.probe();
     const before = this.state;
     if (by === "manual") {
@@ -442,6 +471,8 @@ export class UpdateService {
       const found = await this.lookupLatest();
       if (isRunning(this.state)) return this.status();
       if ("failure" in found) {
+        // Silent to every client for an automatic check; the log is the only trace of it.
+        this.deps.logger?.info({ by, failure: found.failure }, "update: check found no release");
         this.state = before;
         if (by === "manual") {
           this.checkedAt = this.now();
@@ -647,7 +678,7 @@ export interface UpdateSkipStore {
 
 const skipFileSchema = z.object({ version: z.string().regex(PLAIN_VERSION) });
 
-/** `update-skip.json` store: an unreadable or malformed file is removed and logged. */
+/** `update-skip.json` store: written atomically; an unreadable or malformed file is removed and logged. */
 export function createFileSkipStore(path: string, logger?: Logger): UpdateSkipStore {
   return {
     read: async () => {
@@ -668,7 +699,7 @@ export function createFileSkipStore(path: string, logger?: Logger): UpdateSkipSt
         return undefined;
       }
     },
-    write: (version) => writeFile(path, JSON.stringify({ version }), "utf8"),
+    write: (version) => atomicWriteJson(path, { version }, skipFileSchema),
     clear: () => rm(path, { force: true }),
   };
 }

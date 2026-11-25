@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -10,7 +8,7 @@ import {
 } from "@av-pi-studio/protocol";
 
 import type { Logger } from "../logging/logger.js";
-import { atomicWriteJson } from "../persistence/atomic-store.js";
+import { atomicWriteJson, loadStore } from "../persistence/atomic-store.js";
 
 /**
  * `$PI_STUDIO_HOME/viewer-settings.json` — the durable, per-viewer enable/disable document
@@ -28,9 +26,13 @@ export function viewerSettingsPath(home: string): string {
 }
 
 /**
- * Load `viewer-settings.json`. Absent file, corrupt/partial JSON, or a schema mismatch → the
- * all-enabled defaults (`{ version: 1, viewers: {} }`), with a `warn` log on a read failure
- * (never on a merely-absent file — that is the ordinary first-boot state).
+ * Load `viewer-settings.json`. An absent file (the ordinary first-boot state, logged nowhere), or a
+ * file that is not JSON or fails the schema → the all-enabled defaults (`{ version: 1, viewers: {} }`).
+ * A damaged file is first set aside as `viewer-settings.json.corrupt-<UTC timestamp>` and logged as
+ * an error (`loadStore`), so the next `set` writes a fresh file and never overwrites the damaged one.
+ * A file that cannot be read at all (permissions, a directory) throws: it is not known to be damaged,
+ * and defaults would let the next `set` replace it. The `get` handler then answers with an error,
+ * which a client treats like any failed fetch: every viewer stays enabled.
  *
  * Deliberately the **soft-fallback** contract, not `extensions-state.ts`'s `"unreadable"`
  * sentinel: extensions must not silently re-offer a package after a corrupt read (an identity
@@ -39,35 +41,9 @@ export function viewerSettingsPath(home: string): string {
  * (absent row, capability-free daemon, failed client fetch all mean "enabled";
  * docs/MOLVIEWER_DECOUPLING.md § 4.4 rules). A corrupt file must never end up hiding a file
  * behind a "which viewer can open this" decision.
- *
- * Hand-rolled (mirroring `extensions-state.ts`'s own manual read+parse) rather than the generic
- * `loadStore` helper, which has no hook to log a distinct warning on a read failure versus an
- * ordinary missing file.
  */
-export async function loadViewerSettings(home: string, logger?: Logger): Promise<ViewerSettings> {
-  const path = viewerSettingsPath(home);
-  if (!existsSync(path)) return DEFAULT_SETTINGS;
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(await readFile(path, "utf8"));
-  } catch (error) {
-    logger?.warn(
-      { err: (error as Error)?.message ?? String(error) },
-      "viewer-settings.json is corrupt JSON; degrading to all-enabled defaults",
-    );
-    return DEFAULT_SETTINGS;
-  }
-
-  const parsed = viewerSettingsSchema.safeParse(raw);
-  if (!parsed.success) {
-    logger?.warn(
-      { issues: parsed.error.issues },
-      "viewer-settings.json failed schema validation; degrading to all-enabled defaults",
-    );
-    return DEFAULT_SETTINGS;
-  }
-  return parsed.data;
+export async function loadViewerSettings(home: string, logger: Logger): Promise<ViewerSettings> {
+  return loadStore(viewerSettingsPath(home), viewerSettingsSchema, DEFAULT_SETTINGS, logger);
 }
 
 export async function saveViewerSettings(home: string, settings: ViewerSettings): Promise<void> {

@@ -1,9 +1,12 @@
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ViewerSettings } from "@av-pi-studio/protocol";
 import { describe, expect, it } from "vitest";
+
+import { silentLogger } from "../logging/logger.js";
+import { recordingLogger } from "../test-support/recording-logger.js";
 import {
   applyViewerSettingsPatch,
   loadViewerSettings,
@@ -15,24 +18,10 @@ function tempHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), "pi-studio-viewer-settings-state-"));
 }
 
-function noop(): undefined {
-  return undefined;
-}
-
-function fakeLogger(): Logger & { warnCalls: unknown[][] } {
-  const warnCalls: unknown[][] = [];
-  return {
-    warnCalls,
-    trace: noop,
-    debug: noop,
-    info: noop,
-    warn: (...args: unknown[]) => {
-      warnCalls.push(args);
-    },
-    error: noop,
-    fatal: noop,
-    child: () => fakeLogger(),
-  } as unknown as Logger & { warnCalls: unknown[][] };
+/** The contents of every `viewer-settings.json.corrupt-<timestamp>` file in `dir`. */
+async function readSetAside(dir: string): Promise<string[]> {
+  const names = (await readdir(dir)).filter((name) => name.includes(".corrupt-")).toSorted();
+  return Promise.all(names.map((name) => readFile(join(dir, name), "utf8")));
 }
 
 const SAMPLE: ViewerSettings = {
@@ -52,7 +41,7 @@ describe("loadViewerSettings / saveViewerSettings round-trip", () => {
   it("round-trips a full document deep-equal", async () => {
     const dir = await tempHome();
     await saveViewerSettings(dir, SAMPLE);
-    expect(await loadViewerSettings(dir)).toEqual(SAMPLE);
+    expect(await loadViewerSettings(dir, silentLogger())).toEqual(SAMPLE);
   });
 
   it("writes atomically — no temp file left behind on success", async () => {
@@ -70,16 +59,16 @@ describe("loadViewerSettings / saveViewerSettings round-trip", () => {
       viewers: { molviewer: { ...SAMPLE.viewers["molviewer"], futureField: 42 } },
     };
     await writeFile(viewerSettingsPath(dir), JSON.stringify(withExtra), "utf8");
-    const loaded = await loadViewerSettings(dir);
+    const loaded = await loadViewerSettings(dir, silentLogger());
     expect((loaded as typeof withExtra).futureTopLevelField).toBe("from-a-newer-daemon");
     expect((loaded as typeof withExtra).viewers["molviewer"]?.futureField).toBe(42);
   });
 
-  it("absent file yields all-enabled defaults and logs no warning", async () => {
+  it("absent file yields all-enabled defaults and logs nothing", async () => {
     const dir = await tempHome();
-    const logger = fakeLogger();
+    const { logger, lines } = recordingLogger();
     expect(await loadViewerSettings(dir, logger)).toEqual({ version: 1, viewers: {} });
-    expect(logger.warnCalls).toHaveLength(0);
+    expect(lines).toEqual([]);
   });
 
   it("a viewer id this daemon has never heard of is a valid row, not an error", async () => {
@@ -88,29 +77,56 @@ describe("loadViewerSettings / saveViewerSettings round-trip", () => {
       version: 1,
       viewers: { "totally-unknown-viewer": { enabled: true } },
     });
-    expect(await loadViewerSettings(dir)).toEqual({
+    expect(await loadViewerSettings(dir, silentLogger())).toEqual({
       version: 1,
       viewers: { "totally-unknown-viewer": { enabled: true } },
     });
   });
 
-  it("corrupt JSON degrades to all-enabled defaults, logs a warning, and leaves the file untouched", async () => {
+  it.each([
+    ["corrupt JSON", "{not valid json"],
+    ["a schema mismatch", JSON.stringify({ version: 1, viewers: "not-an-object" })],
+  ])(
+    "%s loads as all-enabled defaults, and the file is set aside with its bytes and logged as an error",
+    async (_name, original) => {
+      const dir = await tempHome();
+      const path = viewerSettingsPath(dir);
+      await writeFile(path, original, "utf8");
+      const { logger, lines } = recordingLogger();
+
+      expect(await loadViewerSettings(dir, logger)).toEqual({ version: 1, viewers: {} });
+
+      expect(await readdir(dir)).not.toContain("viewer-settings.json");
+      expect(await readSetAside(dir)).toEqual([original]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ level: "error", obj: { path } });
+    },
+  );
+
+  it("the change after a damaged file writes a fresh file and leaves the damaged bytes aside", async () => {
     const dir = await tempHome();
-    const path = viewerSettingsPath(dir);
-    await writeFile(path, "{not valid json", "utf8");
-    const logger = fakeLogger();
-    expect(await loadViewerSettings(dir, logger)).toEqual({ version: 1, viewers: {} });
-    expect(logger.warnCalls.length).toBeGreaterThan(0);
-    expect(await readFile(path, "utf8")).toBe("{not valid json");
+    await writeFile(viewerSettingsPath(dir), "{not valid json", "utf8");
+
+    const current = await loadViewerSettings(dir, silentLogger());
+    await saveViewerSettings(
+      dir,
+      applyViewerSettingsPatch(current, { molviewer: { enabled: false } }),
+    );
+
+    expect(await loadViewerSettings(dir, silentLogger())).toEqual({
+      version: 1,
+      viewers: { molviewer: { enabled: false } },
+    });
+    expect(await readSetAside(dir)).toEqual(["{not valid json"]);
   });
 
-  it("a schema-mismatched document degrades to all-enabled defaults and logs a warning", async () => {
+  it("throws, and leaves the file alone, when it cannot be read", async () => {
     const dir = await tempHome();
-    const path = viewerSettingsPath(dir);
-    await writeFile(path, JSON.stringify({ version: 1, viewers: "not-an-object" }), "utf8");
-    const logger = fakeLogger();
-    expect(await loadViewerSettings(dir, logger)).toEqual({ version: 1, viewers: {} });
-    expect(logger.warnCalls.length).toBeGreaterThan(0);
+    await mkdir(viewerSettingsPath(dir)); // a directory where the file belongs
+
+    await expect(loadViewerSettings(dir, silentLogger())).rejects.toBeDefined();
+
+    expect(await readdir(dir)).toEqual(["viewer-settings.json"]);
   });
 });
 

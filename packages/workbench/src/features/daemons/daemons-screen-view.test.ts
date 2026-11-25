@@ -156,6 +156,22 @@ describe("the SSH row", () => {
     });
   });
 
+  it("says what to change when the host's daemon refused to start, and where the damaged file is", () => {
+    const unprotected = rowOf({ state: "failed", reason: "unprotected_bind" })?.remote;
+    expect(unprotected?.label).toBe("Not started: no password on a network address");
+    expect(unprotected?.notice?.text).toMatch(/set-password.*127\.0\.0\.1/);
+    const damaged = rowOf({
+      state: "failed",
+      reason: "config_unreadable",
+      output: "/home/ana/.pi-studio/config.json",
+    })?.remote;
+    expect(damaged?.label).toBe("Not started: the configuration file is damaged");
+    expect(damaged?.notice?.output).toBe("/home/ana/.pi-studio/config.json");
+    for (const remote of [unprotected, damaged]) {
+      expect(remote?.actions.map((a) => `${a.kind}:${a.call}`)).toEqual(["retry:start"]);
+    }
+  });
+
   it("has no state when it is not the current entry", () => {
     expect(rowOf(null, "local")?.remote).toBeNull();
   });
@@ -300,6 +316,24 @@ describe("the local row", () => {
 
   it("shows no notice for a failed start", () => {
     expect(localRow({ state: "failed", reason: "spawn_failed" }).notice).toBeNull();
+  });
+
+  it("says what to change when the daemon refused to start, and where the damaged file is", () => {
+    const unprotected = localRow({ state: "failed", reason: "unprotected_bind" });
+    expect(unprotected.label).toBe("Not started: no password on a network address");
+    expect(unprotected.notice?.text).toMatch(/set-password.*127\.0\.0\.1/);
+    expect(unprotected.notice).not.toHaveProperty("output");
+    const damaged = localRow({
+      state: "failed",
+      reason: "config_unreadable",
+      output: "/home/me/.pi-studio/config.json",
+    });
+    expect(damaged.label).toBe("Not started: the configuration file is damaged");
+    expect(damaged.notice?.text).toMatch(/Repair or remove this file/);
+    expect(damaged.notice?.output).toBe("/home/me/.pi-studio/config.json");
+    for (const row of [unprotected, damaged]) {
+      expect(row.actions.map((a) => [a.kind, a.call])).toEqual([["retry", "start"]]);
+    }
   });
 });
 

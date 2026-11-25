@@ -1,7 +1,7 @@
 # Task 005 — Live check of connections
 
 - **Sprint:** sprints/sprint-154-socket-limits
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server, desktop, docs
 - **Priority:** P1

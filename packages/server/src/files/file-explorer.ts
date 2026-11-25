@@ -11,6 +11,7 @@ import {
   stat,
   writeFile as writeFileFs,
 } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { MAX_INLINE_FILE_READ_BYTES } from "./limits.js";
@@ -341,21 +342,26 @@ export class FileExplorerService {
   }
 
   /**
-   * Delete a file or directory (recursively) at `inputPath`, resolving symlinks first — same
-   * normalization/trust boundary as `listOrPreview` (features/file-explorer-transfer.md § Trust
-   * boundary). No confirmation/undo server-side; the client is expected to confirm destructive
-   * deletes before calling.
+   * Delete the entry at `inputPath` (a directory is removed recursively). Like `moveEntry`, only the
+   * *parent* is `realpath`-resolved and the basename re-joined, so a symlink is removed itself and
+   * its target is left alone. `/` and the home directory (or any path spelled to land on them) are
+   * refused with `protected_path`. No confirmation/undo server-side; the client is expected to
+   * confirm destructive deletes before calling.
    */
   async deleteFile(inputPath: string): Promise<{ ok: boolean; error?: string }> {
     if (!inputPath) return { ok: false, error: "empty_path" };
-    let resolvedPath: string;
+    const input = resolve(expandHome(inputPath));
+    let entry: string;
     try {
-      resolvedPath = await realpath(resolve(expandHome(inputPath)));
+      entry = join(await realpath(dirname(input)), basename(input));
+      await lstat(entry);
     } catch {
       return { ok: false, error: "not_found" };
     }
+    const home = await realpath(homedir()).catch(() => homedir());
+    if (entry === "/" || entry === home) return { ok: false, error: "protected_path" };
     try {
-      await rm(resolvedPath, { recursive: true });
+      await rm(entry, { recursive: true });
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "delete_failed" };

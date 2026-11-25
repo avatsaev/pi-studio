@@ -24,17 +24,19 @@ import {
 } from "@av-pi-studio/relay";
 import { startRelayServer, type RelayServerHandle } from "@av-pi-studio/relay/server";
 import {
+  daemonUpdateStatusPushSchema,
   decodeFileTransferFrame,
   decodeTerminalFrame,
   encodeTerminalFrame,
   extensionPacksListResponseSchema,
   extensionPacksSetResponseSchema,
+  type DaemonUpdateStatus,
 } from "@av-pi-studio/protocol";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 
 import { Session } from "../ws/session.js";
 import { SessionSubscriptions } from "../ws/session-subscriptions.js";
-import { startDaemon, type DaemonHandle } from "./bootstrap.js";
+import { startDaemon, type DaemonHandle, type DaemonOptions } from "./bootstrap.js";
 import { startDevDaemon } from "./dev-bootstrap.js";
 import { createLogger, silentLogger } from "../logging/logger.js";
 import { loadAllAgents } from "../persistence/entity-stores.js";
@@ -46,6 +48,8 @@ import { MERMAID_DIAGRAM_INSTRUCTIONS } from "../agent/mermaid-diagram-instructi
 import { MAX_INLINE_FILE_READ_BYTES } from "../files/limits.js";
 import type { InstallSpawn } from "../extensions/sync-executor.js";
 import { persistedConfigSchema } from "../config/daemon-config.js";
+import { updateCheckRig } from "../test-support/update-check-rig.js";
+import { UPDATE_CONNECT_CHECK_MIN_AGE_MS } from "../update/update-service.js";
 
 /**
  * Integration test for the production daemon bootstrap. Boots a real daemon (temp PI_STUDIO_HOME),
@@ -1189,6 +1193,20 @@ describe("file_read RPC", () => {
     expect(response.error).toBe("is_directory");
   }, 15000);
 
+  it("rejects a FIFO and /dev/zero with not_a_file", async () => {
+    const booted = await boot();
+    handle = booted.handle;
+    const client = await connect(booted.port);
+    const fifo = join(booted.home, "pipe");
+    execFileSync("mkfifo", [fifo]);
+
+    for (const path of [fifo, "/dev/zero"]) {
+      const response = await client.rpc({ type: "file_read_request", path });
+      expect(response.ok).toBe(false);
+      expect(response.error).toBe("not_a_file");
+    }
+  }, 15000);
+
   it("resolves a ~-prefixed path against the real home directory", async () => {
     const booted = await boot();
     handle = booted.handle;
@@ -1440,10 +1458,21 @@ interface RelayClient {
   closed: Promise<{ code: number; reason: string }>;
   /** Binary records received from the daemon, in order. */
   binaries: Uint8Array[];
+  /** Every session message received, answers and pushes alike, in order. */
+  messages: Record<string, unknown>[];
   /** Resolves with the `server_info` payload once `hello` is answered. */
   hello(fields?: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Send a `session` request and resolve with the daemon's reply for its `requestId`. */
   rpc(requestId: string, message: Record<string, unknown>): Promise<Record<string, unknown>>;
+}
+
+/** The `daemon_update_status` pushes a relay client has received, in order. */
+function pushedUpdateStatuses(client: RelayClient): DaemonUpdateStatus[] {
+  return client.messages.flatMap((message) =>
+    message.type === "daemon_update_status"
+      ? [daemonUpdateStatusPushSchema.parse(message).status]
+      : [],
+  );
 }
 
 let relayServer: RelayServerHandle | undefined;
@@ -1459,7 +1488,10 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
     relayServer = undefined;
   });
 
-  async function bootRelayDaemon(prefix: string): Promise<RelayRig> {
+  async function bootRelayDaemon(
+    prefix: string,
+    options: Partial<DaemonOptions> = {},
+  ): Promise<RelayRig> {
     const relay = await startRelayServer({ host: "127.0.0.1", port: 0 });
     relayServer = relay;
     const home = mkdtempSync(join(tmpdir(), `pi-studio-${prefix}-`));
@@ -1472,7 +1504,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
         },
       }),
     );
-    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger() });
+    handle = startDaemon({ host: "127.0.0.1", port: 0, home, logger: silentLogger(), ...options });
     // Barrier only: these tests drive the daemon over the relay, not its own WS port, but must
     // still let it finish binding before proceeding.
     await listeningPort(handle.httpServer);
@@ -1512,6 +1544,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
     const ready = Promise.withResolvers<void>();
     const info = Promise.withResolvers<Record<string, unknown>>();
     const binaries: Uint8Array[] = [];
+    const messages: Record<string, unknown>[] = [];
     // Correlated session-message responses arrive interleaved with uncorrelated broadcasts (e.g.
     // `create_terminal_request` also fires a `terminals_update`), so wait on the `requestId`.
     const pendingByRequestId = new Map<string, (msg: Record<string, unknown>) => void>();
@@ -1536,6 +1569,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
           }
           if (envelope.type !== "session") return;
           const msg = envelope.message as Record<string, unknown>;
+          messages.push(msg);
           const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
           const resolve = requestId ? pendingByRequestId.get(requestId) : undefined;
           if (requestId && resolve) {
@@ -1556,6 +1590,7 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
       channel,
       closed: closed.promise,
       binaries,
+      messages,
       hello: (fields = {}) => {
         channel.send(
           JSON.stringify({
@@ -1633,6 +1668,42 @@ describe("relay transport end-to-end (real relay server, protocol 2, real E2EE +
 
     a.channel.close();
     b.channel.close();
+  }, 15000);
+
+  it("a relay client's hello starts an update check when the last one is old, as a direct one does", async () => {
+    const checks = updateCheckRig();
+    const rig = await bootRelayDaemon("relay-update-check", { updateTestSeams: checks.seams });
+    const first = await openRelayClient(rig);
+    await first.hello({ clientId: "relay-update-a" });
+    // The start-up check ends with a status that carries its time. The first connect landed while
+    // it ran, or after it: either way it asked nothing of its own.
+    await vi.waitFor(
+      () => expect(pushedUpdateStatuses(first).some((s) => s.checkedAt === 1_000)).toBe(true),
+      { timeout: 3000 },
+    );
+    expect(checks.asked.count).toBe(1);
+
+    checks.clock.now += UPDATE_CONNECT_CHECK_MIN_AGE_MS;
+    checks.registry.latest = "99.0.0";
+    const second = await openRelayClient(rig);
+    await second.hello({ clientId: "relay-update-b" });
+    // The stored status first, then what the check found (silent: no `checking` between).
+    await vi.waitFor(
+      () =>
+        expect(pushedUpdateStatuses(second).map((s) => s.state.kind)).toEqual([
+          "idle",
+          "available",
+        ]),
+      { timeout: 3000 },
+    );
+    await vi.waitFor(
+      () => expect(pushedUpdateStatuses(first).map((s) => s.state.kind)).toContain("available"),
+      { timeout: 3000 },
+    );
+    expect(checks.asked.count).toBe(2);
+
+    first.channel.close();
+    second.channel.close();
   }, 15000);
 
   it("closing one client disposes only its session; the other keeps working", async () => {

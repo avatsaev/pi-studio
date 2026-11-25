@@ -1,7 +1,7 @@
 # Task 004 — Identity files: the key pair and the server id
 
 - **Sprint:** sprints/sprint-155-damaged-files
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (daemon bootstrap), packages/cli (rotate-key)
 - **Priority:** P2

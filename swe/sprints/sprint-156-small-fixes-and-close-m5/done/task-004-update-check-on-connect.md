@@ -1,7 +1,7 @@
 # Task 004 — Check for a daemon update when a client connects
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
-- **Status:** backlog
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/server (update service, bootstrap), workbench only if the SSH finding needs it
 - **Priority:** P2

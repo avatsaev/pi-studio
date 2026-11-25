@@ -1,7 +1,7 @@
 # Task 002 — `file_read_request` reads regular files only, and never more than its limit
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (files, both bootstraps)
 - **Priority:** P1

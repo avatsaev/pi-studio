@@ -1,7 +1,7 @@
 # Task 003 — No credentials in extension error text
 
 - **Sprint:** sprints/sprint-156-small-fixes-and-close-m5
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (extensions sync)
 - **Priority:** P1

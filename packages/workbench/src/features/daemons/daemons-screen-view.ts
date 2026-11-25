@@ -29,7 +29,7 @@ export const LINK_INVALID_LABEL = "Pairing link no longer valid";
 /** A short explanation under an entry's state. */
 export interface LocalNotice {
   text: string;
-  /** The last lines of what a failed update or install printed; shown as is. */
+  /** The last lines of what a failed update or install printed, or the path of a damaged `config.json`; shown as is. */
   output?: string;
 }
 
@@ -72,6 +72,21 @@ function installFailedNotice(
     text: INSTALL_FAILED_TEXTS[reason],
     ...(lines === undefined ? {} : { output: lines }),
   };
+}
+
+const REFUSED_TEXTS = {
+  unprotected_bind:
+    "The daemon would listen beyond its machine with no password. Set a password (pi-studio daemon set-password) or make it listen on 127.0.0.1 only, then retry.",
+  config_unreadable:
+    "The daemon's configuration file cannot be used, and the daemon did not change it. Repair or remove this file, then retry.",
+} as const;
+
+/** What a row says under a daemon that refused to start: what to change, and for a damaged file, where it is. */
+function refusedNotice(reason: string, output: string | undefined): LocalNotice | null {
+  if (reason === "unprotected_bind") return { text: REFUSED_TEXTS[reason] };
+  if (reason !== "config_unreadable") return null;
+  const path = truncateOutput(output);
+  return { text: REFUSED_TEXTS[reason], ...(path === undefined ? {} : { output: path }) };
 }
 
 export interface LocalRowView {
@@ -146,7 +161,7 @@ function localNotice(local: DaemonsSnapshot["local"]): LocalNotice | null {
     case "failed":
       return isInstallFailure(local.reason)
         ? installFailedNotice(local.reason, local.output)
-        : null;
+        : refusedNotice(local.reason, local.output);
     default:
       return null;
   }
@@ -174,7 +189,7 @@ export function remoteNotice(remote: RemoteDaemonState): LocalNotice | null {
     case "failed":
       return isRemoteInstallFailure(remote.reason)
         ? installFailedNotice(remote.reason, remote.output)
-        : null;
+        : refusedNotice(remote.reason, remote.output);
     default:
       return null;
   }

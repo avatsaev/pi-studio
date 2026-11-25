@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createServer, request, type Server } from "node:http";
-import { type AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -142,5 +142,27 @@ describe("closeHttpServer", () => {
 
   it("resolves for a server that is not listening", async () => {
     await closeHttpServer(createHttpServer());
+  });
+});
+
+describe("a connection that never finishes its headers", () => {
+  it("is closed after headersTimeoutMs, and one that does finish is not", async () => {
+    const port = await start({ headersTimeoutMs: 400 });
+
+    const silent = connect(port, "127.0.0.1");
+    const closed = Promise.withResolvers<string>();
+    let received = "";
+    silent.on("data", (chunk) => (received += String(chunk)));
+    silent.on("close", () => closed.resolve(received));
+    const startedAt = Date.now();
+
+    const health = await call(port, { path: "/api/health" });
+    expect(health.status).toBe(200);
+
+    await closed.promise;
+    const elapsed = Date.now() - startedAt;
+    expect(elapsed).toBeGreaterThanOrEqual(300);
+    expect(elapsed).toBeLessThan(4_000);
+    expect(received).toContain("408");
   });
 });

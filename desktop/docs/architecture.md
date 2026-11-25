@@ -245,7 +245,7 @@ cache or a download (`downloading {received, total}`, stored at most every 250 m
 against the pin's SHA-256, unpacked and switched in. A failed download is `failed(download_failed)`; an archive
 that is not the pinned file is deleted and is `failed(checksum_mismatch)` with nothing unpacked or run; a failed unpack, a
 binary that does not answer the pin, or a `current` that cannot be switched is `failed(install_failed)` with the
-output; a `PI_STUDIO_HOME` that is not a folder is `failed(install_failed)` too. Without an installer (the headless CLI,
+output; a `PI_STUDIO_HOME` that is not a folder is `failed(install_failed)` too. A start or restart whose last line is `{"up":false,"error":"unprotected_bind"}` or `"config_unreadable"` (the daemon refused to start; the CLI's own codes) is `failed(unprotected_bind)` or `failed(config_unreadable)`, the second with the path of `<home>/config.json` in `output`; any other `error`, or none, is `failed(not_healthy)`. Without an installer (the headless CLI,
 tests) the binary in place is run as it is, and none is `failed(spawn_failed)`. After a Start, Restart or Update that
 reached `running` the installer tidies: version folders other than `current` and the previous one are removed, and the
 archive cache keeps the pin's only. A running daemon older than 0.0.127, which `GET /api/health` tells (`pi-studio daemon status` has no
@@ -278,8 +278,8 @@ the option; the log says `daemon pin: <version> (built in|override)` and never a
 workflow's `version` job overwrites the runner's copy from `daemon-updates/latest.json` before the build.
 `LocalState` is `unsupported`, `checking`, `outdated {version}`, `downloading {received, total}`, `installing`,
 `stopped`, `starting`, `stopping`, `updating`, `running {host, port}` and `failed {reason, output?}` with the
-reasons `not_healthy`, `timeout`, `bad_output`, `spawn_failed`, `download_failed`, `checksum_mismatch` and
-`install_failed` (`snake_case` JSON, pinned by tests; the page reads it). The settings are
+reasons `not_healthy`, `timeout`, `bad_output`, `spawn_failed`, `download_failed`, `checksum_mismatch`,
+`install_failed`, `unprotected_bind` and `config_unreadable` (`snake_case` JSON, pinned by tests; the page reads it). The settings are
 `autoStartLocalDaemon` and `checkForUpdates`: an old file's `cliPath` is an unknown field, ignored and kept.
 
 **The command-line tool.** `cli_tool.state` and `cli_tool.install` (`engine/src/cli_tool_cmds.rs`; ids and answers in
@@ -315,7 +315,8 @@ A probe: a daemon the last open reached is `running`, or `outdated` below 0.0.12
 `uname`, musl, the home folder `$PI_STUDIO_HOME` or `~/.pi-studio`, the installed binary's `--version`) gives `unsupported`
 (Windows, musl, an unknown CPU, no `uname`; the host's words, sanitised, in `system`), `not_installed` or `stopped`. Start runs
 `<folder>/bin/current/pi-studio --json -H 127.0.0.1:<daemonPort> daemon start` (90 s), read by `cli_answers`
-(`up` is `running`; otherwise `failed` with `not_healthy`, `timeout` or `bad_output`; `exec_failed` or `no_shell` when no
+(`up` is `running`; otherwise `failed` with `unprotected_bind` or `config_unreadable` when the daemon refused to start and said so in its
+`error`, else `not_healthy`, `timeout` or `bad_output`; `exec_failed` or `no_shell` when no
 command could run); `pairingUrl` is discarded. **Install** (`daemon.remote.install`, enabled for `not_installed`, `stopped` and
 `failed` with `download_failed`, `checksum_mismatch`, `send_failed` or `install_failed`) and **Update** (`daemon.remote.update`,
 for `outdated` and `stopped`, followed by `daemon restart`) run the same steps, each with its reason: fetch the host's archive from
@@ -327,7 +328,7 @@ failures remove everything made and are `install_failed` with the host's last li
 start that reached `running`, prune the older versions. A binary at or above the pin is never replaced (P11); a daemon already
 running is used as it is. After a successful Start, Install or Update Rust emits `connection_resume`, so the page connects
 again. Nothing is run without a button. The last 20 lines of host output (at most 2000 characters, control characters removed)
-are kept only for `install_failed` and `send_failed`. A log line holds the action and the state code; the output of a remote command is never logged.
+are kept only for `install_failed` and `send_failed`; `config_unreadable` carries the path of `<folder>/config.json` on the host (the folder the facts script reported, not host output). A log line holds the action and the state code; the output of a remote command is never logged.
 
 **The native menu.** `menus::daemons_menu` turns the registry view into the "Daemons" menu (one
 check item per entry, "Manage Daemons…", Start, Stop and Restart); `src-tauri/src/menu.rs` draws

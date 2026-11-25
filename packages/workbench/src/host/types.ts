@@ -77,8 +77,13 @@ export type LocalDaemonState =
         | "spawn_failed"
         | "download_failed"
         | "checksum_mismatch"
-        | "install_failed";
-      /** With `install_failed`: the last lines of what the install printed. Shown, never parsed. */
+        | "install_failed"
+        | "unprotected_bind"
+        | "config_unreadable";
+      /**
+       * With `install_failed`: the last lines of what the install printed. With `config_unreadable`: the path of the
+       * damaged `config.json`. Shown, never parsed.
+       */
       output?: string;
     };
 
@@ -110,8 +115,13 @@ export type RemoteDaemonState =
         | "download_failed"
         | "checksum_mismatch"
         | "send_failed"
-        | "install_failed";
-      /** With `send_failed` or `install_failed`: the last lines the host printed. Shown, never parsed. */
+        | "install_failed"
+        | "unprotected_bind"
+        | "config_unreadable";
+      /**
+       * With `send_failed` or `install_failed`: the last lines the host printed. With `config_unreadable`: the
+       * path of the damaged `config.json` on the host. Shown, never parsed.
+       */
       output?: string;
     };
 
@@ -174,6 +184,8 @@ export type DaemonErrorCode =
   | "download_failed"
   | "checksum_mismatch"
   | "install_failed"
+  | "unprotected_bind"
+  | "config_unreadable"
   | "secret_missing"
   | "secret_unavailable"
   | "secret_store_failed"

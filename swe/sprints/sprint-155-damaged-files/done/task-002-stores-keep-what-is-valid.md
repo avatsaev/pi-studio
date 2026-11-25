@@ -1,7 +1,7 @@
 # Task 002 — Stores keep what is valid: registries, agent records, viewer settings, the skip file
 
 - **Sprint:** sprints/sprint-155-damaged-files
-- **Status:** backlog
+- **Status:** done
 - **Type:** bugfix
 - **Area:** packages/server (persistence, projects, viewers, update)
 - **Priority:** P1

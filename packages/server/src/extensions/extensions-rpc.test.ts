@@ -16,8 +16,8 @@ import { silentLogger } from "../logging/logger.js";
 import { HandlerRegistry, routeTextFrame } from "../ws/router.js";
 import type { Session } from "../ws/session.js";
 import { CURATED_PACKS } from "./curated-packs.js";
-import { effectivePiHomeKey } from "./extensions-state.js";
 import { ExtensionsService } from "./extensions-service.js";
+import { effectivePiHomeKey, saveExtensionsState } from "./extensions-state.js";
 import { registerExtensionsHandlers } from "./extensions-rpc.js";
 import { planSync } from "./sync-planner.js";
 import type { InstallSpawn } from "./sync-executor.js";
@@ -150,6 +150,38 @@ describe("extension_packs_list_request", () => {
     expect(typeof webAccess?.lastError?.message).toBe("string");
   });
 
+  it("redacts a failure message an earlier version stored, on its way to the client", async () => {
+    const home = await tempHome();
+    const config = configWithPiHome(home);
+    const piHomeKey = effectivePiHomeKey(config);
+    await seedSettings(piHomeKey, []);
+    await saveExtensionsState(home, {
+      version: 1,
+      piHomes: {
+        [piHomeKey]: {
+          offered: {},
+          failures: {
+            "pi-web-access": {
+              source: "npm:pi-web-access",
+              reason: "network",
+              message:
+                "clone https://user:hunter2-secret@git.example/r.git?token=abc123token failed",
+              attempts: 2,
+              at: "2026-08-12T12:00:00Z",
+            },
+          },
+        },
+      },
+    });
+    const { registry } = boot(home, config);
+
+    const res = await rpcList(registry);
+    const webAccess = res.packs[0]?.packages.find((p) => p.identity === "pi-web-access");
+    expect(webAccess?.lastError?.message).toBe("clone https://git.example/r.git?token=*** failed");
+    expect(JSON.stringify(res)).not.toContain("hunter2-secret");
+    expect(JSON.stringify(res)).not.toContain("abc123token");
+  });
+
   it("statuses are identical to the planner's own dry-run output for the same state", async () => {
     const home = await tempHome();
     const config = configWithPiHome(home);
@@ -194,6 +226,27 @@ describe("extension_packs_set_request", () => {
 
     const list = await rpcList(registry);
     expect(list.selected).toEqual([]);
+  });
+
+  it("a damaged config.json ⇒ { ok: false, error } naming the file, bytes untouched, selection kept, no sync", async () => {
+    const home = await tempHome();
+    const config = persistedConfigSchema.parse({
+      daemon: { piHome: join(home, "pihome"), extensions: { packs: ["kept"] } },
+    });
+    await seedSettings(effectivePiHomeKey(config), []);
+    const spawn = vi.fn(succeedAlways);
+    const { registry, configPath } = boot(home, config, spawn);
+    const damaged = '{ "daemon": { "auth": { "password": "$2a$10$hash"';
+    await writeFile(configPath, damaged, "utf8");
+
+    const res = await rpcSet(registry, { packs: [] });
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain(configPath);
+    expect(res.report).toBeUndefined();
+    expect(res.selected).toEqual(["kept"]);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(readFileSync(configPath, "utf8")).toBe(damaged);
   });
 
   it("in-memory effect: after set, a later sync('manual') on the same running daemon plans against the new selection (no restart)", async () => {

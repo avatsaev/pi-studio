@@ -1,5 +1,6 @@
 import type { ExtensionEntryInfo, ExtensionPackInfo } from "@av-pi-studio/protocol";
 
+import { redactSource } from "../resources/spawn-runner.js";
 import type { CuratedPackCatalog } from "./curated-packs.js";
 import type { DescribedEntry, EntryStatus as PlannerEntryStatus } from "./sync-planner.js";
 
@@ -25,14 +26,18 @@ const ENTRY_STATUS_TO_WIRE: Record<PlannerEntryStatus, string> = {
   deprecated: "deprecated",
 };
 
+/** Nothing leaves the daemon unredacted: `lastError.message` may come from a state file an earlier
+ *  version wrote, so it is redacted here, on its way out, not only when it is first stored. */
 function toWireEntry(entry: DescribedEntry): ExtensionEntryInfo {
   return {
-    source: entry.source,
-    identity: entry.identity,
+    source: redactSource(entry.source),
+    identity: redactSource(entry.identity),
     addedIn: entry.addedIn,
     ...(entry.deprecated !== undefined ? { deprecated: entry.deprecated } : {}),
     status: ENTRY_STATUS_TO_WIRE[entry.status],
-    ...(entry.lastError ? { lastError: entry.lastError } : {}),
+    ...(entry.lastError
+      ? { lastError: { ...entry.lastError, message: redactSource(entry.lastError.message) } }
+      : {}),
   };
 }
 

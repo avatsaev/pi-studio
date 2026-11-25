@@ -133,7 +133,8 @@ curl http://127.0.0.1:6767/api/health
 
 A connected client (workbench pill and dialog, the desktop Daemons screen, or any SDK client) can ask the
 daemon to update itself with the `daemon_update_*` RPCs, gated by `server_info.features.daemonUpdate`.
-The daemon checks the npm registry at start and every 6 h (`daemon.update.autoCheck`, env
+The daemon checks the npm registry at start, every 6 h, and when a client connects whose last check is over
+10 minutes old (`daemon.update.autoCheck`, env
 `PI_STUDIO_UPDATE_AUTOCHECK`; "Check now" always works) and broadcasts every change as `daemon_update_status`.
 Applying runs `npm install -g @av-pi-studio/cli@<version>`, then `pi update --extensions`, then hands over
 to a detached helper that waits for the old daemon to exit (up to 30 s), starts the new version on the same

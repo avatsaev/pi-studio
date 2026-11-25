@@ -1,5 +1,6 @@
 import type { PersistedConfig } from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
+import { redactSource } from "../resources/spawn-runner.js";
 import { piCommand } from "../runtime/self.js";
 import { SERVER_VERSION } from "../version.js";
 import {
@@ -55,6 +56,8 @@ export interface InstallSpawn {
 
 export interface InstallSpawnResult {
   exitCode: number | null;
+  /** The tail of stderr (bounded by the seam), raw: every consumer redacts before it stores, logs
+   *  or sends any of it. */
   stderr: string;
   /** Tail of stdout (bounded). Only the `skills` CLI needs it — it reports failures there. */
   stdout?: string;
@@ -88,11 +91,14 @@ function recordFailure(
   message: string,
   at: string,
 ): void {
+  // The state key stays the raw identity (the planner looks failures up by it); everything stored
+  // as a value, and the report that goes to clients, carries only redacted text.
+  const source = redactSource(action.source);
   const attempts = (piHomeState.failures[action.identity]?.attempts ?? 0) + 1;
-  piHomeState.failures[action.identity] = { source: action.source, reason, message, attempts, at };
+  piHomeState.failures[action.identity] = { source, reason, message, attempts, at };
   report.failures.push({
-    identity: action.identity,
-    source: action.source,
+    identity: redactSource(action.identity),
+    source,
     pack: action.pack,
     reason,
     message,
@@ -102,6 +108,12 @@ function recordFailure(
 function deriveOutcome(report: Pick<SyncReport, "installed" | "failures">): SyncReport["outcome"] {
   if (report.failures.length === 0) return "ok";
   return report.installed.length > 0 ? "partial" : "failed";
+}
+
+/** What a failure keeps of a child's output or a thrown error: credential-redacted FIRST (a cut
+ *  could otherwise leave a credential's tail unrecognisable), then the last `STDERR_TAIL_MAX`. */
+function failureText(text: string): string {
+  return redactSource(text).slice(-STDERR_TAIL_MAX);
 }
 
 /** A `process.env` snapshot with `undefined` entries dropped, so callers get a plain
@@ -190,31 +202,28 @@ export async function executePlan(
           at,
         };
         delete piHomeState.failures[action.identity];
-        report.installed.push(action.identity);
+        report.installed.push(redactSource(action.identity));
         deps.logger.info(
-          { identity: action.identity, source: action.source },
+          { identity: redactSource(action.identity), source: redactSource(action.source) },
           "installed recommended extension",
         );
       } else {
         if (deps.signal?.aborted) break; // killed by the stop: not a verdict on the package
         const reason = classify(result);
-        const message =
-          result.stderr.length > STDERR_TAIL_MAX
-            ? result.stderr.slice(-STDERR_TAIL_MAX)
-            : result.stderr;
+        const message = failureText(result.stderr);
         recordFailure(piHomeState, report, action, reason, message, at);
         deps.logger.warn(
-          { identity: action.identity, source: action.source, reason },
+          { identity: redactSource(action.identity), source: redactSource(action.source), reason },
           "failed to install recommended extension",
         );
       }
     } catch (error) {
       if (deps.signal?.aborted) break; // the seam refused or lost the child at the stop
       const reason = classify(error);
-      const message = error instanceof Error ? error.message : String(error);
+      const message = failureText(error instanceof Error ? error.message : String(error));
       recordFailure(piHomeState, report, action, reason, message, at);
       deps.logger.warn(
-        { identity: action.identity, source: action.source, reason },
+        { identity: redactSource(action.identity), source: redactSource(action.source), reason },
         "failed to install recommended extension",
       );
     } finally {
@@ -248,7 +257,7 @@ export async function updateInstalledExtensions(deps: {
   if (result.timedOut === true) throw new Error("pi update --extensions timed out");
   if (result.exitCode !== 0) {
     throw new Error(
-      `pi update --extensions exited ${result.exitCode}: ${result.stderr.slice(-STDERR_TAIL_MAX)}`,
+      `pi update --extensions exited ${result.exitCode}: ${failureText(result.stderr)}`,
     );
   }
 }

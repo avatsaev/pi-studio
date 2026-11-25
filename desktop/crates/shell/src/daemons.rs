@@ -353,7 +353,7 @@ pub fn static_code(code: &str) -> &'static str {
         "secret_missing",
         "secret_unavailable",
     ];
-    const FAILS: [FailReason; 7] = [
+    const FAILS: [FailReason; 9] = [
         FailReason::NotHealthy,
         FailReason::Timeout,
         FailReason::BadOutput,
@@ -361,6 +361,8 @@ pub fn static_code(code: &str) -> &'static str {
         FailReason::DownloadFailed,
         FailReason::ChecksumMismatch,
         FailReason::InstallFailed,
+        FailReason::UnprotectedBind,
+        FailReason::ConfigUnreadable,
     ];
     KNOWN.iter().copied().find(|known| *known == code).or_else(|| FAILS.iter().map(|f| f.code()).find(|known| *known == code)).unwrap_or("internal")
 }
@@ -442,7 +444,8 @@ mod tests {
         assert_eq!(plan_from_json(&Value::Null), Err("internal"));
         assert_eq!(plan_from_json(&json!({"dial": "pairing_link", "entry": "../x"})), Err("internal"));
         assert_eq!(plan_from_json(&json!({"dial": "open", "plan": {"entry": "../x", "url": "u", "source": "none"}})), Err("internal"));
-        for code in ["no_current", "timeout", "spawn_failed", "local_stopped", "secret_missing", "secret_unavailable"] {
+        for code in ["no_current", "timeout", "spawn_failed", "local_stopped", "secret_missing", "secret_unavailable", "unprotected_bind", "config_unreadable"]
+        {
             assert_eq!(static_code(code), code);
         }
         assert_eq!(static_code("surprise"), "internal");

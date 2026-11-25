@@ -18,8 +18,21 @@ export function shuttingDownError(): Error {
   return new Error("the daemon is shutting down");
 }
 
+/**
+ * The tail of a truncated stream starts mid-token, and a credential cut in two is no longer
+ * recognisable to the redactor, so the leading partial token is dropped (credentials hold no
+ * whitespace). A tail without any whitespace is kept as it is.
+ */
+function wholeTokens(tail: string): string {
+  const at = tail.search(/\s/);
+  return at < 0 ? tail : tail.slice(at + 1);
+}
+
 /** A child's stdout is drained (an unread pipe would block it) but only this tail is kept. */
 const STDOUT_TAIL_MAX = 16_384;
+/** Only this tail of a child's stderr is kept while it is collected: a runaway install cannot grow
+ *  the daemon's memory. Larger than what a failure message stores, so redaction has context. */
+const STDERR_TAIL_MAX = 65_536;
 /** How long `stop()` waits for a child to exit after SIGTERM, then after SIGKILL. */
 const STOP_GRACE_MS = 2_000;
 
@@ -46,7 +59,7 @@ export class InstallProcesses {
     this.graceMs = options.graceMs ?? STOP_GRACE_MS;
   }
 
-  /** Spawns `command`, captures stderr (unbounded here — the executor bounds what it stores), and
+  /** Spawns `command`, keeps the tail of stderr (raw: the executor redacts what it stores), and
    *  kills the whole process tree on timeout rather than just the direct child, so a `pi install`
    *  that itself forked a build/postinstall step doesn't linger. Rejects once `stop()` ran. */
   readonly spawn: InstallSpawn = async ({ command, env, timeoutMs, cwd }) => {
@@ -65,6 +78,7 @@ export class InstallProcesses {
     this.live.add(install);
 
     let stderr = "";
+    let stderrCut = false;
     let stdout = "";
     let timedOut = false;
     let settled = false;
@@ -80,8 +94,13 @@ export class InstallProcesses {
       exit.resolve();
     };
 
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+      if (stderr.length > STDERR_TAIL_MAX) {
+        stderr = stderr.slice(-STDERR_TAIL_MAX);
+        stderrCut = true;
+      }
     });
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout = (stdout + chunk.toString("utf8")).slice(-STDOUT_TAIL_MAX);
@@ -93,10 +112,17 @@ export class InstallProcesses {
       result.reject(err);
     });
 
-    child.on("exit", (code) => {
+    // `close`, not `exit`: `exit` can fire while the child's pipes still hold unread output, which
+    // would cut the last lines off the failure text.
+    child.on("close", (code) => {
       if (settled) return;
       end();
-      result.resolve({ exitCode: code, stderr, stdout, timedOut });
+      result.resolve({
+        exitCode: code,
+        stderr: stderrCut ? wholeTokens(stderr) : stderr,
+        stdout,
+        timedOut,
+      });
     });
     return result.promise;
   };

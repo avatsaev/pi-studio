@@ -68,6 +68,35 @@ describe("InstallProcesses.spawn — the production seam", () => {
     expect(result).toMatchObject({ exitCode: 0, stderr: "hi" });
   });
 
+  it("keeps only the tail of 10 MiB of stderr, and the last line is not cut off", async () => {
+    const script =
+      "const line = 'x'.repeat(1023) + '\\n';" +
+      "for (let i = 0; i < 10 * 1024; i++) process.stderr.write(line);" +
+      "process.stderr.write('the very last line\\n'); process.exitCode = 1;";
+    const result = await new InstallProcesses().spawn({
+      command: [process.execPath, "-e", script],
+      env: ENV,
+      timeoutMs: 30_000,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.length).toBeLessThanOrEqual(65_536);
+    expect(result.stderr.endsWith("the very last line\n")).toBe(true);
+  });
+
+  it("never starts a truncated tail in the middle of a URL, which a redactor could not recognise", async () => {
+    const script =
+      "const url = 'https://user:tok@host/repo.git ';" +
+      "for (let i = 0; i < 20000; i++) process.stderr.write(url);" +
+      "process.exitCode = 1;";
+    const result = await new InstallProcesses().spawn({
+      command: [process.execPath, "-e", script],
+      env: ENV,
+      timeoutMs: 30_000,
+    });
+    expect(result.stderr.length).toBeLessThanOrEqual(65_536);
+    expect(result.stderr.startsWith("https://user:tok@host/repo.git ")).toBe(true);
+  });
+
   it("rejects when the binary cannot be spawned at all", async () => {
     await expect(
       new InstallProcesses().spawn({

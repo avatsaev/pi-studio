@@ -1,6 +1,10 @@
 import { join } from "node:path";
 
-import { persistExtensionPacks, type PersistedConfig } from "../config/daemon-config.js";
+import {
+  ConfigUnreadableError,
+  persistExtensionPacks,
+  type PersistedConfig,
+} from "../config/daemon-config.js";
 import type { Logger } from "../logging/logger.js";
 import { createLimiter } from "../util/concurrency.js";
 import { CURATED_PACKS, selectEntries } from "./curated-packs.js";
@@ -89,13 +93,22 @@ export class ExtensionsService {
    * in-memory-correct daemon must survive a disk write failure (logged, never thrown; the running
    * daemon keeps serving the new selection even if the write failed). `core` is never stored (it
    * is implicit); dedupes and preserves caller order otherwise.
+   *
+   * The one exception is a `config.json` that cannot be read ({@link ConfigUnreadableError}): it is
+   * not written over, the previous selection is restored and the error is thrown, so the caller can
+   * tell the user the choice was not kept.
    */
   async setSelectedPacks(packs: readonly string[]): Promise<void> {
     const deduped = [...new Set(packs.filter((p) => p !== "core"))];
+    const previous = this.config.daemon.extensions.packs;
     this.config.daemon.extensions.packs = deduped;
     try {
       await persistExtensionPacks(this.configPath, deduped);
     } catch (err) {
+      if (err instanceof ConfigUnreadableError) {
+        this.config.daemon.extensions.packs = previous;
+        throw err;
+      }
       this.logger.error(
         { err: (err as Error)?.message ?? String(err) },
         "failed to persist extension pack selection to config.json",
