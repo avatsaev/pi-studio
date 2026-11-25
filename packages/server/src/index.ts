@@ -27,7 +27,7 @@ export * from "./ws/index.js";
 // Agent providers, registry, snapshot, and lifecycle manager.
 export * from "./agent/index.js";
 
-// Project + workspace registries, key derivation, reconciliation.
+// Project + workspace registries, key derivation.
 export * from "./projects/index.js";
 
 // PTY terminal manager + binary stream.

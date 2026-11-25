@@ -26,7 +26,7 @@ in-process `mock` provider exists purely for tests and load testing.
 - `resumeSession(handle, overrides?, launchContext?) → AgentSession`
 - `listModels(opts) → AgentModelDefinition[]`
 - `isAvailable() → boolean`  (checks the `pi` binary is on `$PATH`)
-- optional: `listImportableSessions`, `importSession`, `getDiagnostic`
+- optional: `importSession`, `getDiagnostic`
 
 ### `AgentSession` (abridged contract)
 - `provider`, `id`, `capabilities`, `features?`
@@ -49,13 +49,9 @@ in-process `mock` provider exists purely for tests and load testing.
 4. App icon registered in `provider-icons.ts` (fallback `Bot`).
 5. E2E config in `daemon-e2e/agent-configs.ts`.
 
-### Custom Pi-compatible profiles (config `agents.providers.{id}`)
-- A custom provider must declare `extends: "pi"` and a `label`. It may set `command` (custom binary),
-  `env`, `params` (e.g. `sessionDir` for a fork's JSONL session directory), `models`/
-  `additionalModels`, `disallowedTools`, `enabled`, `order`, `description`.
-- Pi-compatible forks keep Pi's `--mode rpc` API but may write sessions elsewhere; set
-  `params.sessionDir` so import can find them. Launch/resume still use the configured `command`.
-- Provider ids must match `/^[a-z][a-z0-9-]*$/`. See
+### Provider config (`agents.providers`)
+- Only the built-in `pi` key is accepted, with `command` (custom binary) and `env`. Any other key
+  is a config error naming it (`agents.providers.foo: only "pi" is supported`). See
   [../architecture/config.md](../architecture/config.md).
 
 ## Behavior & Algorithms
@@ -84,8 +80,7 @@ isAvailable(): `pi` binary resolvable on $PATH
   JSONL session files** directly.
 - Resume and full history hydration go through `pi --mode rpc` using the session file as
   `nativeHandle`.
-- Import contract: the picker calls `listImportableSessions` (rows only: provider handle, cwd, title,
-  prompt previews, last activity); `importSession({ providerHandleId, cwd })` returns the resumed
+- Import contract: `importSession({ providerHandleId, cwd })` returns the resumed
   session + storage config + persistence handle + hydrated timeline for that one native session.
   `AgentManager.importProviderSession` seeds the daemon timeline and publishes the agent only once
   ready.
@@ -123,7 +118,6 @@ isAvailable(): `pi` binary resolvable on $PATH
 | `pi` binary not on `$PATH` | `isAvailable()` false → provider unavailable |
 | `pi-mcp-adapter` not loaded for cwd | MCP injection unavailable; agent still runs without injected MCP |
 | Scratch session created for metadata | Avoid; prefer top-level list APIs |
-| Custom fork with different session dir | Use `params.sessionDir` for import; launch/resume via `command` |
 | Fire-and-forget extension UI (notifications) | Ignored unless first-class UI exists |
 
 ## Dependencies
@@ -138,8 +132,8 @@ isAvailable(): `pi` binary resolvable on $PATH
 - [ ] Injected MCP servers are written to a per-agent `--mcp-config`, never to user/project files.
 - [ ] A cold provider snapshot probes once and stays cached until an explicit refresh.
 - [ ] Settings refresh clears all scopes and re-probes only the home snapshot.
-- [ ] Import discovery reads Pi JSONL session files; resume uses the session file as `nativeHandle`.
-- [ ] A custom `extends:"pi"` profile launches via its `command` and finds imports via `params.sessionDir`.
+- [ ] Resume uses the explicit session file as `nativeHandle`.
+- [ ] An `agents.providers` key other than `pi` fails config load, naming the key.
 
 ## TODO(verify)
 - [ ] Current Pi session JSONL directory layout and file naming.

@@ -33,9 +33,19 @@ describe("defaults", () => {
     expect(cfg.daemon.listen).toBe("127.0.0.1:6767");
     expect(cfg.daemon.hostnames).toEqual(["localhost", "*.localhost"]);
     expect(cfg.daemon.relay.enabled).toBe(false);
-    expect(cfg.log.level).toBe("info");
     expect(cfg.agents.providers).toEqual({});
     expect(cfg.daemon.extensions).toEqual({ autoSync: true, packs: [] });
+  });
+
+  it("a config containing removed keys still loads", async () => {
+    const path = await tempConfig({
+      log: { level: "debug" },
+      worktrees: { root: "/wt" },
+      daemon: { appendSystemPrompt: "x", listen: "127.0.0.1:7000" },
+      providers: { local: { modelsDir: "/models" } },
+    });
+    const cfg = loadConfig(path, {});
+    expect(cfg.daemon.listen).toBe("127.0.0.1:7000");
   });
 
   it("an empty object parses to defaults", () => {
@@ -58,17 +68,11 @@ describe("legacy migration", () => {
   it("loads a legacy provider command:{mode,…} without error", async () => {
     const path = await tempConfig({
       agents: {
-        providers: {
-          "my-fork": {
-            extends: "pi",
-            label: "My Fork",
-            command: { mode: "rpc", command: "pi-fork", args: ["--flag"] },
-          },
-        },
+        providers: { pi: { command: { mode: "rpc", command: "pi-fork", args: ["--flag"] } } },
       },
     });
     const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers["my-fork"]?.command).toEqual(["pi-fork", "--flag"]);
+    expect(cfg.agents.providers.pi?.command).toEqual(["pi-fork", "--flag"]);
   });
 });
 
@@ -160,32 +164,19 @@ describe("env overlay (env wins)", () => {
 });
 
 describe("provider validation", () => {
-  it("rejects a custom provider missing extends + label", async () => {
-    const path = await tempConfig({ agents: { providers: { "my-fork": { description: "x" } } } });
-    expect(() => loadConfig(path, {})).toThrow();
-  });
-
-  it("rejects a bad provider id", async () => {
+  it("rejects any agents.providers key other than pi, naming the key", async () => {
     const path = await tempConfig({
-      agents: { providers: { "Bad-Id": { extends: "pi", label: "X" } } },
+      agents: { providers: { foo: { extends: "pi", label: "Foo" } } },
     });
-    expect(() => loadConfig(path, {})).toThrow();
+    expect(() => loadConfig(path, {})).toThrow('agents.providers.foo: only "pi" is supported');
   });
 
-  it("allows overriding the built-in pi provider without extends/label", async () => {
+  it("keeps pi command and env", async () => {
     const path = await tempConfig({
-      agents: { providers: { pi: { disallowedTools: ["shell"] } } },
+      agents: { providers: { pi: { command: ["pi", "--x"], env: { A: "1" } } } },
     });
     const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers.pi?.disallowedTools).toEqual(["shell"]);
-  });
-
-  it("accepts a valid custom profile", async () => {
-    const path = await tempConfig({
-      agents: { providers: { "my-fork": { extends: "pi", label: "My Fork", order: 2 } } },
-    });
-    const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers["my-fork"]?.label).toBe("My Fork");
+    expect(cfg.agents.providers.pi).toEqual({ command: ["pi", "--x"], env: { A: "1" } });
   });
 });
 

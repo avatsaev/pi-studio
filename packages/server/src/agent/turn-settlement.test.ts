@@ -44,8 +44,6 @@ class RetryAgentSession implements AgentSession {
     return () => this.subscribers.delete(cb);
   }
 
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {}
-
   startTurn(): Promise<{ turnId: string }> {
     return Promise.resolve({ turnId: "t1" });
   }

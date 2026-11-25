@@ -83,7 +83,6 @@ function sessionStub(overrides: Record<string, unknown> = {}) {
     run: () => Promise.resolve(),
     startTurn: () => Promise.resolve({ turnId: "t1" }),
     subscribe: () => () => {},
-    streamHistory: async function* () {},
     getRuntimeInfo: () => ({ provider: "mock" }),
     describePersistence: () => null,
     interrupt: () => Promise.resolve(),

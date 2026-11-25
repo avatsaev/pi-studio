@@ -59,7 +59,7 @@ Request fields:
 | Queue a follow-up (delivered only once the turn fully stops) | `follow_up_agent_request` (SDK/CLI `followUp`) — not surfaced in the web composer |
 | Interrupt current turn | interrupt RPC / `pi-studio stop` / `cancel_agent`/`kill_agent` (MCP) |
 | Resume a closed session | resume via `PersistenceHandle` |
-| Import a provider-native session | `listImportableSessions` → `importSession` |
+| Import a provider-native session | `importSession` (explicit handle) |
 | Update config (model/mode/thinking/features/title) | `update_agent` (MCP), `set_agent_mode`, `pi-studio update`/`mode` |
 | Reload | `pi-studio reload` |
 | Wait for finish | `wait_for_agent` (MCP), `pi-studio wait` |

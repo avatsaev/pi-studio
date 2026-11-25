@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { OpenProjectService } from "./open-project.js";
-import { aggregateWorkspaceActivity, type AgentActivityInput } from "./workspace-activity.js";
 
 let home: string;
 let repo: string;
@@ -66,37 +65,5 @@ describe("OpenProjectService.openProject", () => {
     const b = await svc.openProject(repo);
     expect(b.created).toBe(false);
     expect(b.workspace.workspaceId).toBe(a.workspace.workspaceId);
-  });
-});
-
-describe("aggregateWorkspaceActivity", () => {
-  it("a running subagent escalates running to its root parent's workspace, not its own cwd", () => {
-    const agents: AgentActivityInput[] = [
-      { id: "root", cwd: "/work/main", status: "idle", parentAgentId: null },
-      { id: "sub", cwd: "/work/wt", status: "running", parentAgentId: "root" },
-    ];
-    const buckets = aggregateWorkspaceActivity(agents);
-    expect(buckets.get("/work/main")).toBe("running");
-    expect(buckets.has("/work/wt")).toBe(false); // subagent cwd not escalated
-  });
-
-  it("non-running subagent attention/error stays in the parent's track (no workspace escalation)", () => {
-    const agents: AgentActivityInput[] = [
-      { id: "root", cwd: "/work/main", status: "idle", parentAgentId: null },
-      { id: "sub", cwd: "/work/wt", status: "error", parentAgentId: "root" },
-    ];
-    const buckets = aggregateWorkspaceActivity(agents);
-    expect(buckets.get("/work/main")).toBe("idle");
-    expect(buckets.has("/work/wt")).toBe(false);
-  });
-
-  it("root agent contributes its own bucket, including attention", () => {
-    const agents: AgentActivityInput[] = [
-      { id: "r1", cwd: "/a", status: "idle", parentAgentId: null, needsAttention: true },
-      { id: "r2", cwd: "/b", status: "running", parentAgentId: null },
-    ];
-    const buckets = aggregateWorkspaceActivity(agents);
-    expect(buckets.get("/a")).toBe("attention");
-    expect(buckets.get("/b")).toBe("running");
   });
 });

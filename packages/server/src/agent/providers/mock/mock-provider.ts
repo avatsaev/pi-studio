@@ -141,9 +141,7 @@ export class MockAgentSession implements AgentSession {
   }
 
   private emit(event: AgentStreamEvent): void {
-    // Ephemeral partial tool snapshots reach subscribers but never the replay buffer — the mirror
-    // of the Pi coalescer's history rule (tool-output-streaming.md tenet 2), so a post-restart
-    // hydration contains no partials.
+    // Private script/stats list: ephemeral partial tool snapshots reach subscribers but are not kept.
     if (!(event.kind === "tool_call" && event.partial)) this.history.push(event);
     for (const cb of this.subscribers) cb(event);
   }
@@ -151,10 +149,6 @@ export class MockAgentSession implements AgentSession {
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe {
     this.subscribers.add(cb);
     return () => this.subscribers.delete(cb);
-  }
-
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    for (const event of this.history) yield event;
   }
 
   startTurn(prompt: string): Promise<{ turnId: string }> {

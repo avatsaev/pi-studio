@@ -1,10 +1,8 @@
-// Project + workspace registries, key derivation, and startup reconciliation.
+// Project + workspace registries and key derivation.
 export * from "./workspace-registry.js";
-export * from "./reconciliation.js";
 
-// Open-project flow, git detection, workspace activity aggregation.
+// Open-project flow, git detection.
 export * from "./git-detect.js";
-export * from "./workspace-activity.js";
 export * from "./open-project.js";
 
 // Pi-Studio worktree service (create/setup, archive/teardown, auto-archive coupling).

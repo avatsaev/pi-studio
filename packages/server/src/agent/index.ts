@@ -6,7 +6,6 @@ export * from "./providers/pi/event-mapper.js";
 export * from "./providers/pi/rpc-transport.js";
 export * from "./manifest.js";
 export * from "./provider-registry.js";
-export * from "./provider-snapshot.js";
 export * from "./agent-manager.js";
 export * from "./timeline-store.js";
 export * from "./agent-service.js";

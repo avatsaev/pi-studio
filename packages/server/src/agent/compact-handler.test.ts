@@ -52,7 +52,6 @@ class ScriptedSession implements AgentSession {
     this.subscribers.add(cb);
     return () => this.subscribers.delete(cb);
   }
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {}
   startTurn(): Promise<{ turnId: string }> {
     return Promise.resolve({ turnId: "t1" });
   }

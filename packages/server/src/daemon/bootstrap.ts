@@ -546,7 +546,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   // ── Providers (metadata for the new-agent picker) ────────────────────────────
   const providerRegistry = new ProviderRegistry();
-  providerRegistry.replaceMetadata(config);
   registry.register("list_providers", (ctx) => ({
     type: "list_providers_response",
     requestId: ctx.requestId ?? "",

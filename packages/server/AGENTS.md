@@ -211,7 +211,6 @@ src/
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
                                    re-exports pi-home.ts's resolvePiAgentDir for its existing
                                    import surface (provider-registry.test.ts's path-parity tests).
-    provider-snapshot.ts          ProviderSnapshot — cached models per provider.
     session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
@@ -422,7 +421,6 @@ src/
     git-detect.ts                 Detect git root + remote from a cwd.
     worktree-service.ts           Git worktree create/list/delete.
     workspace-git-service.ts      WorkspaceGitService — git RPCs for a workspace.
-    workspace-activity.ts         Workspace activity tracking (last-used timestamps).
     git-checkout-rpc.ts           Git checkout RPC handlers.
     github-service.ts             GitHub API integration (PRs, issues).
     checkout-diff-manager.ts      Manages diff snapshots for checkout review.
@@ -431,7 +429,6 @@ src/
                                   `!` lines populate the projection's `ignored[]` (a wholly
                                   ignored directory collapses to one `dir/` entry — `=matching`
                                   would walk node_modules and emit six figures of output).
-    reconciliation.ts             Project/workspace reconciliation on startup.
     index.ts
 
   files/
@@ -899,7 +896,7 @@ creation" above.
   timeline row so history shows it; `ok:false` when there is no live session.
 - `AgentSession.close()` — shut down the session.
 - `AgentSession.update(patch)` — change model/mode/features without recreating.
-- `AgentSession.importSession(args)` / `AgentClient.listImportableeSessions()` — resume a
+- `AgentSession.importSession(args)` / `AgentClient.importSession(args)` — resume a
   provider-native session by its handle.
 - **`RunOptions.images`** (`RunOptions`/`StartTurnOptions`) carries `ImageAttachment[]` (the
   protocol wire shape `{ mimeType?, data? }`, base64 data). The provider is responsible for
@@ -1046,18 +1043,13 @@ creation" above.
   (`{cancelled: true}` via `session_before_fork`) performs neither the reset nor the broadcast —
   nothing rebound, nothing to resync.
 - **`createSession`/`resumeSession` must stay in agreement on `systemPrompt` handling** (task-005,
-  sprint-045 — a pre-existing defect this fixed): `resumeSession` used to build its spawn args
-  with `appendSystemPrompt: this.deps.appendSystemPrompt` unconditionally, ignoring
-  `overrides?.systemPrompt` even though `overrides` is exactly `record.config` passed down from
-  `spawnOrResumeSession`/`SessionOperationsService.handleResume` — so every daemon restart (and
-  the first spawn of a deferred draft that happens to resume rather than create) silently dropped
-  the session's own per-session system prompt back to the daemon-wide default. Both methods now
-  read `config.systemPrompt ?? this.deps.appendSystemPrompt` /
-  `overrides?.systemPrompt ?? this.deps.appendSystemPrompt` — identical fallback shape, each with
-  a `NOTE:` comment pointing at the other so a future edit to one is not made in isolation.
-  `importSession` shares `resumeSession`'s code path and inherited the fix for free. This is what
+  sprint-045): `resumeSession` builds its spawn args from `overrides?.systemPrompt` (the session's
+  `record.config`), exactly as `createSession` does from `config.systemPrompt`, so a restart or a
+  deferred draft's first resume keeps the per-session prompt. There is no daemon-wide default
+  prompt (`PiClientDeps.appendSystemPrompt` and `daemon.appendSystemPrompt` were removed). Each method
+  carries a `NOTE:` pointing at the other. `importSession` shares `resumeSession`'s path. This is what
   makes the inline-image capability's composed system prompt (`handleCreate`'s `effectiveConfig`
-  above) survive a restart-then-resume instead of reverting on the very next process spawn.
+  above) survive a restart-then-resume.
 - **`hydrateTimelineFromSessionFile`'s user-message mapping used to drop attached images on
   restart+resume** (`session-hydration.ts`'s `mapMessage()`, `case "user"` — a real bug, not a
   documented limitation): it only ever extracted `type === "text"` blocks from a persisted
@@ -1734,7 +1726,6 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 - **`WorktreeService`**: `git worktree add/list/remove` via shell.
 - **`WorkspaceGitService`**: git status, branch, diff, commit, log per workspace.
 - **`GitHubService`**: GitHub API (PRs, issues) via `GITHUB_TOKEN`.
-- **Reconciliation**: on startup, reconciles workspace records with filesystem reality.
 
 ### Persistence (`persistence/`)
 

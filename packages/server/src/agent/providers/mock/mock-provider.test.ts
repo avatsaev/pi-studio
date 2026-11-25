@@ -509,9 +509,7 @@ describe("#tool scenario (sprint-058, task-004)", () => {
     const session = await makeMockSession();
     const { events } = collect(session);
     await session.run(prompt);
-    const replayed: AgentStreamEvent[] = [];
-    for await (const e of session.streamHistory()) replayed.push(e);
-    return { events, replayed };
+    return { events };
   }
 
   it("#tool shell emits start, 3 growing partials, end, then the echo", async () => {
@@ -557,13 +555,6 @@ describe("#tool scenario (sprint-058, task-004)", () => {
     const end = tools.at(-1)!;
     expect(end.status).toBe("completed");
     expect(end.tool).toMatchObject({ kind: "shell", output: "" });
-  });
-
-  it("streamHistory yields start and end events but no partials", async () => {
-    const { replayed } = await toolEvents("#tool shell");
-    const tools = replayed.filter((e) => e.kind === "tool_call");
-    expect(tools.some((e) => e.partial === true)).toBe(false);
-    expect(tools.map((e) => e.status)).toEqual(["running", "completed"]);
   });
 
   it("#tool help lists the recipes and emits no tool events", async () => {

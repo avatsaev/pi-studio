@@ -1,7 +1,7 @@
 # Task 005 — Drop `extends: "pi"` provider profiles
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** in_progress
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (agent, config), packages/protocol
 - **Priority:** P2

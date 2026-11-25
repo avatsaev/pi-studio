@@ -826,7 +826,7 @@ describe("PiAgentClient", () => {
     });
   });
 
-  it("delivers partial tool output live but keeps it out of streamHistory (start + end stay)", async () => {
+  it("delivers partial tool output live and ends with the completed terminal", async () => {
     class PartialFakeTransport extends FakeTransport {
       override notify(command: string): void {
         this.notifies.push(command);
@@ -872,14 +872,6 @@ describe("PiAgentClient", () => {
     expect(livePartials.length).toBeGreaterThanOrEqual(1);
     expect(livePartials[0]).toMatchObject({ callId: "c1", tool: { output: "one" } });
 
-    const history: AgentStreamEvent[] = [];
-    for await (const event of session.streamHistory()) history.push(event);
-    expect(history.some((e) => e.kind === "tool_call" && e.partial)).toBe(false);
-    const calls = history.filter((e) => e.kind === "tool_call");
-    expect(calls.map((e) => (e.kind === "tool_call" ? e.status : null))).toEqual([
-      "running",
-      "completed",
-    ]);
     // The terminal is the last tool_call delivered live: no trailing partial after it.
     const liveCalls = live.filter((e) => e.kind === "tool_call");
     expect(liveCalls[liveCalls.length - 1]).toMatchObject({ status: "completed" });
@@ -1122,18 +1114,12 @@ describe("a dead Pi process ends the turn with its error (live check, P16)", () 
 });
 
 describe("import & resume", () => {
-  it("enumerates JSONL session files and resumes using the file as nativeHandle", async () => {
+  it("resumes an explicit session file as nativeHandle", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-sessions-"));
     const fileA = join(dir, "a.jsonl");
     writeFileSync(fileA, `${JSON.stringify({ cwd: "/work", title: "Session A", prompt: "hi" })}\n`);
-    writeFileSync(join(dir, "b.jsonl"), `${JSON.stringify({ cwd: "/other" })}\n`);
-    writeFileSync(join(dir, "ignore.txt"), "nope");
 
-    const { client, spawns } = clientWithFake({ sessionDir: dir });
-    const rows = await client.listImportableSessions();
-    expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.providerHandleId === fileA)?.title).toBe("Session A");
-
+    const { client, spawns } = clientWithFake();
     const result = await client.importSession({ providerHandleId: fileA, cwd: "/work" });
     expect(result.persistence.nativeHandle).toBe(fileA);
     expect(spawns.at(-1)?.spawnArgs.sessionFile).toBe(fileA);
@@ -1171,21 +1157,7 @@ describe("import & resume", () => {
     expect(args).toContain("be concise");
   });
 
-  it("resumeSession falls back to deps.appendSystemPrompt when overrides has no systemPrompt (task-005)", async () => {
-    const { client, spawns } = clientWithFake({
-      appendSystemPrompt: "default behavior",
-    });
-    await client.resumeSession(
-      { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
-      { cwd: "/work" },
-      { cwd: "/work" },
-    );
-    const args = spawns[0]?.spawnArgs.args ?? [];
-    expect(args).toContain("--append-system-prompt");
-    expect(args).toContain("default behavior");
-  });
-
-  it("resumeSession passes no --append-system-prompt when neither overrides nor deps has systemPrompt (task-005)", async () => {
+  it("resumeSession passes no --append-system-prompt when overrides has no systemPrompt (task-005)", async () => {
     const { client, spawns } = clientWithFake();
     await client.resumeSession(
       { provider: "pi", sessionId: "s1", nativeHandle: "/tmp/prior-conversation.jsonl" },
@@ -1193,7 +1165,7 @@ describe("import & resume", () => {
       { cwd: "/work" },
     );
     const args = spawns[0]?.spawnArgs.args ?? [];
-    // When both are falsy, buildPiArgs should not include --append-system-prompt at all
+    // When it is falsy, buildPiArgs should not include --append-system-prompt at all
     const appendIdx = args.indexOf("--append-system-prompt");
     expect(appendIdx).toBe(-1);
   });

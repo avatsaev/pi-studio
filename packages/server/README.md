@@ -243,21 +243,19 @@ defaults and `.passthrough()` tolerance for unknown/future keys. Notable section
     "listen": "127.0.0.1:6767",
     "hostnames": ["localhost", "*.localhost"],
     "auth": { "password": "$2b$…bcrypt-hash…" },
-    "appendSystemPrompt": "",
     "relay": { "enabled": false, "endpoint": "relay-host:7000", "useTls": false }
   },
   "agents": {
     "providers": {
       "pi": { "command": ["/abs/path/to/pi", "--mode", "rpc"] }
     }
-  },
-  "log": { "level": "info", "format": "json" }
+  }
 }
 ```
 
 To use a **different `pi` binary** than the bundled one, set
-`agents.providers.pi.command` to an absolute path as shown above. Custom Pi-compatible profiles can
-extend the `pi` provider via `"extends": "pi"` (a custom provider must also set a `label`).
+`agents.providers.pi.command` to an absolute path as shown above. `agents.providers` accepts only
+the `pi` key; any other key fails config load.
 
 **Relay (opt-in, off by default):** with `daemon.relay.enabled: true`, the daemon dials outbound
 to the `endpoint` (a self-hosted `@av-pi-studio/relay` server) after the WS server is up, so remote
@@ -414,7 +412,7 @@ src/
   config/               DaemonConfig (env + config.json merge) and per-project config.
   persistence/          Zod entity schemas, JSON stores, AtomicStore.
   terminal/             TerminalManager (PTY lifecycle, slot mux, snapshot, binary broadcast).
-  projects/             Workspaces, projects, git ops, worktrees, GitHub, reconciliation.
+  projects/             Workspaces, projects, git ops, worktrees, GitHub.
   files/                File explorer + chunked download/upload transfer.
   logging/              Pino logger factory.
   util/                 Concurrency helpers.

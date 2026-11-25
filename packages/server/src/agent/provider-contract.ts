@@ -191,15 +191,6 @@ export interface CreateSessionOptions {
   env?: Record<string, string>;
 }
 
-/** A row in the importable-session picker (no full transcript). */
-export interface ImportableSessionRow {
-  providerHandleId: string;
-  cwd: string;
-  title?: string;
-  promptPreview?: string;
-  lastActivityAt?: string;
-}
-
 export interface ImportSessionArgs {
   providerHandleId: string;
   cwd: string;
@@ -222,7 +213,6 @@ export interface AgentSession {
   startTurn(prompt: string, opts?: StartTurnOptions): Promise<{ turnId: string }>;
 
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe;
-  streamHistory(): AsyncGenerator<AgentStreamEvent>;
 
   getRuntimeInfo(): ProviderRuntimeInfo;
 
@@ -322,7 +312,6 @@ export interface AgentClient {
   isAvailable(): Promise<boolean> | boolean;
 
   // Optional capabilities.
-  listImportableSessions?(opts?: { cwd?: string }): Promise<ImportableSessionRow[]>;
   importSession?(args: ImportSessionArgs): Promise<ImportSessionResult>;
   getDiagnostic?(): Promise<unknown>;
   /**

@@ -45,10 +45,5 @@ describe("provider manifest types", () => {
       capabilities: flags,
     };
     expect(providerDefinitionSchema.safeParse(def).success).toBe(true);
-
-    // A custom Pi-compatible profile may declare `extends`.
-    expect(
-      providerDefinitionSchema.safeParse({ ...def, id: "my-fork", extends: "pi" }).success,
-    ).toBe(true);
   });
 });

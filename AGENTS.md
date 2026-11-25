@@ -738,7 +738,7 @@ Two providers ship today:
 - **`mock`** — in-process stub that emits synthetic events; needs no credentials; used for smoke
   testing.
 
-Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"` in the manifest.
+`agents.providers` in `config.json` holds only the `pi` entry (`command`, `env`); any other key fails config load.
 `pi` needs a model-provider credential before it can run a turn — `pi-studio auth login` (CLI-local,
 no daemon required; `packages/cli/AGENTS.md`'s `auth` group) is the supported way to provide one
 without hand-editing Pi's `auth.json` or discovering `/login` inside `pi-studio pi`'s pass-through

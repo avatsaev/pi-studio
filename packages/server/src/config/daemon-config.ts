@@ -19,53 +19,31 @@ import { atomicWriteJson } from "../persistence/atomic-store.js";
 // Provider overrides (agents.providers.{id})
 // ---------------------------------------------------------------------------
 
-/** Provider ids: `/^[a-z][a-z0-9-]*$/`. */
-export const providerIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/, "invalid provider id");
-
-/** A custom Pi-compatible provider profile, or an override of the built-in `pi` provider. */
+/** The built-in `pi` provider's launch settings. */
 export const providerOverrideSchema = z.object({
-  extends: z.literal("pi").optional(),
-  label: z.string().optional(),
-  description: z.string().optional(),
   command: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  params: z.record(z.string(), z.unknown()).optional(),
-  models: z.array(z.unknown()).optional(),
-  additionalModels: z.array(z.unknown()).optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  enabled: z.boolean().optional(),
-  order: z.number().optional(),
 });
 export type ProviderOverride = z.infer<typeof providerOverrideSchema>;
 
-/** The only built-in provider id; everything else under `agents.providers` is a custom profile. */
-const BUILTIN_PROVIDER_IDS = new Set(["pi"]);
-
 /**
- * `agents.providers` map. Keys must match the provider-id pattern. A *custom* profile (any id other
- * than a built-in) must declare `extends:"pi"` and a `label`; overriding the built-in `pi` does not.
+ * `agents.providers` map: only the built-in `pi` entry. Any other key is a config error, because
+ * agent records point at a provider id and ignoring the entry would only move the failure to the
+ * agent's next start.
  */
 export const providersRecordSchema = z
-  .record(providerIdSchema, providerOverrideSchema)
+  .record(z.string(), z.unknown())
   .superRefine((record, ctx) => {
-    for (const [id, override] of Object.entries(record)) {
-      if (BUILTIN_PROVIDER_IDS.has(id)) continue;
-      if (override.extends !== "pi") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `custom provider "${id}" must set extends:"pi"`,
-          path: [id, "extends"],
-        });
-      }
-      if (!override.label) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `custom provider "${id}" must set a label`,
-          path: [id, "label"],
-        });
-      }
+    for (const id of Object.keys(record)) {
+      if (id === "pi") continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only "pi" is supported',
+        path: [id],
+      });
     }
-  });
+  })
+  .pipe(z.object({ pi: providerOverrideSchema.optional() }));
 
 export const metadataGenerationProviderSchema = z.object({
   provider: z.string(),
@@ -87,7 +65,6 @@ export const persistedConfigSchema = z
       .object({
         listen: z.string().default("127.0.0.1:6767"),
         hostnames: hostnamesSchema.default(["localhost", "*.localhost"]),
-        appendSystemPrompt: z.string().default(""),
         /** Developer switch: browser `Origin`s the direct WS port accepts (exact match). Default: none. */
         devAllowedOrigins: z.array(z.string()).default([]),
         relay: z
@@ -115,31 +92,11 @@ export const persistedConfigSchema = z
       })
       .default({}),
     app: z.object({ baseUrl: z.string().optional() }).default({}),
-    worktrees: z.object({ root: z.string().optional() }).default({}),
-    providers: z
-      .object({ local: z.object({ modelsDir: z.string().optional() }).default({}) })
-      .default({}),
     agents: z
       .object({
         providers: providersRecordSchema.default({}),
         metadataGeneration: z
           .object({ providers: z.array(metadataGenerationProviderSchema).default([]) })
-          .default({}),
-      })
-      .default({}),
-    log: z
-      .object({
-        level: z.string().default("info"),
-        format: z.string().default("json"),
-        console: z.record(z.string(), z.unknown()).default({}),
-        file: z
-          .object({
-            level: z.string().optional(),
-            path: z.string().optional(),
-            rotate: z
-              .object({ maxSize: z.string().optional(), maxFiles: z.number().optional() })
-              .default({}),
-          })
           .default({}),
       })
       .default({}),
@@ -285,7 +242,7 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
 /**
  * Load and normalize `config.json`: read JSON (or `{}` when missing/corrupt), migrate legacy
  * shapes, validate with {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
- * config is structurally invalid (e.g. a bad provider id or a custom provider missing extends/label).
+ * config is structurally invalid (e.g. an `agents.providers` key other than `pi`).
  */
 export function loadConfig(path: string, env: Env = process.env): PersistedConfig {
   let raw: unknown = {};
@@ -296,7 +253,13 @@ export function loadConfig(path: string, env: Env = process.env): PersistedConfi
       raw = {};
     }
   }
-  const parsed = persistedConfigSchema.parse(migrateConfig(raw));
+  const result = persistedConfigSchema.safeParse(migrateConfig(raw));
+  if (!result.success) {
+    throw new Error(
+      result.error.issues.map((i) => `${i.path.join(".") || "config"}: ${i.message}`).join("; "),
+    );
+  }
+  const parsed = result.data;
   return overlayEnv(parsed, env);
 }
 

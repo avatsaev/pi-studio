@@ -1,5 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -164,71 +163,17 @@ describe("resolveProviderClient", () => {
     expect(resolvePiAgentDir(persistedConfigSchema.parse({}))).toBeUndefined();
   });
 
-  it("launches a custom extends:pi profile via its command and finds imports via params.sessionDir", async () => {
-    const sessionDir = mkdtempSync(join(tmpdir(), "fork-sessions-"));
-    writeFileSync(
-      join(sessionDir, "s1.jsonl"),
-      `${JSON.stringify({ cwd: "/w", title: "Forked" })}\n`,
+  it("rejects an unknown provider id", () => {
+    expect(() => resolveProviderClient("my-fork", persistedConfigSchema.parse({}))).toThrow(
+      "unknown provider: my-fork",
     );
-
-    const config = persistedConfigSchema.parse({
-      agents: {
-        providers: {
-          "my-fork": {
-            extends: "pi",
-            label: "My Fork",
-            command: ["my-pi", "--mode", "rpc"],
-            params: { sessionDir },
-          },
-        },
-      },
-    });
-    const { deps, spawns } = fakeDeps();
-    const client = resolveProviderClient("my-fork", config, deps);
-    expect(client.provider).toBe("my-fork");
-
-    await client.createSession({ provider: "my-fork", cwd: "/w" });
-    expect(spawns[0]?.args[0]).toBe("my-pi");
-
-    const rows = await client.listImportableSessions!();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("Forked");
-  });
-
-  it("applies models override (replace) and additionalModels (merge)", async () => {
-    const config = persistedConfigSchema.parse({
-      agents: {
-        providers: {
-          "fork-b": {
-            extends: "pi",
-            label: "Fork B",
-            command: ["forkb"],
-            models: [{ id: "m1", label: "One" }],
-            additionalModels: [{ id: "m2", label: "Two" }],
-          },
-        },
-      },
-    });
-    const { deps } = fakeDeps();
-    const client = resolveProviderClient("fork-b", config, deps);
-    const models = await client.listModels();
-    expect(models.map((m) => m.id).toSorted()).toEqual(["m1", "m2"]);
   });
 });
 
-describe("ProviderRegistry metadata replacement", () => {
-  it("updates visible metadata without spawning Pi", () => {
-    const { deps, spawns } = fakeDeps();
+describe("ProviderRegistry", () => {
+  it("answers the manifest as is", () => {
     const registry = new ProviderRegistry();
-    const config = persistedConfigSchema.parse({
-      agents: { providers: { "my-fork": { extends: "pi", label: "Relabeled Fork" } } },
-    });
-
-    registry.replaceMetadata(config);
-    // Re-resolving the client after a metadata replace must not spawn the process.
-    resolveProviderClient("pi", config, deps);
-
-    expect(registry.getMetadata("my-fork")?.label).toBe("Relabeled Fork");
-    expect(spawns).toHaveLength(0); // building a client never spawns
+    expect(registry.getMetadata("pi")?.id).toBe("pi");
+    expect(registry.listMetadata().map((d) => d.id)).toContain("pi");
   });
 });

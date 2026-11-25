@@ -1,7 +1,7 @@
 # Task 006 — Drop four uncalled pieces of code and the dead config keys
 
 - **Sprint:** sprints/sprint-147-drop-dead-subsystems
-- **Status:** backlog
+- **Status:** done
 - **Type:** refactor
 - **Area:** packages/server (agent, projects, config)
 - **Priority:** P2

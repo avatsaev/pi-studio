@@ -36,12 +36,11 @@ export const agentCapabilityFlagsSchema = z
   .passthrough();
 export type AgentCapabilityFlags = z.infer<typeof agentCapabilityFlagsSchema>;
 
-/** A provider manifest definition. `extends` marks a custom Pi-compatible profile. */
+/** A provider manifest definition. */
 export const providerDefinitionSchema = z.object({
   id: providerIdSchema,
   label: z.string(),
   description: z.string().optional(),
-  extends: z.string().optional(),
   capabilities: agentCapabilityFlagsSchema,
 });
 export type ProviderDefinition = z.infer<typeof providerDefinitionSchema>;

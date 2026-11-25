@@ -33,7 +33,7 @@ normalization on load.
   worktrees?: { root? },                   # default $PI_STUDIO_HOME/worktrees
   providers: { local: { modelsDir } },
   agents: {
-    providers: Record<providerId, ProviderOverride>,   # custom Pi-compatible profiles
+    providers: { pi?: ProviderOverride },   # only `pi`; other keys are a config error
     metadataGeneration: { providers: [{ provider, model?, thinkingOptionId? }] }
   },
   log: { level, format, console: {...}, file: { level, path, rotate: { maxSize, maxFiles } } }
@@ -44,11 +44,10 @@ normalization on load.
   generation (commit messages, PR text, branch names, titles); tried in order, then dynamic defaults,
   then current selection.
 
-### Provider override (`agents.providers.{id}`)
-Provider ids: `/^[a-z][a-z0-9-]*$/`. Fields: `extends` (`"pi"`; required for custom),
-`label` (required for custom), `description?`, `command?` (string[]; custom Pi binary/fork), `env?`,
-`params?`, `models?`, `additionalModels?`, `disallowedTools?`, `enabled?`, `order?`. Full semantics
-in [features/agent-providers.md](../features/agent-providers.md).
+### Provider override (`agents.providers.pi`)
+Only the `pi` key is accepted; any other key fails load (`agents.providers.foo: only "pi" is
+supported`). Fields: `command?` (string[]), `env?`. See
+[features/agent-providers.md](../features/agent-providers.md).
 
 ### Per-project config — `pi-studio.json`
 ```
@@ -102,7 +101,7 @@ function loadConfig(path):
 ## Acceptance Criteria
 - [ ] Env vars override the matching config.json keys.
 - [ ] Legacy `allowedHosts` and provider `command.mode` shapes load without error.
-- [ ] A custom Pi profile missing `extends`+`label` is rejected.
+- [ ] An `agents.providers` key other than `pi` is rejected, naming the key.
 - [ ] `pi-studio.json` `setup: "cmd"` normalizes to `["cmd"]`.
 - [ ] Editing `pi-studio.json` against a stale revision returns `stale_project_config`.
 

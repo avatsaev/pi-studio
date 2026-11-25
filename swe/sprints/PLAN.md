@@ -3831,6 +3831,8 @@ t001, t003 and t004 in parallel; t002 after t001; t005; t006 last.
 t001 and t003 in parallel; then t002 and t004; t005; t006. Mostly sequential because they share
 `daemon-config.ts`, `bootstrap.ts` and `pi/agent.ts`.
 
+**Done 2026-11-25** (all six tasks). Ran as waves (001 ∥ 003, 002 ∥ 004, 005, 006) with a full gate per wave; the last gate: build, typecheck, lint, 323 test files / 4657 tests, `cargo xtask ci` all green; live smoke on a temporary home. The earlier-seen failing `bootstrap.test.ts` extension-packs test passed in every full run since (it looks network-dependent, not fixed by any change here). Left for an owner decision: `"mcp"` (and `"mobile"`) in the `clientType` wire enum, which the external fixtures' signature covers.
+
 ### sprint-148-shims-and-packaging
 > **What it ships.** No compatibility shims; five npm packages instead of eight; M2 closed.
 

@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 import type {
   AgentCapabilityFlags,
@@ -20,7 +18,6 @@ import type {
   AgentSessionStats,
   AgentTodoList,
   CreateSessionOptions,
-  ImportableSessionRow,
   ImportSessionArgs,
   ImportSessionResult,
   LaunchContext,
@@ -65,15 +62,9 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
 };
 
 export interface PiClientDeps {
-  /** Provider id (custom `extends:"pi"` profiles reuse this adapter with their own id). */
-  provider?: string;
   /** Launch command; defaults to `pi --mode rpc`. */
   command?: string[];
   env?: Record<string, string>;
-  /** JSONL session directory for import discovery (`params.sessionDir` for forks). */
-  sessionDir?: string;
-  /** System prompt appended to every session (preserves Pi's default prompt). */
-  appendSystemPrompt?: string;
   /** Injected for tests; defaults to the real process transport. */
   transportFactory?: PiTransportFactory;
   /** Injected for tests; defaults to a `$PATH` scan. */
@@ -181,9 +172,8 @@ class PiAgentSession implements AgentSession {
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
   private readonly todoSubscribers = new Set<(list: AgentTodoList) => void>();
-  private readonly history: AgentStreamEvent[] = [];
   private readonly eventMapper = createPiEventMapper();
-  /** Owns ephemeral `partial: true` tool output: throttled, tail-capped, kept out of `history`. */
+  /** Owns ephemeral `partial: true` tool output: throttled, tail-capped, kept out of the live-delivery path's replay. */
   private readonly partialOutput = createToolOutputCoalescer({
     deliver: (event) => this.fanOut(event),
   });
@@ -232,11 +222,10 @@ class PiAgentSession implements AgentSession {
 
   private emit(event: AgentStreamEvent): void {
     // Partials are live-stream-only (features/tool-output-streaming.md): the coalescer delivers
-    // them to subscribers itself, so they never reach `history` and its replay. Every other event
-    // keeps the record-then-fan-out path; the coalescer has already cancelled any partial
+    // them to subscribers itself, so they never reach a replay. Every other event
+    // fans out immediately; the coalescer has already cancelled any partial
     // flush it supersedes (a call's terminal, a turn terminal), so no partial outruns it.
     if (this.partialOutput.accept(event)) return;
-    this.history.push(event);
     this.fanOut(event);
   }
 
@@ -287,10 +276,6 @@ class PiAgentSession implements AgentSession {
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe {
     this.subscribers.add(cb);
     return () => this.subscribers.delete(cb);
-  }
-
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    for (const event of this.history) yield event;
   }
 
   /**
@@ -628,7 +613,7 @@ export class PiAgentClient implements AgentClient {
   private readonly resolver: (bin: string, env?: Record<string, string | undefined>) => boolean;
 
   constructor(private readonly deps: PiClientDeps = {}) {
-    this.provider = deps.provider ?? "pi";
+    this.provider = "pi";
     this.command = deps.command ?? piCommand(PI_RPC_ARGS) ?? ["pi", ...PI_RPC_ARGS];
     this.factory = deps.transportFactory ?? createProcessTransport;
     this.resolver = deps.binaryResolver ?? resolveBinaryOnPath;
@@ -662,9 +647,7 @@ export class PiAgentClient implements AgentClient {
     options?: CreateSessionOptions,
   ): Promise<AgentSession> {
     if (!this.isAvailable()) return Promise.reject(this.unavailableError());
-    const args = buildPiArgs(this.command, {
-      appendSystemPrompt: config.systemPrompt ?? this.deps.appendSystemPrompt,
-    });
+    const args = buildPiArgs(this.command, { appendSystemPrompt: config.systemPrompt });
     const transport = this.factory({
       args,
       cwd: launchContext?.cwd ?? config.cwd,
@@ -701,9 +684,7 @@ export class PiAgentClient implements AgentClient {
     const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
     const cwd = launchContext?.cwd ?? overrides?.cwd ?? ".";
     const transport = this.factory({
-      args: buildPiArgs(this.command, {
-        appendSystemPrompt: overrides?.systemPrompt ?? this.deps.appendSystemPrompt,
-      }),
+      args: buildPiArgs(this.command, { appendSystemPrompt: overrides?.systemPrompt }),
       cwd,
       env: this.buildEnv(launchContext),
       sessionFile,
@@ -768,7 +749,7 @@ export class PiAgentClient implements AgentClient {
     opts?: { noSession?: boolean },
   ): Promise<unknown> {
     if (!this.isAvailable()) throw this.unavailableError();
-    const args = buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt });
+    const args = [...this.command];
     if (opts?.noSession) args.push("--no-session");
     const transport = this.factory({
       args,
@@ -781,43 +762,6 @@ export class PiAgentClient implements AgentClient {
     } finally {
       await transport.close();
     }
-  }
-
-  /** Enumerate Pi JSONL session files for the import picker (rows only). */
-  listImportableSessions(opts?: { cwd?: string }): Promise<ImportableSessionRow[]> {
-    const dir = this.deps.sessionDir;
-    if (!dir || !existsSync(dir)) return Promise.resolve([]);
-
-    const rows: ImportableSessionRow[] = [];
-    for (const file of readdirSync(dir)) {
-      if (!file.endsWith(".jsonl")) continue;
-      const full = join(dir, file);
-      let cwd = "";
-      let title: string | undefined;
-      let promptPreview: string | undefined;
-      try {
-        const firstLine = readFileSync(full, "utf8")
-          .split("\n")
-          .find((l) => l.trim());
-        if (firstLine) {
-          const head = JSON.parse(firstLine) as Record<string, unknown>;
-          cwd = typeof head.cwd === "string" ? head.cwd : "";
-          title = typeof head.title === "string" ? head.title : undefined;
-          promptPreview = typeof head.prompt === "string" ? head.prompt : undefined;
-        }
-      } catch {
-        // best-effort metadata; the row is still importable
-      }
-      if (opts?.cwd && cwd && cwd !== opts.cwd) continue;
-      rows.push({
-        providerHandleId: full,
-        cwd,
-        title,
-        promptPreview,
-        lastActivityAt: statSync(full).mtime.toISOString(),
-      });
-    }
-    return Promise.resolve(rows);
   }
 
   /** Resume one native session (the JSONL file is the `nativeHandle`) and return a hydrated result. */
