@@ -153,7 +153,10 @@ describe("PiStudioClient — create and send answer at acceptance", () => {
     const agent = client.agent(agentId);
     await agent.send("first");
 
-    await expect(agent.send("second")).rejects.toMatchObject({ name: "RpcError", code: "busy" });
+    await expect(agent.send("second")).rejects.toMatchObject({
+      name: "RpcError",
+      message: expect.stringMatching(/^busy:/),
+    });
 
     fake.settle(agentId, "idle");
     await expect(agent.send("third")).resolves.toEqual({ agentId });
@@ -169,7 +172,7 @@ describe("PiStudioClient — create and send answer at acceptance", () => {
 
     expect(created).toEqual({ agentId: "agent-1" });
     await expect(client.agent(created.agentId).send("again")).rejects.toMatchObject({
-      code: "busy",
+      message: expect.stringMatching(/^busy:/),
     });
   });
 
@@ -189,7 +192,10 @@ describe("PiStudioClient — create and send answer at acceptance", () => {
   it("send to an unknown agent rejects, nothing started", async () => {
     const { client } = await makeFacade();
 
-    await expect(client.agent("ghost").send("hi")).rejects.toMatchObject({ name: "RpcError" });
+    await expect(client.agent("ghost").send("hi")).rejects.toMatchObject({
+      name: "RpcError",
+      message: "unknown agent: ghost",
+    });
   });
 });
 

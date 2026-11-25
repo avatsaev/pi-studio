@@ -1,7 +1,7 @@
 # Task 001 — SDK: `send` resolves on acceptance, and `waitForIdle`
 
 - **Sprint:** sprints/sprint-152-instant-replies-clients
-- **Status:** in_progress
+- **Status:** done
 - **Type:** feature
 - **Area:** packages/client
 - **Priority:** P1

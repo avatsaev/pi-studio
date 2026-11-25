@@ -49,6 +49,7 @@ import type {
   ViewerSettingsSetResponse,
   ViewerSettingsUpdate,
 } from "@av-pi-studio/protocol";
+import { waitForAgentIdle, type WaitForIdleOptions, type WaitForIdleResult } from "./agent-wait.js";
 import type { DaemonClient } from "./daemon-client.js";
 
 const DAEMON_UPDATE_CHECK_TIMEOUT_MS = 30_000;
@@ -167,8 +168,8 @@ export interface PiStudioAgentActions {
    * Send a prompt. Resolves `{ agentId }` as soon as the daemon has ACCEPTED it (the agent is
    * `running`); the turn runs on after the answer and reports through `timeline.subscribe` rows and
    * one `agent_update` (`idle` or `error`). Use `waitForIdle()` to wait for that. A refusal
-   * (`busy`, unknown agent) rejects with `RpcError` and nothing started — including a send made
-   * after the previous answer but before that turn's `agent_update`.
+   * (`RpcError` with message `busy: …` or `unknown agent: …`) means nothing started — including a
+   * send made after the previous answer but before that turn's `agent_update`.
    */
   send(
     prompt: string,

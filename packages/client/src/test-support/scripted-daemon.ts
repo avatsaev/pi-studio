@@ -135,12 +135,24 @@ export function makeScriptedDaemon(opts?: {
       }
       case "send_agent_prompt": {
         const agentId = String(msg.agentId);
+        // Refusals are `rpc_error`s as the daemon's router sends them: code `handler_error`,
+        // the reason in the message.
         if (!statuses.has(agentId)) {
-          reply({ type: "rpc_error", requestId, message: `unknown agent: ${agentId}` });
+          reply({
+            type: "rpc_error",
+            requestId,
+            code: "handler_error",
+            message: `unknown agent: ${agentId}`,
+          });
           return;
         }
         if (statuses.get(agentId) === "running") {
-          reply({ type: "rpc_error", requestId, code: "busy", message: `busy: ${agentId}` });
+          reply({
+            type: "rpc_error",
+            requestId,
+            code: "handler_error",
+            message: `busy: agent ${agentId} has a turn running`,
+          });
           return;
         }
         statuses.set(agentId, "running");

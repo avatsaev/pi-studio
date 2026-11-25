@@ -58,8 +58,10 @@ src/
   agent-ui-controller.test.ts
   agent-todos-state.ts        Pure Agent Todos reducer/selectors (sprint-079) — no DOM, no I/O, no timers.
   agent-todos-state.test.ts
+  agent-wait.ts               Pure settle decisions (settledStatusOf/settledByMessage/settledByListing) + waitForAgentIdle() — what `agent(id).waitForIdle()` runs; WaitForIdleTimeoutError, WaitForIdleConnectionClosedError.
+  agent-wait.test.ts
   test-support/
-    scripted-daemon.ts        makeScriptedDaemon()/makeFacade() — shared fake-transport harness for pistudio-client.test.ts and agent-ui-controller.test.ts.
+    scripted-daemon.ts        makeScriptedDaemon()/makeFacade() — shared fake-transport harness for pistudio-client.test.ts, agent-wait.test.ts and agent-ui-controller.test.ts. Answers `create_agent_request`/`send_agent_prompt` at acceptance (answer, then `agent_update running`, rows, a settle; `busy` refusal while the agent runs), tracks each agent's status for `list_agents_request`; `holdTurns` leaves turns running until `fake.settle(agentId, "idle" | "error")`.
   reconnect.ts                ReconnectionManager — backoff reconnect + capability rehydrate.
   terminal-stream-router.ts   TerminalStreamRouter — binary terminal frame demux/encode by slot.
   terminal-router.test.ts
@@ -226,7 +228,7 @@ const client = new PiStudioClient(daemonClient);
 
 | Method                        | Returns                          | Description                                                                                                     |
 | ----------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `createAgent(req)`            | `Promise<{ agentId, … }>`        | `create_agent_request` RPC                                                                                      |
+| `createAgent(req)`            | `Promise<{ agentId }>`           | `create_agent_request` RPC — resolves at acceptance, not when the first turn ends (see § Create and send answer at acceptance) |
 | `agent(agentId)`              | `PiStudioAgentActions`           | Scoped handle for an existing agent                                                                             |
 | `workspace(workspaceId)`      | `PiStudioWorkspaceActions`       | Scoped handle for a workspace                                                                                   |
 | `providers`                   | `PiStudioProviderActions`        | List providers/models, refresh snapshot                                                                         |
@@ -296,8 +298,8 @@ always re-runs detection authoritatively and never trusts a client-sent `kind`.
 
 | Method                         | RPC                                                                                                                                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `send(prompt, opts?)`          | `send_agent_prompt`                                                                                                                                                                                                 |
-| `run(prompt, opts?)`           | alias for `send`                                                                                                                                                                                                    |
+| `send(prompt, opts?)`          | `send_agent_prompt` — resolves `{ agentId }` at acceptance, not when the turn ends (see § Create and send answer at acceptance)                                                                                    |
+| `waitForIdle(opts?)`           | no RPC of its own: subscribes, then reads `list_agents_request` — resolves `{ status: "idle" \| "error" \| "closed" }` (see § Create and send answer at acceptance)                                                |
 | `interrupt()`                  | `interrupt_agent`                                                                                                                                                                                                   |
 | `steer(message, opts?)`        | `steer_agent_request` — inject into a live turn (after current tool calls)                                                                                                                                          |
 | `followUp(message, opts?)`     | `follow_up_agent_request` — queue for after the agent stops                                                                                                                                                         |
@@ -323,6 +325,43 @@ always re-runs detection authoritatively and never trusts a client-sent `kind`.
 | `listCommands()`               | `agent_list_commands_request` (sprint-040 — command discovery: extension commands, prompt templates, skills from Pi's `get_commands`; disjoint from the sprint-037 slash commands above, no Pi built-in equivalent) |
 | `setThinking(level)`           | `agent_set_thinking_request` (sprint-070 — resolves to the EFFECTIVE, possibly Pi-clamped level; gate on the `thinkingLevels` server feature flag) |
 | `listThinkingLevels()`         | `agent_thinking_levels_request` (sprint-070 — live sessions only; drafts read the model catalogue) |
+
+### Create and send answer at acceptance; `waitForIdle` (sprint-152)
+
+`createAgent` and `agent(id).send` resolve `{ agentId }` as soon as the daemon has _accepted_ the
+request — the agent exists, its busy claim is taken, its status is `running` — not when the turn
+ends (`create_agent_response` / `agent_prompt_response`, `payload: { agentId }`; the old
+`status: "idle"` is gone). The answer comes before any event of the turn. The turn runs on after
+it and ends in stream rows (`timeline.subscribe`; a failure is a `turn_failed` row) and exactly one
+`agent_update` with status `idle` or `error`, broadcast to every session. A refusal is an
+`RpcError` (message `busy: …` or `unknown agent: …`) and means nothing started — including a send
+made after the previous answer but before that `agent_update`. There is no turn id: one turn runs
+per agent at a time, so the next settle after an accepted send belongs to that send.
+`AgentHandle.run`, the alias of `send`, is removed.
+
+`agent(id).waitForIdle({ timeoutMs?, signal? })` (`agent-wait.ts`) is the one way to wait for that
+settle. It resolves `{ status: "idle" | "error" | "closed" }`:
+
+- **Subscribes before it reads.** It subscribes to the session stream (`agent_update`,
+  `agent_archived`, `agent_deleted`) and to state changes first, then reads the agent's current
+  status with `list_agents_request`, and resolves at once when the agent is not `running` or
+  `initializing`. A settle that arrives while the read is in flight is not missed: whichever says
+  "settled" first wins and the other is ignored. Call it after `send`/`createAgent` has answered —
+  the agent is `running` from that answer on, so a read of `idle` or `error` means the turn already
+  ended.
+- **`closed`** — the agent was archived or deleted, or the listing (which leaves archived agents
+  out) does not hold it, so an id the daemon never knew resolves `closed` too. Archiving a running
+  agent ends its turn as well; the first notice to arrive wins (against the dev daemon it was the
+  turn's `agent_update idle`).
+- **Rejects**, with every listener and the timer removed: `WaitForIdleTimeoutError` (`agentId`,
+  `timeoutMs`; the agent keeps running; `timeoutMs` omitted or 0 means no limit), a `DOMException`
+  named `AbortError` (also for a signal that is already aborted — nothing is sent),
+  `WaitForIdleConnectionClosedError` (the connection closed, also while the read was in flight;
+  whether the turn settled is unknown), and the status read's own error (`RpcError`,
+  `RpcTimeoutError`).
+- The decisions are pure (`settledStatusOf`, `settledByMessage`, `settledByListing`) and tested on
+  their own; `waitForAgentIdle(daemon, agentId, opts)` is exported for a caller that holds a
+  `DaemonClient` but no handle.
 
 ### `PiStudioProviderActions` (from `providers`)
 
@@ -376,10 +415,12 @@ regression test in `pistudio-client.test.ts`:
   sprint-065/task-007's relay-path kill-mid-flow verification. Fixed: that catch now settles
   `{ ok: false, error: "connection_lost" }` unconditionally (the best-effort cancel still fires
   alongside, but the flow's own promise no longer waits on it). Bound by `rpcTimeoutMs` either
-  way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (one value shared with
-  agent turns), so a daemon death was reported correctly but not quickly. That was written against
-  relay protocol 1, which had no peer-liveness signal. Under protocol 2 a dead daemon data socket
-  closes the client's paired socket (relay forwards the close, or `4108 ping_timeout`/`4109
+  way — `workbench`'s `connection-store.ts` sets it to 30 minutes app-wide (a value from when an
+  agent turn was one RPC; since sprint 151 `createAgent`/`send` answer at acceptance, so no agent
+  turn rides on an RPC), so a daemon death was reported correctly but not quickly. That was
+  written against relay protocol 1, which had no peer-liveness signal. Under protocol 2 a dead
+  daemon data socket closes the client's paired socket (relay forwards the close, or
+  `4108 ping_timeout`/`4109
   peer_closed`), so a relay-mediated daemon death now reaches `onClose` promptly.
 
 ### `importAgentSession(daemon, args)` (named export)
