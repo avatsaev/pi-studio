@@ -2,7 +2,7 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md),
-> [service-proxy.md](service-proxy.md), [cli.md](cli.md)
+> [cli.md](cli.md)
 
 ## Purpose
 
@@ -18,14 +18,14 @@ can be started as terminals.
 |-----------|---------|
 | List terminals | `ListTerminalsRequest` |
 | Subscribe/unsubscribe to all | `SubscribeTerminalsRequest` / `UnsubscribeTerminalsRequest` |
-| Create | `CreateTerminalRequest`, `create_terminal` (MCP), `pi-studio terminal create` |
+| Create | `CreateTerminalRequest`, `pi-studio terminal create` |
 | Rename | `RenameTerminalRequest` |
 | Subscribe/unsubscribe to one | `SubscribeTerminalRequest` / `UnsubscribeTerminalRequest` |
 | Input | `TerminalInput` (or binary input frame) |
-| Kill | `KillTerminalRequest`, `kill_terminal` (MCP), `pi-studio terminal kill` |
-| Capture | `CaptureTerminalRequest`, `capture_terminal` (MCP), `pi-studio terminal capture` |
+| Kill | `KillTerminalRequest`, `pi-studio terminal kill` |
+| Capture | `CaptureTerminalRequest`, `pi-studio terminal capture` |
 | Start a workspace script | `StartWorkspaceScriptRequest` |
-| Send keys | `send_terminal_keys` (MCP), `pi-studio terminal send-keys` |
+| Send keys | `pi-studio terminal send-keys` |
 
 ### Binary stream protocol (terminal)
 Frame = `[1-byte opcode][1-byte slot][payload]`:
@@ -45,7 +45,7 @@ Frame = `[1-byte opcode][1-byte slot][payload]`:
 createTerminal(workspaceId, ...): spawn PTY in worker process; assign slot; persist runtime entry
 subscribe(slot): send a Snapshot frame (current screen) then live Output frames
 input(slot, bytes): forward to PTY
-capture(slot): return current screen text (one-shot, for CLI/MCP)
+capture(slot): return current screen text (one-shot, for CLI)
 kill(slot): terminate PTY; notify subscribers
 ```
 
@@ -193,7 +193,7 @@ in place, and those corrupt the replay.
 
 ## Dependencies
 - Internal: terminal-manager, terminal-stream router, workspace script runtime, shell integration,
-  service proxy (for service scripts), the `ScreenBuffer` screen model.
+  the `ScreenBuffer` screen model.
 - External: **`node-pty`** for the real PTY (programs see `isatty`, get SIGWINCH on resize, and run
   full-screen apps correctly); **`@xterm/headless`** to maintain a server-side screen grid for
   accurate text `capture`; **`tree-kill`** to terminate the whole PTY process tree on close;

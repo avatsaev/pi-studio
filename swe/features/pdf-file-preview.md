@@ -219,7 +219,7 @@ describes).
       survives a reload and reaches a second window without a reload.
 - [ ] `pdfjs-dist` lands in its own lazy `vendor-pdfjs` chunk, not the eager `vendor` chunk. A
       production build emits `pdfjs/{cmaps,standard_fonts,wasm,iccs}/` and the worker as a `.js`
-      asset. The PDF renders when served by `pi-studio ui` (the CLI's static server), not only by
+      asset. The PDF renders in the built web client (`vite preview` or the Docker image), not only by
       the Vite dev server.
 - [ ] `detectViewerKind("x.pdf")` is `"pdf"`; `resolveViewerKind("x.pdf", () => false)` is
       `"binary"`; `.zip` and the other binary extensions still resolve to `"binary"`.

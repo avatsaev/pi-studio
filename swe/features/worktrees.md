@@ -17,9 +17,9 @@ participate in agent auto-archive.
 ### Operations
 | Operation | Surface |
 |-----------|---------|
-| Create worktree | `CreatePi-StudioWorktreeRequest`, `create_worktree` (MCP), `pi-studio worktree create` |
-| List worktrees | `Pi-StudioWorktreeListRequest`, `list_worktrees` (MCP), `pi-studio worktree ls` |
-| Archive worktree | `Pi-StudioWorktreeArchiveRequest`, `archive_worktree` (MCP), `pi-studio worktree archive` |
+| Create worktree | `CreatePi-StudioWorktreeRequest`, `pi-studio worktree create` |
+| List worktrees | `Pi-StudioWorktreeListRequest`, `pi-studio worktree ls` |
+| Archive worktree | `Pi-StudioWorktreeArchiveRequest`, `pi-studio worktree archive` |
 
 ### Lifecycle config (`pi-studio.json`)
 ```

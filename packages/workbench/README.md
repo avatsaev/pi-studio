@@ -5,6 +5,10 @@ files and viewers, git, terminals and settings, for any React 19 shell that talk
 daemon. `@av-pi-studio/web-client` (the browser app) and the desktop app are both thin shells over
 it.
 
+**Private workspace package: it is not published to npm.** Both shells build it from source through
+Vite aliases (`@av-pi-studio/workbench` → `packages/workbench/src/index.ts`); the snippets below show
+the shape of a shell and its imports, not an `npm install`.
+
 - ES modules only, React 19 peer, built for **Vite** consumers (lazy chunks, a pdf.js worker built
   by your bundler). No SSR, no React Native.
 - **One instance per document.** Application state is module-level; a second `<Workbench>` shares
@@ -15,12 +19,12 @@ it.
 ## Quickstart (Vite + React)
 
 ```bash
-npm install @av-pi-studio/workbench @av-pi-studio/ui-library react react-dom pdfjs-dist
+# in a workspace package's package.json: "@av-pi-studio/workbench": "*", "@av-pi-studio/ui-library": "*"
+npm install react react-dom pdfjs-dist
 ```
 
 `vite.config.ts`:
 
-<!-- smoke:vite.config.ts -->
 ```ts
 import react from "@vitejs/plugin-react";
 import { pdfjsAssetsPlugin } from "@av-pi-studio/workbench/vite";
@@ -31,11 +35,9 @@ export default defineConfig({
   worker: { format: "es" },
 });
 ```
-<!-- /smoke:vite.config.ts -->
 
 `src/main.tsx`:
 
-<!-- smoke:main.tsx -->
 ```tsx
 import "@av-pi-studio/workbench/fonts.css";
 import "@av-pi-studio/ui-library/reset.css";
@@ -60,7 +62,6 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 ```
-<!-- /smoke:main.tsx -->
 
 Stylesheets, in this order: `fonts.css` (the bundled terminal font, Cascadia Mono NF, as real
 files your bundler emits; omit it and terminals fall back to the system monospace stack), the

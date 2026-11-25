@@ -49,20 +49,19 @@ Request fields:
 | `webSearch` | boolean? | |
 | `extra` | `{ pi? }` | provider-specific config |
 | `systemPrompt` | string? | custom system prompt |
-| `mcpServers` | Record<string, McpServerConfig>? | MCP servers to inject |
 
-### Other operations (session RPC families + MCP/CLI mirrors)
+### Other operations (session RPC families + CLI mirrors)
 | Operation | Surface |
 |-----------|---------|
-| Send a prompt / follow-up (while idle) | `send_agent_prompt` (MCP), `pi-studio send`, composer submit |
+| Send a prompt / follow-up (while idle) | `send_agent_prompt`, `pi-studio send`, composer submit |
 | Steer a running turn (mid-turn injection, delivered before the next LLM call) | `steer_agent_request` (SDK/CLI `steer`), composer **Steer** button |
 | Queue a follow-up (delivered only once the turn fully stops) | `follow_up_agent_request` (SDK/CLI `followUp`) — not surfaced in the web composer |
-| Interrupt current turn | interrupt RPC / `pi-studio stop` / `cancel_agent`/`kill_agent` (MCP) |
+| Interrupt current turn | interrupt RPC / `pi-studio stop` |
 | Resume a closed session | resume via `PersistenceHandle` |
 | Import a provider-native session | `importSession` (explicit handle) |
-| Update config (model/mode/thinking/features/title) | `update_agent` (MCP), `set_agent_mode`, `pi-studio update`/`mode` |
+| Update config (model/thinking/features/title) | `pi-studio update` |
 | Reload | `pi-studio reload` |
-| Wait for finish | `wait_for_agent` (MCP), `pi-studio wait` |
+| Wait for finish | `pi-studio wait` |
 | Archive/delete | archive (soft), delete |
 
 ### Stream events (`AgentStreamEvent` kinds)
@@ -157,7 +156,7 @@ function run(agent, prompt):
 - [ ] Interrupting a running turn yields `turn_canceled` and returns the agent to `idle`.
 - [ ] Resuming a closed agent via its `PersistenceHandle` restores the conversation.
 - [ ] Importing a native provider session seeds the daemon timeline before publishing the agent.
-- [ ] Updating model/mode/thinking/features persists and broadcasts without recreating the session unnecessarily.
+- [ ] Updating model/thinking/features persists and broadcasts without recreating the session unnecessarily.
 
 ## TODO(verify)
 - [ ] Exact `send_agent_prompt`/interrupt/update RPC message type names on the wire.

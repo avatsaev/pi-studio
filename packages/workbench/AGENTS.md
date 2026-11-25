@@ -1,7 +1,8 @@
 # `@av-pi-studio/workbench` — AGENTS.md
 
 The Pi-Studio client application as a library, consumed by `packages/web-client` (browser shell)
-and the separate-repo desktop app. Spec: `swe/architecture/workbench-package.md`,
+and the desktop app (`desktop/apps/pistudiodesktop`). **Private workspace package, not published to npm**
+(`"private": true`, absent from `PUBLISH_ORDER`); both shells build it from source through Vite aliases. Spec: `swe/architecture/workbench-package.md`,
 `swe/architecture/workbench-host-adapter.md`. Plan: sprints 091–095 in `swe/sprints/PLAN.md`, all on
 the `feat/workbench` branch, merged once.
 
@@ -15,8 +16,7 @@ every host type. All browser-bound code is behind the host adapter (see
 "Host adapter" below; `src/host/host-guard.test.ts` fails the build if `localStorage`,
 `window.confirm`, `navigator.clipboard`, `new WebSocket(` and the like reappear outside
 `host/browser-*.ts`); no source uses a Vite-only construct (`?worker`, `import.meta.env`,
-build-time `define`s). The library build, `check-dist` and the pack smoke are in place. Not yet in
-`scripts/publish.sh` (sprint 095) — it must not be published before the branch is complete.
+build-time `define`s). The library build and `check-dist` are in place.
 
 Feature-level documentation (layout, stores, hooks, invariants) is in "Application reference"
 below, moved from web-client's AGENTS in sprint 094. User-facing docs: `README.md`; breaking
@@ -202,19 +202,15 @@ are copied verbatim instead.
 
 `web-client` (Vite + its tsconfig reference) and the root `vitest.config.ts` resolve
 `@av-pi-studio/workbench` to `src/index.ts` through an alias, as they do for `ui-library`. The
-published `dist` is therefore not exercised by `web-client`; `scripts/pack-smoke.sh` covers it:
-`bash packages/workbench/scripts/pack-smoke.sh` packs this package and its workspace dependencies,
-installs them into a scratch Vite app outside the repo (the README quickstart, extracted verbatim
-from its `<!-- smoke:… -->` markers, plus a custom-shell page) and asserts types, build, lazy heavy
-libraries, emitted fonts and pdf.js data, rejected deep imports and the `piwb-` prefix.
-`KEEP_DIR=1` keeps the scratch app for a `vite preview` run-time check.
+built `dist` is therefore only what `build:workbench` and `check-dist` assert; nothing packs or
+publishes it (there is no pack smoke).
 
 ## Invariants
 
 - Relative imports only inside the package (no `@web-client/*` alias): emitted `.d.ts` files must
   resolve for a consumer.
-- Workspace dependencies use `^<lockstep version>` (this package is published). A private workspace
-  package would use `*`.
+- Workspace dependencies use `*` (this package is private; `publish.sh` bumps its version in
+  lockstep but never rewrites its ranges).
 
 ---
 
@@ -1172,8 +1168,8 @@ src/
   decoded ⇒ ignored; `+` in a raw id must be sent as `%2B`. No server/protocol change.
 - **No raw WebSockets.** All daemon traffic goes through `@av-pi-studio/client`.
 - **No Node-only APIs** in renderer code (must run in a browser and in the desktop app's webview).
-- **Never call `crypto.randomUUID()` directly.** It requires a secure context, which plain-http
-  LAN access to a self-hosted daemon (`pi-studio ui`'s documented deployment mode) does not
+- **Never call `crypto.randomUUID()` directly.** It requires a secure context, which a page
+  served over plain http on a LAN address does not
   satisfy — `crypto.randomUUID` is `undefined` there, throwing `TypeError: crypto.randomUUID is
 not a function` (real regression: pane-id minting, chat's optimistic-echo `clientMessageId`,
   and Mermaid block DOM ids all hit this). Use `lib/random-id.ts`'s `randomId()` instead, which

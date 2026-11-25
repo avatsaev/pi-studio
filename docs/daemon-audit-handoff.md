@@ -410,7 +410,7 @@ up, and M8 needs a written design first.
 | Milestone | Sprints |
 |---|---|
 | M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
-| M2 Clear the ground | 147, 148 |
+| M2 Clear the ground | 147, 148 — **done 2026-11-25** (on branch `feat/daemon-audit-m1-m3`, not merged) |
 | M3 Agents that recover | 149, 150 (150/t002 is an owner gate on the timeline file design) |
 | M4 to M9 | not planned yet |
 

@@ -1,8 +1,8 @@
 # `@av-pi-studio/ui-library` — AGENTS.md
 
-Reusable React UI primitives, theme system and global styles, published for Pi-Studio client apps.
-Consumed by `packages/web-client` (via a Vite alias to `src/`) and `packages/ui-gallery` (via the
-built `dist`). Consumer guide: `README.md`. Visual language / token reference: `DESIGN_SYSTEM.md`.
+Reusable React UI primitives, theme system and global styles for Pi-Studio client apps.
+**Private workspace package, not published to npm.** Consumed by `packages/web-client`, `packages/workbench` and the
+desktop app (Vite aliases to `src/`) and `packages/ui-gallery` (via the built `dist`). Consumer guide: `README.md`. Visual language / token reference: `DESIGN_SYSTEM.md`.
 
 ---
 
@@ -34,9 +34,8 @@ src/
     token-guard.ts             `findTokenProblems`/`countTokenUsage` — pure token checker, exported from `/theme`.
   brand/                       `config.ts` (accent-only Zod schema, `resolveAccentColors`), `theme-injection.ts` (`injectBrandAccent`), `index.ts`.
   stores/                      `toast-store.ts`, `announcer-store.ts` — zustand module singletons.
-scripts/pack-smoke.sh          npm pack → scratch Vite app → tsc / vite build / assertions (`KEEP_DIR=1` keeps the dir).
 vite.config.ts                 Vite 6 library mode (see Build).
-CHANGELOG.md  RELEASING.md     Breaking-change log; first-publish and rollback steps.
+CHANGELOG.md                   Breaking-change log.
 ```
 
 Tests are co-located `*.test.ts` (`theme/*.test.ts`, `ui/*.test.ts`, `stores/*.test.ts`).
@@ -69,7 +68,6 @@ Notes: `ThemeBoundary`, `useAppearance`, `useResolvedTheme`, `useAppearanceContr
 ```bash
 npm run build -w packages/ui-library    # vite build && tsc -b
 npm run clean -w packages/ui-library
-bash packages/ui-library/scripts/pack-smoke.sh
 ```
 
 `vite build` (library mode) emits ESM entries `index`, `theme/index`, `ui/index`, `brand/index`,
@@ -111,15 +109,11 @@ Node-only Vitest (no DOM): token guard (`theme/token-guard.test.ts` runs `findTo
 package's own sources), `dev-warnings`, appearance store, `ui/*` logic and the two stores. Run from the
 repo root (`npm test`; the root `vitest.config.ts` aliases the package to `src/`). Sibling guards:
 `packages/web-client/src/design-tokens.test.ts`, `packages/ui-gallery/src/design-tokens.test.ts`.
-`scripts/pack-smoke.sh` checks the packed tarball end to end (types, build, `exports`, CSS); it extracts
-the README Quickstart between the `<!-- smoke:main.tsx -->` markers verbatim — do not edit that block
-without keeping the script working.
 
 ---
 
 ## Release
 
-Lockstep version with the other published packages (currently `0.0.115`), released by
-`scripts/publish.sh` / `.github/workflows/release.yml` (order: protocol → relay → client → ui-library →
-web-client → server → cli). Record breaking changes (removed/renamed export, changed prop, token rename)
-in `CHANGELOG.md`. First publish and rollback: `RELEASING.md`.
+Not published: `"private": true`, absent from `PUBLISH_ORDER` in `scripts/publish.sh`. It keeps the
+monorepo's lockstep version (`publish.sh` bumps it with the rest) and depends on no workspace package. Record
+breaking changes (removed/renamed export, changed prop, token rename) in `CHANGELOG.md`.

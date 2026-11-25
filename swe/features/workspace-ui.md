@@ -57,7 +57,7 @@ A tab = `{ tabId, target, createdAt }`. The UI works with a descriptor `{ key, t
 
 - **Deterministic ids** mean re-opening the same target re-focuses the existing tab instead of duplicating.
 - A `draft` tab **mutates in place into an `agent` tab** once the agent is created (they share one panel
-  component). Draft `setup` carries `{ provider, cwd, modeId?, model?, thinkingOptionId?, featureValues? }`
+  component). Draft `setup` carries `{ provider, cwd, model?, thinkingOptionId?, featureValues? }`
   and participates in target equality.
 - A **panel registry** maps `kind → { component, useDescriptor, confirmClose? }`. The descriptor
   (`{ label, subtitle, titleState, icon, statusBucket }`) drives the tab chip's label/icon/status dot;

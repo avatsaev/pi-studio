@@ -88,12 +88,12 @@ module and ships prebuilt binaries for common platforms.
                               │     Daemon     │◄──────────────────────┐
                               │   (Node.js)    │                       │
                               └───────┬────────┘                 ┌─────┴─────┐
-        ┌──────────────┬─────────────┼──────────────┬───────────┤   Relay   │
-        │              │             │              │           └───────────┘
-   ┌────▼───┐    ┌─────▼────┐  ┌─────▼─────┐   ┌────▼─────┐   (zero-knowledge
-   │  Pi    │    │ Timeline │  │ Terminals │   │   MCP    │    bridge for remote
-   │ Agent  │    │  Store   │  │  (PTY)    │   │  Server  │    access)
-   └────┬───┘    └──────────┘  └───────────┘   └──────────┘
+        ┌──────────────┬─────────────┼──────────────────────┤   Relay   │
+        │              │             │                      └───────────┘
+   ┌────▼───┐    ┌─────▼────┐  ┌─────▼─────┐   (zero-knowledge
+   │  Pi    │    │ Timeline │  │ Terminals │    bridge for remote
+   │ Agent  │    │  Store   │  │  (PTY)    │    access)
+   └────┬───┘    └──────────┘  └───────────┘
         │ child process (RPC)
    ┌────▼──────────────────────────────────────────────┐
    │ Pi agent  (pi --mode rpc)                           │
@@ -104,15 +104,15 @@ module and ships prebuilt binaries for common platforms.
 ```
 
 - **Daemon** — Source of truth. Spawns/supervises agent sessions, owns the canonical timeline,
-  exposes the WebSocket API, runs the MCP server, manages terminals/workspaces/git, optionally
+  exposes the WebSocket API, manages terminals/workspaces/git, optionally
   dials a relay. (`packages/server`)
 - **Protocol** — Shared wire schemas, binary frame codecs, endpoint parsing, provider manifest,
   capability flags. Depended on by everyone; depends on no one. (`packages/protocol`)
 - **Client** — Low-level daemon WebSocket driver + higher-level `Pi-StudioClient` SDK facade used by
   the web client and CLI. (`packages/client`)
 - **Web Client** — The browser shell: a thin Vite SPA that renders the workbench with a browser host
-  (build-time brand title/favicon, pdf.js worker). Ships the static `dist/web` that `pi-studio ui` and the
-  Docker image serve. (`packages/web-client`)
+  (build-time brand title/favicon, pdf.js worker). Ships the static `dist/web` that the
+  Docker image serves. (`packages/web-client`)
 - **UI Library** — Publishable React design system extracted from the web client: primitives,
   theme/tokens/appearance, accent-only brand injection, one prebuilt stylesheet. Depends on no
   workspace package; see `swe/grills/ui-library.md`. (`packages/ui-library`)
@@ -143,18 +143,13 @@ module and ships prebuilt binaries for common platforms.
 | `packages/server/src/server/agent/agent-manager.ts`                               | Agent lifecycle state machine, timeline tracking, subscribers      |
 | `packages/server/src/server/agent/agent-storage.ts`                               | File-backed agent JSON persistence                                 |
 | `packages/server/src/server/agent/agent-timeline-store.ts`                        | Append-only timeline rows + sequence numbers + paging              |
-| `packages/server/src/server/agent/mcp-server.ts`                                  | MCP server tools for agent orchestration                           |
 | `packages/server/src/server/agent/providers/`                                     | Pi provider adapter (+ in-process mock for tests)                  |
 | `packages/server/src/server/agent/provider-manifest.ts`                           | Provider/mode UI metadata + definitions                            |
 | `packages/server/src/server/agent/provider-registry.ts`                           | Provider client factories                                          |
 | `packages/server/src/daemon/relay-transport.ts`                                   | Outbound relay connection (control + per-client data sockets)      |
-| `packages/server/src/server/schedule/`                                            | Cron-based scheduled agents                                        |
-| `packages/server/src/server/loop-service.ts`                                      | Looping agent runs with verifiers                                  |
-| `packages/server/src/server/chat/`                                                | Chat rooms for agent↔agent / human↔agent messaging                 |
 | `packages/server/src/server/checkout/`, `workspace-git-service.ts`                | Git status/diff/branch/PR operations                               |
 | `packages/server/src/server/worktree/`, `pi-studio-worktree-service.ts`           | Pi-Studio-managed git worktrees                                    |
 | `packages/server/src/server/workspace-registry.ts`, `*-reconciliation-service.ts` | Project/workspace registries                                       |
-| `packages/server/src/server/service-proxy.ts`, `script-proxy.ts`                  | HTTP proxy to workspace services                                   |
 | `packages/server/src/server/file-explorer/`, `file-download/`, `file-upload/`     | File browsing + transfer                                           |
 | `packages/server/src/terminal/`                                                   | PTY terminal manager (worker process), capture, restore            |
 | `packages/protocol/src/messages.ts`                                               | All WebSocket message Zod schemas                                  |
@@ -183,9 +178,6 @@ Project (1) ──< (N) Workspace ──< (N) Agent
 
 Agent ── timeline rows (append-only, epoched, sequence-numbered)
 Agent ── PersistenceHandle (provider session resume)
-Schedule ──< (N) ScheduleRun ── targets agent or new-agent
-Loop ──< (N) LoopIteration ── worker agent + optional verifier agent
-ChatRoom (1) ──< (N) ChatMessage (with @mentions)
 Terminal (PTY) ── workspace-scoped, binary stream
 ```
 
@@ -199,25 +191,21 @@ $PI_STUDIO_HOME/
 ├── pi-studio.pid                          # PID lock
 ├── daemon.log                         # Rotating logs
 ├── agents/{sanitized-cwd}/{id}.json   # One file per agent (record + timeline rows)
-├── schedules/{id}.json                # One file per schedule
-├── loops/loops.json                   # All loops (non-atomic, queued)
-├── chat/rooms.json                    # All rooms + messages
 ├── projects/projects.json             # Project registry
 └── projects/workspaces.json           # Workspace registry
 ```
 
 Full per-entity schemas are in [architecture/persistence.md](architecture/persistence.md). The agent
-record, schedule, loop, chat, project, workspace shapes are reproduced there as field tables.
+record, project, workspace shapes are reproduced there as field tables.
 
 ## 6. External Integrations & Configuration
 
 | Integration | Purpose                                     | Protocol/SDK           | Notes                                                                                        |
 | ----------- | ------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
-| Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`, `--mcp-config`; reads JSONL session dir for import |
+| Pi          | Provider (the only agent provider in scope) | `pi --mode rpc`        | Process-backed; `--append-system-prompt`; reads JSONL session dir for import |
 | GitHub      | PR/issue attach, PR create/merge            | `gh` CLI / GitHub API  | `services/github-service.ts`                                                                 |
 | Relay       | Remote access                               | WebSocket + NaCl box   | Self-hosted (`packages/relay`, Node)                                                         |
 | SSH gateway | Desktop remote access via existing SSH host | SSH direct-tcpip tunnel | **Not built.** Desktop app only (the Tauri client, desktop milestone 4; the owner's decisions of 2026-11-21 are at the top of `architecture/ssh-gateway-connections.md`, whose body was written for the Electron plan); daemon remains bound to remote `127.0.0.1:6767` |
-| MCP clients | Agent-to-agent control                      | Model Context Protocol | **Not implemented.** `agent/mcp-server.ts` holds a tool registry (17 tools) but nothing serves `/mcp/agents`, no `McpBackend` is implemented, no `daemon.mcp` config exists, and no spawned agent receives `--mcp-config` — so agents cannot reach it and `features/subagents.md` orchestration has never run |
 
 ### Configuration surface (selected env vars)
 
@@ -232,11 +220,9 @@ record, schedule, loop, chat, project, workspace shapes are reproduced there as 
 | `PI_STUDIO_RELAY_ENDPOINT`                                   | No       | Relay internal endpoint                            | —                                       |
 | `PI_STUDIO_RELAY_PUBLIC_ENDPOINT`                            | No       | Relay client-facing endpoint                       | —                                       |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | No       | Relay TLS                                          | `false`                                 |
-| `PI_STUDIO_SERVICE_PROXY_LISTEN`                             | No       | Service proxy listener                             | —                                       |
-| `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL`                    | No       | Public service aliases                             | —                                       |
 
-Config file `config.json` (`PersistedConfigSchema`) holds daemon listen/auth/relay/cors/mcp,
-provider overrides (`agents.providers`), logging, worktree root, and `app.baseUrl`. Per-project `pi-studio.json` holds worktree `setup`/`teardown` commands and named
+Config file `config.json` (`PersistedConfigSchema`) holds daemon listen/auth/relay/devAllowedOrigins,
+provider overrides (`agents.providers`), and `app.baseUrl`. Per-project `pi-studio.json` holds worktree `setup`/`teardown` commands and named
 `scripts` (including `type: "service"` entries). See
 [architecture/config.md](architecture/config.md).
 
@@ -272,8 +258,8 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [features/chat-rooms.md](features/chat-rooms.md)                         | feature      | **Retired (2026-11-24)** — agent↔agent chat rooms                             |
 | [features/schedules-heartbeats.md](features/schedules-heartbeats.md)     | feature      | **Retired (2026-11-24)** — cron/interval scheduled agents                     |
 | [features/loops.md](features/loops.md)                                   | feature      | **Retired (2026-11-24)** — iterative agent loops                              |
-| [features/mcp-server.md](features/mcp-server.md)                         | feature      | MCP tools exposing the daemon to agents                                       |
-| [features/service-proxy.md](features/service-proxy.md)                   | feature      | HTTP proxy to workspace dev services with generated hostnames                 |
+| [features/mcp-server.md](features/mcp-server.md)                         | feature      | **Retired (2026-11-24)** — MCP tools exposing the daemon to agents            |
+| [features/service-proxy.md](features/service-proxy.md)                   | feature      | **Retired (2026-11-24)** — HTTP proxy to workspace dev services              |
 | [features/file-explorer-transfer.md](features/file-explorer-transfer.md) | feature      | File browser + download/upload binary streams                                 |
 | [features/file-explorer-move.md](features/file-explorer-move.md)         | feature      | Move/rename files and directories, explorer drag-and-drop                     |
 | [features/subagents.md](features/subagents.md)                           | feature      | Parent/child agents, subagents track, cascade archive                         |
@@ -336,7 +322,7 @@ provider overrides (`agents.providers`), logging, worktree root, and `app.baseUr
 | [architecture/relay-e2ee.md](architecture/relay-e2ee.md)                       | architecture | Relay transport, ECDH/NaCl box encryption, pairing                            |
 | [architecture/relay-protocol.md](architecture/relay-protocol.md)               | architecture | Relay protocol 2: control frames, pairing, close codes, limits, the encrypted channel (key exchange, salt and counter nonce, records) — **built (sprints 099–101, 2026-11-15)**; replaces the wire sections of `relay-e2ee.md` |
 | [architecture/persistence.md](architecture/persistence.md)                     | architecture | File-based JSON stores, Zod schemas, atomic writes, all entity shapes         |
-| [architecture/auth-security.md](architecture/auth-security.md)                 | architecture | Password auth, host allowlist, CORS, DNS rebinding, trust boundaries          |
+| [architecture/auth-security.md](architecture/auth-security.md)                 | architecture | Password auth, host allowlist, WebSocket Origin check, DNS rebinding, trust boundaries |
 | [architecture/agent-lifecycle.md](architecture/agent-lifecycle.md)             | architecture | Lifecycle state machine, archive (soft delete), cascade                       |
 | [architecture/config.md](architecture/config.md)                               | architecture | `config.json`, `pi-studio.json`, env-var precedence, provider overrides       |
 | [architecture/client-app-runtime.md](architecture/client-app-runtime.md)       | architecture | Host runtime controller, session context, reconnection, platform gating       |

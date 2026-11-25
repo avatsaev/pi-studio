@@ -8,7 +8,7 @@
 
 The daemon is the single long-lived server process that owns all agent state and exposes the
 WebSocket API. Bootstrap wires together the HTTP server, WebSocket server, agent manager, all
-persistence stores, the MCP server, optional relay transport, and the service proxy, then begins
+persistence stores, and the optional relay transport, then begins
 listening. Exactly one daemon may own a given `$PI_STUDIO_HOME`, enforced by a PID lock.
 
 ## Public Contract
@@ -19,38 +19,36 @@ listening. Exactly one daemon may own a given `$PI_STUDIO_HOME`, enforced by a P
 | `bootstrap()` (server) | Initialize and start all subsystems; returns a handle with `close()` |
 | `daemon-worker.ts` | Process entry that runs the daemon (spawned by CLI/desktop or directly) |
 | HTTP `GET /api/health` | Liveness probe; exempt from auth and host checks |
-| HTTP `/mcp/agents` | MCP server endpoint for agents — **specified, never implemented.** No route is registered in `bootstrap.ts` or `dev-bootstrap.ts`; sprint-010/task-001 built the tool registry and explicitly deferred the transport ("HTTP transport for `/mcp/agents` is a bootstrap step") and it was never picked up. See `features/mcp-server.md` |
+| HTTP (other paths) | None: HTTP serves only `/api/health` |
 | WebSocket upgrade (root) | Client connections |
 
 ### Startup inputs
 - `$PI_STUDIO_HOME` (env `PI_STUDIO_HOME`, default `~/.pi-studio`) — state directory.
 - `PI_STUDIO_LISTEN` (default `127.0.0.1:6767`) — listen address `host:port`.
 - `config.json` — daemon config (see [config.md](config.md)).
-- Optional `PI_STUDIO_SERVER_ID`, `PI_STUDIO_PASSWORD`, `PI_STUDIO_HOSTNAMES`, relay/service-proxy env.
+- Optional `PI_STUDIO_SERVER_ID`, `PI_STUDIO_PASSWORD`, `PI_STUDIO_HOSTNAMES`, relay env.
 
 ## Behavior & Algorithms
 
 ```
 function bootstrap():
     home = resolvePi-StudioHome()                 # PI_STUDIO_HOME or ~/.pi-studio
-    ensureDirectoryLayout(home)               # agents/, schedules/, chat/, projects/, loops/
+    ensureDirectoryLayout(home)               # agents/, projects/
     acquirePidLock(home/pi-studio.pid)            # fail fast if another live daemon owns this home
     serverId = loadOrCreateServerId(home)     # "srv_<base64url>", overridable by env
     keypair  = loadOrCreateDaemonKeypair(home)# libsodium box keypair, mode 0600, regenerate if unreadable
     config   = loadConfig(home/config.json)   # Zod-validated, normalized (legacy migrations)
-    logger   = createLogger(config.log)       # pino to file (rotating) + console
+    logger   = createLogger()                 # pino
 
-    stores   = openStores(home)               # agent, schedule, loop, chat, project, workspace, push
+    stores   = openStores(home)               # agent, project, workspace, push
     agentMgr = new AgentManager(stores, providerRegistry, logger)
-    agentMgr.recover()                        # rehydrate persisted agents; running loops → stopped
+    agentMgr.recover()                        # rehydrate persisted agents
 
-    httpServer = createHttpServer({ healthRoute, mcpRoute, fileDownloadUpload, serviceProxy })
+    httpServer = createHttpServer({ healthRoute })
     wsServer   = createWebSocketServer(httpServer, { agentMgr, session factory, auth, hostCheck })
 
     if config.daemon.relay.enabled:
         relay = connectRelay(keypair, config.daemon.relay)   # outbound, E2EE
-    if serviceProxyConfigured:
-        startServiceProxy(config | env)
 
     httpServer.listen(PI_STUDIO_LISTEN)
     writePidFile({ pid, startedAt, listen })
@@ -66,8 +64,7 @@ function bootstrap():
 - **Recovery:** agents are reloaded from disk; their runtime is *not* automatically resumed at boot,
   but records are available. The provider session is resumed lazily on the next `send_agent_prompt`
   or explicit `resume_agent` for that agent (agent-sessions.md § Error Handling — "Send prompt with
-  no live session"). Loops with `status: "running"` are recovered as `"stopped"` with an
-  interruption log entry.
+  no live session").
 
 ### Shutdown
 ```
@@ -103,13 +100,13 @@ function close():
 | Listen address in use | `startDaemon` logs the bind error, sets `process.exitCode = 1`, tears down the WS server, and reports via `onFatalError`. It never calls `process.exit()` itself — terminating is the process entry point's decision (`daemon/main.ts` and the CLI's detached spawner both pass `onFatalError: () => process.exit(1)`), because `startDaemon` is also embedded in-process (`packages/desktop`, integration tests) where killing the host is wrong |
 
 ## Dependencies
-- Internal: all stores, agent manager, websocket server, relay transport, service proxy, MCP server.
+- Internal: all stores, agent manager, websocket server, relay transport.
 - External: Node HTTP/WS, libsodium, pino.
 
 ## Acceptance Criteria
 - [ ] Starting two daemons against the same `$PI_STUDIO_HOME` fails the second with a lock error.
 - [ ] `GET /api/health` returns success without auth or host validation.
-- [ ] After restart, persisted agents reload and previously-running loops appear as `stopped`.
+- [ ] After restart, persisted agents reload.
 - [ ] `serverId` is stable across restarts for the same home.
 - [ ] Graceful shutdown kills agent child processes and releases the PID lock.
 

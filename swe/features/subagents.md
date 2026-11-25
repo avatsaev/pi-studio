@@ -2,11 +2,11 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [../architecture/agent-lifecycle.md](../architecture/agent-lifecycle.md),
-> [agent-sessions.md](agent-sessions.md), [mcp-server.md](mcp-server.md)
+> [agent-sessions.md](agent-sessions.md)
 
 ## Purpose
 
-Agents can launch other agents (via the `create_agent` MCP tool). Non-detached children are
+Agents can have child agents, linked by the `pi-studio.parent-agent-id` label (the `create_agent` MCP tool that set it was removed with the MCP server). Non-detached children are
 **subagents**: they belong to the creator's work, appear in the creator's **subagents track** (a
 collapsible lane above the composer), and are cascade-archived with the parent. This feature is the
 client-side model of that relationship plus the rules that decouple "close tab" from "archive" for
@@ -68,7 +68,7 @@ track(parent) = agents where parentAgentId == parent.id and not archivedAt
 
 ## Dependencies
 - Internal: AgentManager (labels, cascade), workspace screen tab handling, subagents track + select
-  rule, MCP `create_agent`.
+  rule.
 - External: none.
 
 ## Acceptance Criteria

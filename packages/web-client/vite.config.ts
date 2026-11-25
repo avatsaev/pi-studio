@@ -5,11 +5,11 @@ import { readFileSync } from "node:fs";
 import { resolveBrandIcon, resolveBrandTitle } from "./src/brand/build-brand.js";
 // By relative source path: this file is loaded by Node, where the Vite alias that maps the
 // workbench to its sources does not apply. The same module is published as
-// `@av-pi-studio/workbench/vite` (the pack smoke proves that entry).
+// `@av-pi-studio/workbench/vite`.
 import { pdfjsAssetsPlugin } from "../workbench/vite/index.js";
 
 // One build target: the browser SPA in `dist/web` (served over HTTP, absolute base, /daemon-ws dev
-// proxy). The CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve that directory.
+// proxy). `docker/web-client.Dockerfile` serves that directory.
 const { version: APP_VERSION }: { version: string } = JSON.parse(
   readFileSync(resolve(__dirname, "package.json"), "utf8"),
 );
@@ -108,7 +108,7 @@ export default defineConfig(() => {
               // unist-util-stringify-position back out of vendor-markdown — which Rollup resolves
               // with the wrong module init order in production builds: `Cannot access '<var>'
               // before initialization` on load. Dev-mode Vite serves unbundled ESM and never
-              // hits this, so it only reproduces in built output (`pi-studio ui`/vite preview).
+              // hits this, so it only reproduces in built output (vite preview).
               id.includes("property-information") ||
               id.includes("rehype-katex") ||
               id.includes("vfile")

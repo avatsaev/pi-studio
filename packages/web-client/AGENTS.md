@@ -24,8 +24,9 @@ builds from workspace sources with no package build in between. Must **not** imp
 `@av-pi-studio/server` or `@av-pi-studio/cli`, and must not gain Node-only runtime code.
 
 **Packaging: every entry in `package.json` is a `devDependency`.** This package has no `main`, no
-`exports`, no `bin` — it ships only the prebuilt static assets (`files: ["dist", ...]`), which the
-CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve. Keeping build tools as
+`exports`, no `bin` — it is `"private": true` (never published to npm) and ships only the prebuilt static assets
+(`files: ["dist", ...]`), which `docker/web-client.Dockerfile` serves. Its version still follows the
+monorepo's lockstep (`publish.sh` bumps it; the UI shows it), and its `@av-pi-studio/*` ranges are `*`. Keeping build tools as
 `dependencies` once made every `npm install @av-pi-studio/cli` pull a 627 MB build-only tree.
 
 ---
@@ -99,8 +100,8 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   `@av-pi-studio/ui-library/reset.css`, then `./global.css`, so app rules win the cascade.
 - **Resolved from source, not `dist/`.** The workbench, ui-library, protocol and client are
   aliased to their `src` in `vite.config.ts` (and the root `vitest.config.ts`), so HMR works across
-  packages and no package build is needed for dev. Consequently web-client does not exercise the
-  workbench's published `dist`; `packages/workbench/scripts/pack-smoke.sh` does.
+  packages and no package build is needed for dev. Consequently web-client does not use the
+  workbench's built `dist`.
 - **One `pdfjs-dist` range.** The pdf.js worker is built here (`?worker` import in `main.tsx`) and
   the API runs in the workbench; `packages/workbench/src/host/pdf.test.ts` fails if the two
   packages' `pdfjs-dist` ranges differ.

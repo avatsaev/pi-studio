@@ -3846,6 +3846,8 @@ t001 and t003 in parallel; then t002 and t004; t005; t006. Mostly sequential bec
 
 t001, t002 and t003 in parallel; t004; t005 last.
 
+**Done 2026-11-25** (all five tasks). The binary was built and smoke-tested on linux-x64 (no `web/`; 125.8 MiB unpacked, 56.0 MiB archive); `npm run publish -- --dry-run` rehearsed in a throwaway worktree publishes five packages. Owner actions: `npm deprecate` the old `workbench`, `ui-library` and `web-client` versions on npm; decide on `clientType` `"mcp"`/`"mobile"` (see sprint-147 note).
+
 ### sprint-149-agent-recovery
 > **What it ships.** No stuck conversations, no doubled replies, no leftover Pi processes.
 

@@ -6,7 +6,8 @@ Targets Vite web SPAs and Electron renderers. No SSR, no React Native.
 ## Install
 
 ```sh
-npm i @av-pi-studio/ui-library react react-dom
+# private workspace package (not published): depend on it with "*" in a workspace package.json
+npm i react react-dom
 ```
 
 Peer dependencies: `react` and `react-dom` `^19`. Radix (dialog, dropdown-menu, popover),
@@ -18,7 +19,6 @@ Import the library CSS **before your own CSS**. Library class names carry the `p
 design tokens are `--pi-*` CSS variables. `styles.css` is required; `reset.css` is an optional
 global reset.
 
-<!-- smoke:main.tsx -->
 ```tsx
 import "@av-pi-studio/ui-library/reset.css";
 import "@av-pi-studio/ui-library/styles.css";
@@ -56,7 +56,6 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 ```
-<!-- /smoke:main.tsx -->
 
 - `ThemeBoundary` applies the theme (light/dark/system) to the document and provides
   `useAppearance()`. Props (all optional):
@@ -131,9 +130,3 @@ rejected.
 In development builds the library logs a console warning when `styles.css` is not loaded, when a
 second `ThemeBoundary` mounts, or when `brandConfig` is invalid. They are stripped from
 production bundles.
-
-## Verifying a release
-
-`bash packages/ui-library/scripts/pack-smoke.sh` packs the library, installs the tarball into a
-scratch Vite app outside the repo using the Quickstart snippet above, and checks types, build,
-`exports` and CSS. `KEEP_DIR=1` keeps the scratch dir.

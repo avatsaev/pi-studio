@@ -109,7 +109,7 @@ auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above. `ui-library` is the
 shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
-Vite aliases (the workbench's published `dist` is proven by `packages/workbench/scripts/pack-smoke.sh`).
+Vite aliases; `ui-library`, `workbench` and `web-client` are private (never published to npm).
 
 The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
 containers against a local verdaccio registry, never the real one; recipe in its README, dated
@@ -304,13 +304,15 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 
 ```bash
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
-#    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies — e.g.
-#    web-client's @av-pi-studio/client/protocol/ui-library/workbench, which are devDependencies since web-client ships
-#    no runtime deps, only its prebuilt dist), builds+typechecks+tests, then publishes
-#    protocol/relay/client/ui-library/workbench/web-client/server/cli (8 packages) to npm in that dependency
-#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ui-gallery` is private and never published).
-#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
-#    reads packages/protocol/package.json as the reference). The root package.json intentionally
+#    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies,
+#    only for the published packages — private workspace packages (ui-library, workbench, web-client) keep "*" ranges and just get
+#    the version bumped), builds+typechecks+tests, then publishes
+#    protocol/relay/client/server/cli (5 packages) to npm in that dependency
+#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ALL_PACKAGES` there is the lockstep-bump list and also
+#    holds the three private packages; `ui-gallery` is private and neither bumped nor published). Published
+#    packages must never depend on a private one.
+#    The single version line lives in packages/*/package.json (the 8 listed in `ALL_PACKAGES` kept identical; the script
+#    reads packages/protocol/package.json as the reference; web-client displays its own). The root package.json intentionally
 #    has NO "version" field — it is a private workspace root that nothing publishes and nothing
 #    reads; do not add one back, or it will silently drift from the real version. Every published
 #    package's "files" excludes "dist/**/*.map" and "dist/.tsbuildinfo" — build caches and source
@@ -330,14 +332,17 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    was 1.9 MB for the same four images.
 #    Requires: npm login locally. In CI (.github/workflows/release.yml) it uses npm trusted
 #    publishing (GitHub OIDC, `id-token: write`, npm >= 11.5.1) — no NPM_TOKEN secret; each of the
-#    eight packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
-#    A brand-new package (e.g. the workbench's first release) cannot be registered as a Trusted
+#    five published packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    A brand-new package cannot be registered as a Trusted
 #    Publisher until it exists on npm: do a one-time placeholder `npm publish` and register
 #    `release.yml` as its Trusted Publisher BEFORE merging the change that first publishes it.
-#    See packages/workbench/RELEASING.md (also covers rollback and the rehearsal rule: run
-#    `npm run publish -- --dry-run` in a throwaway worktree before merging a branch that adds a
-#    package; private workspace packages must depend on workspace packages with "*").
-#    (ui-library's runbook: packages/ui-library/RELEASING.md.)
+#    Rehearsal rule: run `npm run publish -- --dry-run` in a throwaway git worktree (with a temporary
+#    commit) before merging a branch that changes the package set. Any private workspace package must
+#    depend on workspace packages with "*": a pinned range fails the lockfile sync with `ETARGET`
+#    (how the 0.0.117 release first failed). Rollback: revert the merge commit, then `npm deprecate`
+#    the bad versions (published versions cannot be unpublished reliably).
+#    workbench, ui-library and web-client were published through 0.0.13x and are no longer: the
+#    owner deprecates the old versions by hand (`npm deprecate`).
 #    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`

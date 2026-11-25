@@ -139,7 +139,7 @@ Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`r
 browser host. The UI code lives in `packages/workbench`; both are resolved from source, so edits
 there hot-reload. It talks to the daemon only through the `@av-pi-studio/client` SDK (never a raw
 WebSocket).
-For UI work, run it under Vite with hot reload instead of through `pi-studio ui`:
+For UI work, run it under Vite with hot reload:
 
 ```bash
 # run the dev daemon (all features + mock provider available) in one terminal

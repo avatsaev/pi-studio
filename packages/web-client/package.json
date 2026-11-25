@@ -1,6 +1,12 @@
 {
   "name": "@av-pi-studio/web-client",
   "version": "0.0.132",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avatsaev/pi-studio.git",
+    "directory": "packages/web-client"
+  },
   "files": [
     "dist",
     "!dist/**/*.map",
@@ -15,8 +21,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@av-pi-studio/ui-library": "^0.0.132",
-    "@av-pi-studio/workbench": "^0.0.132",
+    "@av-pi-studio/ui-library": "*",
+    "@av-pi-studio/workbench": "*",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
@@ -24,10 +30,5 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^6.4.3"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/avatsaev/pi-studio.git",
-    "directory": "packages/web-client"
   }
 }

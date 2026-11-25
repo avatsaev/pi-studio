@@ -88,7 +88,6 @@ export const agentRecordSchema = z
     title: z.string().optional(),
     labels: z.record(z.string(), z.string()).default({}),
     lastStatus: agentStatusEnum,
-    lastModeId: z.string().optional(),
     config: serializableConfigSchema.optional(),
     runtimeInfo: runtimeInfoSchema.optional(),
     features: z.array(agentFeatureSchema).optional(),

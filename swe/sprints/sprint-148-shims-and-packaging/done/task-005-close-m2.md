@@ -1,7 +1,7 @@
 # Task 005 — Close of M2: gates, docs sweep, handoff
 
 - **Sprint:** sprints/sprint-148-shims-and-packaging
-- **Status:** backlog
+- **Status:** done
 - **Type:** docs
 - **Area:** cross-package
 - **Priority:** P2
