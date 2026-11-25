@@ -128,11 +128,11 @@ describe("createProcessTransport — spawn failure handling", () => {
       cwd: ".",
       env: {},
       logger: {
-        info: () => {},
-        warn: () => {},
-        error: (_fields: unknown, message?: string) => {
-          if (message === "pi process exited non-zero") exitLogged();
+        info: (_fields: unknown, message?: string) => {
+          if (message === "pi process exited") exitLogged();
         },
+        warn: () => {},
+        error: () => {},
       },
     });
     const types: unknown[] = [];

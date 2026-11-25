@@ -3861,6 +3861,8 @@ t001, t002 and t003 in parallel; t004; t005 last.
 
 t002 and t003 in parallel after t001; t004; t005.
 
+**Done 2026-11-25** (all five tasks). Live-checked on a throwaway daemon with a real bundled Pi 1.4.0: SIGKILL of Pi mid-turn gives a failed turn and the next message answers in the same conversation; two simultaneous sends give one `busy`; resume, archive and daemon stop leave no Pi behind; a SIGKILLed daemon's Pi children exit on stdin EOF (an orphaned tool subprocess does not). One Pi 1.4.0 quirk (haiku-4-5 never answers) recorded in the handoff.
+
 ### sprint-150-timeline-on-disk
 > **What it ships.** Conversation history saved to disk and intact after a restart.
 

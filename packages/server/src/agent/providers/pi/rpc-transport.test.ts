@@ -14,11 +14,10 @@ function recordingLogger() {
   const logger = {
     info: (fields: unknown, message?: string) => {
       if (message === "pi process spawned") state.pid = (fields as { pid: number }).pid;
+      if (message === "pi process exited") state.exits.push(fields as never);
     },
     warn: () => {},
-    error: (fields: unknown, message?: string) => {
-      if (message === "pi process exited non-zero") state.exits.push(fields as never);
-    },
+    error: () => {},
   };
   return { state, logger };
 }

@@ -228,7 +228,8 @@ export function createProcessTransport(
     exited = true;
     markExited();
     const trimmedStderr = stderrTail.trim();
-    const clean = code === 0 && signal === null;
+    // An exit that `close()` asked for is routine whatever its status (SIGTERM gives 143).
+    const clean = closing || (code === 0 && signal === null);
     if (pending.size > 0) {
       log?.error(
         {

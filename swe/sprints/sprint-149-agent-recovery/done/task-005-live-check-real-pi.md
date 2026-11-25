@@ -1,7 +1,7 @@
 # Task 005 — Live check with a real Pi, and docs
 
 - **Sprint:** sprints/sprint-149-agent-recovery
-- **Status:** backlog
+- **Status:** done
 - **Type:** test
 - **Area:** packages/server, docs
 - **Priority:** P1

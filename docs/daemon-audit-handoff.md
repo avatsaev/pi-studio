@@ -411,7 +411,7 @@ up, and M8 needs a written design first.
 |---|---|
 | M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
 | M2 Clear the ground | 147, 148 — **done 2026-11-25** (on branch `feat/daemon-audit-m1-m3`, not merged) |
-| M3 Agents that recover | 149, 150 (150/t002 is an owner gate on the timeline file design) |
+| M3 Agents that recover | 149 — **done 2026-11-25** (branch `feat/daemon-audit-m1-m3`, not merged); 150 next (150/t002 is an owner gate on the timeline file design) |
 | M4 to M9 | not planned yet |
 
 | # | Milestone | Contains | What the user gets | Size | Needs |
@@ -1224,8 +1224,16 @@ So that a later reader knows what was covered and need not be re-read first.
   2026-11-24: no, drop it.
 - **Still open from the decisions round:** only the relay parking of old daemons, which is deferred
   on recommendation and not yet confirmed by the owner.
-- **Does a Pi process exit when its stdin closes?** If not, a daemon killed with SIGKILL orphans
-  every agent. Not tested.
+- **Does a Pi process exit when its stdin closes?** Answered 2026-11-25, seen live (sprint-149/task-005,
+  bundled Pi 1.4.0): yes. After `kill -9` of the daemon in the middle of a turn, both of its Pi
+  processes were gone within a second. The tool subprocess a running turn had started (`sleep 40`)
+  was not: it was orphaned (the same happens when Pi itself is killed with SIGKILL). A `close()` kills
+  the whole tree, so only abrupt deaths leave such children.
+- **Seen live while checking M3, not fixed:** with the bundled Pi 1.4.0 and an Anthropic credential,
+  a turn on `claude-haiku-4-5` never produced an assistant message, both through the daemon and when
+  `pi --mode rpc` was driven by hand. The same prompt answered on Pi 1.6 with that model, and on
+  Pi 1.4.0 with `claude-sonnet-4-5`. The daemon shows such a turn as running until it is
+  interrupted; there is no turn timeout, by design.
 - **Do newer browsers block a public page from reaching `ws://127.0.0.1`?** Not tested; relevant only
   to how urgent S1 is, not to whether to fix it.
 
