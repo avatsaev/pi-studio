@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 import type {
   AgentCapabilityFlags,
@@ -15,13 +13,11 @@ import type {
   AgentCompactResult,
   AgentCycleModelResult,
   AgentForkMessage,
-  AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
   AgentSessionStats,
   AgentTodoList,
   CreateSessionOptions,
-  ImportableSessionRow,
   ImportSessionArgs,
   ImportSessionResult,
   LaunchContext,
@@ -46,10 +42,10 @@ import { toAgentTodos, todoDetailsFromFrame } from "./todos.js";
 import { createToolOutputCoalescer } from "./tool-output-coalescer.js";
 
 /**
- * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·modes·features /
+ * Pi provider adapter (features/agent-providers.md § Pi lifecycle / § Models·features /
  * § Import & resume). Spawns `pi --mode rpc` (or a configured `command`), maps RPC events to
  * `AgentStreamEvent`s, passes Pi-Studio system prompts via `--append-system-prompt` (preserving Pi's
- * default prompt), and discovers models/modes via top-level RPC calls (never a scratch session).
+ * default prompt), and discovers models via top-level RPC calls (never a scratch session).
  */
 
 /** The arguments that start Pi's RPC mode, after the command `piCommand` builds. */
@@ -58,8 +54,6 @@ const PI_RPC_ARGS = ["--mode", "rpc"] as const;
 export const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
-  supportsDynamicModes: true,
-  supportsMcpServers: true,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
@@ -68,15 +62,9 @@ export const PI_CAPABILITIES: AgentCapabilityFlags = {
 };
 
 export interface PiClientDeps {
-  /** Provider id (custom `extends:"pi"` profiles reuse this adapter with their own id). */
-  provider?: string;
   /** Launch command; defaults to `pi --mode rpc`. */
   command?: string[];
   env?: Record<string, string>;
-  /** JSONL session directory for import discovery (`params.sessionDir` for forks). */
-  sessionDir?: string;
-  /** System prompt appended to every session (preserves Pi's default prompt). */
-  appendSystemPrompt?: string;
   /** Injected for tests; defaults to the real process transport. */
   transportFactory?: PiTransportFactory;
   /** Injected for tests; defaults to a `$PATH` scan. */
@@ -92,14 +80,10 @@ export interface PiSessionLaunch {
   sessionFile?: string;
 }
 
-/** Build Pi argv, appending (never replacing) the system prompt and optional `--mcp-config`. */
-export function buildPiArgs(
-  base: string[],
-  opts: { appendSystemPrompt?: string; mcpConfigPath?: string },
-): string[] {
+/** Build Pi argv, appending (never replacing) the system prompt. */
+export function buildPiArgs(base: string[], opts: { appendSystemPrompt?: string }): string[] {
   const args = [...base];
   if (opts.appendSystemPrompt) args.push("--append-system-prompt", opts.appendSystemPrompt);
-  if (opts.mcpConfigPath) args.push("--mcp-config", opts.mcpConfigPath);
   return args;
 }
 
@@ -188,34 +172,35 @@ class PiAgentSession implements AgentSession {
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly uiSubscribers = new Set<(req: ProviderUiRequest) => void>();
   private readonly todoSubscribers = new Set<(list: AgentTodoList) => void>();
-  private readonly history: AgentStreamEvent[] = [];
   private readonly eventMapper = createPiEventMapper();
-  /** Owns ephemeral `partial: true` tool output: throttled, tail-capped, kept out of `history`. */
+  /** Owns ephemeral `partial: true` tool output: throttled, tail-capped, kept out of the live-delivery path's replay. */
   private readonly partialOutput = createToolOutputCoalescer({
     deliver: (event) => this.fanOut(event),
   });
-  private modes: AgentModeDefinition[] = [];
-  private mode: string | null;
   private model: string | undefined;
   private sessionFile?: string;
   private thinkingLevel?: string;
-  /** Why the Pi process is gone, once the transport reported it (see the `error` frame below). */
+  /** Why the Pi process is gone, once the transport reported it (see `handleProcessExit`). */
   private processFailure?: string;
+  /** True from `run()` until it settles: only then does a dead process end a turn. */
+  private turnRunning = false;
+  /** Set by `close()`: the exit that follows is requested, so it reports nothing. */
+  private closed = false;
+  private readonly exitListeners = new Set<(reason: string) => void>();
 
   constructor(
     private readonly transport: PiRpcTransport,
     opts: { provider: string; config: AgentSessionConfig; sessionFile?: string },
   ) {
     this.provider = opts.provider;
-    this.mode = opts.config.modeId ?? null;
     this.sessionFile = opts.sessionFile;
     transport.onEvent((raw) => {
       const rec = raw as Record<string, unknown>;
       // Only the transport emits an `error` frame, and only once the process is gone (exit status
-      // and stderr, `rpc-transport.ts` `failAll`): nothing more will answer, so a turn waiting for
-      // its terminal event must end with it (`run`).
+      // and stderr, `rpc-transport.ts` `failAll`).
       if (rec?.type === "error") {
-        this.processFailure = typeof rec.error === "string" ? rec.error : "pi process failed";
+        this.handleProcessExit(typeof rec.error === "string" ? rec.error : "pi process failed");
+        return;
       }
       if (rec?.type === "extension_ui_request") {
         // Forward to the daemon's UI channel — write no response here; the daemon answers, or
@@ -242,20 +227,15 @@ class PiAgentSession implements AgentSession {
 
   private emit(event: AgentStreamEvent): void {
     // Partials are live-stream-only (features/tool-output-streaming.md): the coalescer delivers
-    // them to subscribers itself, so they never reach `history` and its replay. Every other event
-    // keeps the record-then-fan-out path; the coalescer has already cancelled any partial
+    // them to subscribers itself, so they never reach a replay. Every other event
+    // fans out immediately; the coalescer has already cancelled any partial
     // flush it supersedes (a call's terminal, a turn terminal), so no partial outruns it.
     if (this.partialOutput.accept(event)) return;
-    this.history.push(event);
     this.fanOut(event);
   }
 
   private fanOut(event: AgentStreamEvent): void {
     for (const cb of this.subscribers) cb(event);
-  }
-
-  setDiscoveredModes(modes: AgentModeDefinition[]): void {
-    this.modes = modes;
   }
 
   /**
@@ -303,8 +283,28 @@ class PiAgentSession implements AgentSession {
     return () => this.subscribers.delete(cb);
   }
 
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    for (const event of this.history) yield event;
+  onExit(cb: (reason: string) => void): Unsubscribe {
+    if (this.processFailure !== undefined && !this.closed) {
+      cb(this.processFailure);
+      return () => {};
+    }
+    this.exitListeners.add(cb);
+    return () => this.exitListeners.delete(cb);
+  }
+
+  /**
+   * The transport says the process is gone and `close()` did not ask for it (killed by a signal,
+   * crashed, or exited on its own). Only the first report counts. A turn waiting for a terminal
+   * event that will never come ends as `turn_failed` with the reason; between turns nothing is
+   * emitted, because no turn is there to fail. Then the owners learn the session is dead.
+   */
+  private handleProcessExit(reason: string): void {
+    if (this.closed || this.processFailure !== undefined) return;
+    this.processFailure = reason;
+    if (this.turnRunning) this.emit({ kind: "turn_failed", error: reason });
+    const listeners = [...this.exitListeners];
+    this.exitListeners.clear();
+    for (const cb of listeners) cb(reason);
   }
 
   /**
@@ -334,17 +334,25 @@ class PiAgentSession implements AgentSession {
   }
 
   run(prompt: string, opts?: RunOptions): Promise<void> {
+    this.turnRunning = true;
     // A prompt starting with `/` may be an extension command, which Pi runs inline and emits NO
     // turn lifecycle for (dist/core/agent-session.js `prompt()` returns right after
     // `_tryExecuteExtensionCommand`) — awaiting a terminal event for one hangs the turn, and with
     // it the agent's `running` status, forever. Those go through `runSlashPrompt`.
-    if (prompt.startsWith("/")) return this.runSlashPrompt(prompt, opts);
+    const done = prompt.startsWith("/")
+      ? this.runSlashPrompt(prompt, opts)
+      : this.runPrompt(prompt, opts);
+    return done.finally(() => {
+      this.turnRunning = false;
+    });
+  }
+
+  private runPrompt(prompt: string, opts?: RunOptions): Promise<void> {
     return new Promise<void>((resolve) => {
-      // The process died before this turn (start-up failure: Pi exits when an extension fails to
-      // load, stderr names it) and the `error` frame went out while nobody listened: a `prompt`
-      // would be written to nothing, so end the turn now, with the error on the timeline.
+      // The process died before this turn and `handleProcessExit` ran while no turn was running: a
+      // `prompt` would be written to nothing, so end the turn now, with the reason on the timeline.
       if (this.processFailure !== undefined) {
-        this.emit({ kind: "error", message: this.processFailure });
+        this.emit({ kind: "turn_failed", error: this.processFailure });
         resolve();
         return;
       }
@@ -352,8 +360,7 @@ class PiAgentSession implements AgentSession {
         if (
           event.kind === "turn_completed" ||
           event.kind === "turn_failed" ||
-          event.kind === "turn_canceled" ||
-          (event.kind === "error" && this.processFailure !== undefined)
+          event.kind === "turn_canceled"
         ) {
           unsub();
           resolve();
@@ -396,6 +403,10 @@ class PiAgentSession implements AgentSession {
       })) as { disposition?: string } | undefined;
       if (terminated || ack?.disposition === "handled") return;
       await terminal;
+    } catch (err) {
+      // `close()` ended the turn (`turn_canceled`) and rejected the pending ack: not a failure.
+      if (this.closed) return;
+      throw err;
     } finally {
       unsub();
     }
@@ -405,25 +416,9 @@ class PiAgentSession implements AgentSession {
     return {
       provider: this.provider,
       sessionId: this.id,
-      modeId: this.mode ?? undefined,
       model: this.model,
       thinkingLevel: this.thinkingLevel,
     };
-  }
-
-  getAvailableModes(): AgentModeDefinition[] {
-    return this.modes;
-  }
-
-  getCurrentMode(): string | null {
-    return this.mode;
-  }
-
-  async setMode(id: string): Promise<void> {
-    // Pi RPC has no `set_mode` command (modes are a Pi-Studio concept layered over the provider).
-    // Track it locally; model/thinking changes go through setModel/setThinkingOption.
-    this.mode = id;
-    return Promise.resolve();
   }
 
   onUiRequest(cb: (req: ProviderUiRequest) => void): Unsubscribe {
@@ -643,7 +638,15 @@ class PiAgentSession implements AgentSession {
     }));
   }
 
+  /**
+   * Ends the process. A turn still running ends as `turn_canceled`, so its `run()` resolves
+   * instead of waiting for a terminal event that can no longer come; this is not a crash, so no
+   * `turn_failed` and no `onExit`.
+   */
   close(): Promise<void> {
+    this.closed = true;
+    this.exitListeners.clear();
+    if (this.turnRunning) this.emit({ kind: "turn_canceled" });
     this.partialOutput.cancelAll();
     this.subscribers.clear();
     return this.transport.close();
@@ -658,7 +661,7 @@ export class PiAgentClient implements AgentClient {
   private readonly resolver: (bin: string, env?: Record<string, string | undefined>) => boolean;
 
   constructor(private readonly deps: PiClientDeps = {}) {
-    this.provider = deps.provider ?? "pi";
+    this.provider = "pi";
     this.command = deps.command ?? piCommand(PI_RPC_ARGS) ?? ["pi", ...PI_RPC_ARGS];
     this.factory = deps.transportFactory ?? createProcessTransport;
     this.resolver = deps.binaryResolver ?? resolveBinaryOnPath;
@@ -692,9 +695,7 @@ export class PiAgentClient implements AgentClient {
     options?: CreateSessionOptions,
   ): Promise<AgentSession> {
     if (!this.isAvailable()) return Promise.reject(this.unavailableError());
-    const args = buildPiArgs(this.command, {
-      appendSystemPrompt: config.systemPrompt ?? this.deps.appendSystemPrompt,
-    });
+    const args = buildPiArgs(this.command, { appendSystemPrompt: config.systemPrompt });
     const transport = this.factory({
       args,
       cwd: launchContext?.cwd ?? config.cwd,
@@ -731,9 +732,7 @@ export class PiAgentClient implements AgentClient {
     const sessionFile = typeof handle.nativeHandle === "string" ? handle.nativeHandle : undefined;
     const cwd = launchContext?.cwd ?? overrides?.cwd ?? ".";
     const transport = this.factory({
-      args: buildPiArgs(this.command, {
-        appendSystemPrompt: overrides?.systemPrompt ?? this.deps.appendSystemPrompt,
-      }),
+      args: buildPiArgs(this.command, { appendSystemPrompt: overrides?.systemPrompt }),
       cwd,
       env: this.buildEnv(launchContext),
       sessionFile,
@@ -744,10 +743,16 @@ export class PiAgentClient implements AgentClient {
       config: { provider: this.provider, cwd, ...overrides },
       sessionFile,
     });
-    if (sessionFile) await session.switchSession(sessionFile);
-    // Learn the resumed process's current model (sprint-042 — a fresh `pi --mode rpc` process has
-    // no local model state until asked; see `discoverState`'s doc comment).
-    await session.discoverState();
+    try {
+      if (sessionFile) await session.switchSession(sessionFile);
+      // Learn the resumed process's current model (sprint-042 — a fresh `pi --mode rpc` process has
+      // no local model state until asked; see `discoverState`'s doc comment).
+      await session.discoverState();
+    } catch (err) {
+      // A process whose handshake failed belongs to nobody: close it before the error escapes.
+      await session.close().catch(() => {});
+      throw err;
+    }
     return session;
   }
 
@@ -762,11 +767,6 @@ export class PiAgentClient implements AgentClient {
   }): Promise<AgentModelDefinition[]> {
     if (opts?.session?.listModels) return opts.session.listModels();
     return toModelDefinitions(await this.topLevel("get_available_models", opts?.cwd));
-  }
-
-  /** Pi RPC has no `list_modes`; modes come from the provider manifest, not the process. */
-  listModes(): Promise<AgentModeDefinition[]> {
-    return Promise.resolve([]);
   }
 
   /**
@@ -803,7 +803,7 @@ export class PiAgentClient implements AgentClient {
     opts?: { noSession?: boolean },
   ): Promise<unknown> {
     if (!this.isAvailable()) throw this.unavailableError();
-    const args = buildPiArgs(this.command, { appendSystemPrompt: this.deps.appendSystemPrompt });
+    const args = [...this.command];
     if (opts?.noSession) args.push("--no-session");
     const transport = this.factory({
       args,
@@ -818,44 +818,7 @@ export class PiAgentClient implements AgentClient {
     }
   }
 
-  /** Enumerate Pi JSONL session files for the import picker (rows only). */
-  listImportableSessions(opts?: { cwd?: string }): Promise<ImportableSessionRow[]> {
-    const dir = this.deps.sessionDir;
-    if (!dir || !existsSync(dir)) return Promise.resolve([]);
-
-    const rows: ImportableSessionRow[] = [];
-    for (const file of readdirSync(dir)) {
-      if (!file.endsWith(".jsonl")) continue;
-      const full = join(dir, file);
-      let cwd = "";
-      let title: string | undefined;
-      let promptPreview: string | undefined;
-      try {
-        const firstLine = readFileSync(full, "utf8")
-          .split("\n")
-          .find((l) => l.trim());
-        if (firstLine) {
-          const head = JSON.parse(firstLine) as Record<string, unknown>;
-          cwd = typeof head.cwd === "string" ? head.cwd : "";
-          title = typeof head.title === "string" ? head.title : undefined;
-          promptPreview = typeof head.prompt === "string" ? head.prompt : undefined;
-        }
-      } catch {
-        // best-effort metadata; the row is still importable
-      }
-      if (opts?.cwd && cwd && cwd !== opts.cwd) continue;
-      rows.push({
-        providerHandleId: full,
-        cwd,
-        title,
-        promptPreview,
-        lastActivityAt: statSync(full).mtime.toISOString(),
-      });
-    }
-    return Promise.resolve(rows);
-  }
-
-  /** Resume one native session (the JSONL file is the `nativeHandle`) and return a hydrated result. */
+  /** Resume one native session (the JSONL file is the `nativeHandle`); a fetch rebuilds its history from that file. */
   async importSession(args: ImportSessionArgs): Promise<ImportSessionResult> {
     const session = await this.resumeSession(
       { provider: this.provider, nativeHandle: args.providerHandleId },
@@ -866,7 +829,6 @@ export class PiAgentClient implements AgentClient {
     return {
       session,
       persistence,
-      timeline: this.hydrateTimeline(persistence).map((row) => row.event),
     };
   }
 

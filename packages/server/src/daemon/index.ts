@@ -38,6 +38,9 @@ export function createDaemonRuntimeInfo(
 // Production daemon bootstrap: startDaemon(), DaemonOptions, DaemonHandle, wrapSessionEnvelope().
 export * from "./bootstrap.js";
 
+// The open-bind rule shared with `pi-studio daemon start`: `isUnprotectedBind`, `unprotectedBindMessage`.
+export * from "./loopback.js";
+
 // Process entry runner (signals, exit after a self-update): `runDaemon()`.
 export * from "./run.js";
 

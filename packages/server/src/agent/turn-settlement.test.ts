@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRecord } from "../persistence/entity-schemas.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MOCK_CAPABILITIES } from "./providers/mock/mock-provider.js";
 import type { AgentClient, AgentSession, Unsubscribe } from "./provider-contract.js";
 
@@ -44,8 +44,6 @@ class RetryAgentSession implements AgentSession {
     return () => this.subscribers.delete(cb);
   }
 
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {}
-
   startTurn(): Promise<{ turnId: string }> {
     return Promise.resolve({ turnId: "t1" });
   }
@@ -77,18 +75,6 @@ class RetryAgentSession implements AgentSession {
 
   getRuntimeInfo() {
     return { provider: this.provider, sessionId: this.id, model: "mock" };
-  }
-
-  getAvailableModes() {
-    return [];
-  }
-
-  getCurrentMode(): string | null {
-    return null;
-  }
-
-  setMode(): Promise<void> {
-    return Promise.resolve();
   }
 
   describePersistence() {
@@ -136,7 +122,6 @@ describe("sprint-041 regression: runTurn stays subscribed and settles once acros
       labels: {},
       lastStatus: "initializing",
       config: { provider: "mock", cwd: "/work" },
-      timeline: [],
     };
     await manager.add(record);
     await manager.setStatus(record.id, "idle");
@@ -164,7 +149,7 @@ describe("sprint-041 regression: runTurn stays subscribed and settles once acros
 
     // Every row streamed, including the post-interim ("attempt 2") ones — none lost to an early
     // unsubscribe.
-    const timeline = getTimeline(record.id);
+    const timeline = manager.timelines.get(record.id);
     expect(timeline!.allRows().map((r) => r.event.kind)).toEqual([
       "user_message",
       "turn_started",

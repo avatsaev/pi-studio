@@ -2,7 +2,7 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [agent-sessions.md](agent-sessions.md), [tool-permissions.md](tool-permissions.md),
-> [../architecture/config.md](../architecture/config.md), [mcp-server.md](mcp-server.md)
+> [../architecture/config.md](../architecture/config.md)
 
 ## Purpose
 
@@ -26,36 +26,32 @@ in-process `mock` provider exists purely for tests and load testing.
 - `resumeSession(handle, overrides?, launchContext?) → AgentSession`
 - `listModels(opts) → AgentModelDefinition[]`
 - `isAvailable() → boolean`  (checks the `pi` binary is on `$PATH`)
-- optional: `listModes`, `listImportableSessions`, `importSession`, `getDiagnostic`
+- optional: `importSession`, `getDiagnostic`
 
 ### `AgentSession` (abridged contract)
 - `provider`, `id`, `capabilities`, `features?`
 - `run(prompt, opts?)`, `startTurn(prompt, opts?) → { turnId }`
 - `subscribe(cb) → unsubscribe`, `streamHistory() → AsyncGenerator<AgentStreamEvent>`
-- `getRuntimeInfo()`, `getAvailableModes()`, `getCurrentMode()`, `setMode(id)`
+- `getRuntimeInfo()`
 - `getPendingPermissions()`, `respondToPermission(requestId, response)`
 - `describePersistence() → PersistenceHandle | null`, `interrupt()`, `close()`
 - optional: `listCommands`, `setModel`, `setThinkingOption`, `setFeature`, `tryHandleOutOfBand`
 
 ### Capability flags (`AgentCapabilityFlags`)
-`supportsStreaming`, `supportsSessionPersistence`, `supportsDynamicModes`, `supportsMcpServers`,
+`supportsStreaming`, `supportsSessionPersistence`,
 `supportsReasoningStream`, `supportsToolInvocations`.
 
 ### Registration surface
 1. Provider class in `agent/providers/pi/agent.ts` implementing `AgentClient`/`AgentSession`.
-2. Manifest entry in `provider-manifest.ts` (modes with `icon`/`colorTier`, provider definition).
+2. Manifest entry in `provider-manifest.ts` (provider definition).
 3. Factory in `provider-registry.ts` (`PROVIDER_CLIENT_FACTORIES`), invoked with
    `(logger, runtimeSettings, options)`.
 4. App icon registered in `provider-icons.ts` (fallback `Bot`).
 5. E2E config in `daemon-e2e/agent-configs.ts`.
 
-### Custom Pi-compatible profiles (config `agents.providers.{id}`)
-- A custom provider must declare `extends: "pi"` and a `label`. It may set `command` (custom binary),
-  `env`, `params` (e.g. `sessionDir` for a fork's JSONL session directory), `models`/
-  `additionalModels`, `disallowedTools`, `enabled`, `order`, `description`.
-- Pi-compatible forks keep Pi's `--mode rpc` API but may write sessions elsewhere; set
-  `params.sessionDir` so import can find them. Launch/resume still use the configured `command`.
-- Provider ids must match `/^[a-z][a-z0-9-]*$/`. See
+### Provider config (`agents.providers`)
+- Only the built-in `pi` key is accepted, with `command` (custom binary) and `env`. Any other key
+  is a config error naming it (`agents.providers.foo: only "pi" is supported`). See
   [../architecture/config.md](../architecture/config.md).
 
 ## Behavior & Algorithms
@@ -65,27 +61,17 @@ in-process `mock` provider exists purely for tests and load testing.
 createSession(config):
     spawn `pi --mode rpc` (or configured command) in cwd, with env
     pass Pi-Studio system prompts via --append-system-prompt (Pi keeps its default coding prompt)
-    if injecting MCP servers: write a per-agent MCP config and pass --mcp-config
-        (do NOT modify user/project MCP files)
     discover models/modes/commands/features via Pi RPC top-level calls
 run/startTurn: send prompt over RPC; stream events (assistant, reasoning, tool calls, turn markers)
 isAvailable(): `pi` binary resolvable on $PATH
 ```
-
-### MCP injection specifics
-- Pi MCP support depends on the open-source `pi-mcp-adapter` extension being loaded for the agent
-  cwd. Probe with Pi RPC `get_commands`; the adapter registers an extension command named `mcp`
-  (often with `sourceInfo.source` containing `pi-mcp-adapter`).
-- For local HTTP MCP servers (such as the daemon's own `/mcp/agents` endpoint), explicitly disable
-  adapter OAuth in the generated config (`auth: false`, `oauth: false`).
 
 ### Import & resume
 - Pi RPC does not expose a recent-session listing command, so import discovery **reads Pi's persisted
   JSONL session files** directly.
 - Resume and full history hydration go through `pi --mode rpc` using the session file as
   `nativeHandle`.
-- Import contract: the picker calls `listImportableSessions` (rows only: provider handle, cwd, title,
-  prompt previews, last activity); `importSession({ providerHandleId, cwd })` returns the resumed
+- Import contract: `importSession({ providerHandleId, cwd })` returns the resumed
   session + storage config + persistence handle + hydrated timeline for that one native session.
   `AgentManager.importProviderSession` seeds the daemon timeline and publishes the agent only once
   ready.
@@ -95,9 +81,9 @@ isAvailable(): `pi` binary resolvable on $PATH
   question permissions and answered with `extension_ui_response`. See
   [tool-permissions.md](tool-permissions.md) for the combined/chained-dialog semantics.
 
-### Models, modes, features
-- Discovered dynamically at runtime via Pi RPC; manifest entries are UI scaffolding (icons, color
-  tiers) only. Draft metadata lookups prefer `listModels`/`listModes`/`listCommands`/`listFeatures`
+### Models, features
+- Discovered dynamically at runtime via Pi RPC; manifest entries are UI scaffolding (labels,
+  capability flags) only. Draft metadata lookups prefer `listModels`/`listCommands`/`listFeatures`
   over creating a scratch session (scratch sessions can appear as empty native sessions in Pi's
   import/history UIs).
 
@@ -121,25 +107,22 @@ isAvailable(): `pi` binary resolvable on $PATH
 | Condition | Expected behavior |
 |-----------|-------------------|
 | `pi` binary not on `$PATH` | `isAvailable()` false → provider unavailable |
-| `pi-mcp-adapter` not loaded for cwd | MCP injection unavailable; agent still runs without injected MCP |
 | Scratch session created for metadata | Avoid; prefer top-level list APIs |
-| Custom fork with different session dir | Use `params.sessionDir` for import; launch/resume via `command` |
 | Fire-and-forget extension UI (notifications) | Ignored unless first-class UI exists |
 
 ## Dependencies
-- Internal: provider registry/manifest, snapshot manager, runtime MCP config injection, structured
+- Internal: provider registry/manifest, snapshot manager, structured
   generation, permission flow.
-- External: the `pi` CLI (`pi --mode rpc`), `pi-mcp-adapter` extension (for MCP), GitHub `gh` (for
+- External: the `pi` CLI (`pi --mode rpc`), GitHub `gh` (for
   PR-related agent flows).
 
 ## Acceptance Criteria
 - [ ] The Pi provider exposes models/modes/features discovered at runtime via Pi RPC.
 - [ ] Pi-Studio system prompts are passed with `--append-system-prompt`, preserving Pi's default prompt.
-- [ ] Injected MCP servers are written to a per-agent `--mcp-config`, never to user/project files.
 - [ ] A cold provider snapshot probes once and stays cached until an explicit refresh.
 - [ ] Settings refresh clears all scopes and re-probes only the home snapshot.
-- [ ] Import discovery reads Pi JSONL session files; resume uses the session file as `nativeHandle`.
-- [ ] A custom `extends:"pi"` profile launches via its `command` and finds imports via `params.sessionDir`.
+- [ ] Resume uses the explicit session file as `nativeHandle`.
+- [ ] An `agents.providers` key other than `pi` fails config load, naming the key.
 
 ## TODO(verify)
 - [ ] Current Pi session JSONL directory layout and file naming.

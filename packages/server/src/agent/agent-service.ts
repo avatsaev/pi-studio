@@ -13,7 +13,7 @@ import type {
   PersistenceHandle,
   RunOptions,
 } from "./provider-contract.js";
-import { AgentTimelineStore } from "./timeline-store.js";
+import type { AgentTimelineStore } from "./timeline-store.js";
 import { composeSystemPrompt } from "./compose-system-prompt.js";
 import type { AgentTitleGenerator } from "./structured-generation-runtime.js";
 
@@ -35,58 +35,22 @@ export interface AgentServiceDeps {
   generateAgentTitle?: AgentTitleGenerator;
 }
 
-/** In-memory timeline per agentId; persisted rows are on the AgentRecord.timeline. */
-const timelinesByAgentId = new Map<string, AgentTimelineStore>();
-
 /** Agent ids with an in-flight `generateAgentTitle` call — prevents two overlapping prompts on
  *  the same still-untitled agent from firing two concurrent generations. */
 const titleGenerationInFlight = new Set<string>();
 
-function getOrCreateTimeline(agentId: string, now?: () => string): AgentTimelineStore {
-  let t = timelinesByAgentId.get(agentId);
-  if (!t) {
-    t = new AgentTimelineStore({ now });
-    timelinesByAgentId.set(agentId, t);
-  }
-  return t;
-}
-
-export function getTimeline(agentId: string): AgentTimelineStore | undefined {
-  return timelinesByAgentId.get(agentId);
+/** Whether `agentId` is a live agent that may gain history: present, and not archived. */
+function acceptsHistory(manager: AgentManager, agentId: string): boolean {
+  const record = manager.get(agentId)?.record;
+  return record !== undefined && !record.archivedAt;
 }
 
 /**
- * Seed the in-memory timeline for an agent that has none yet (e.g. right after a daemon restart)
- * from externally rehydrated rows — see `timeline-rpc.ts`'s fallback to a provider's
- * `hydrateTimeline()`. No-op if a timeline already exists (never overwrites live/streamed rows).
- */
-export function seedTimeline(
-  agentId: string,
-  rows: import("./timeline-store.js").TimelineRow[],
-): void {
-  if (timelinesByAgentId.has(agentId)) return;
-  timelinesByAgentId.set(agentId, new AgentTimelineStore({ initialRows: rows }));
-}
-
-/**
- * Unconditionally replace `agentId`'s in-memory timeline with `rows` (fork resync —
- * features/conversation-fork.md § New daemon-internal surface). Unlike `seedTimeline`, this
- * always replaces — a fork always happens on a live session, which always already has a store,
- * so a no-op-if-exists entry point could never do the job. `rows` may legitimately be empty (a
- * fork to before the first user message). Creates the store if none exists yet so callers never
- * need to special-case a never-spawned session.
- */
-export function resetTimeline(
-  agentId: string,
-  rows: import("./timeline-store.js").TimelineRow[],
-): void {
-  getOrCreateTimeline(agentId).replaceRows(rows);
-}
-
-/**
- * Record `event` on `agentId`'s timeline and broadcast it as an `agent_stream` frame carrying the
- * daemon-owned seq/timestamp. The one append-and-broadcast path for stream events: `runTurn`'s
- * subscription and any operation that subscribes outside a turn (today: compaction) both use it.
+ * Record `event` on `timeline` (`agentId`'s store, from `timelineFor`) and broadcast it as an
+ * `agent_stream` frame carrying the daemon-owned seq/timestamp. The one append-and-broadcast path
+ * for stream events: `runTurn`'s subscription and any operation that subscribes outside a turn
+ * (today: compaction) both use it. Taking the store rather than looking it up means no caller can
+ * append to an unseeded one.
  *
  * Two kinds are EPHEMERAL (live-stream-only, see timeline-streaming.md § Timeline model): a partial
  * `tool_call` (a superseded in-flight output snapshot) and `queue_update` (a snapshot of the
@@ -95,6 +59,7 @@ export function resetTimeline(
  */
 export function appendStreamEvent(
   agentId: string,
+  timeline: AgentTimelineStore,
   event: AgentStreamEvent,
   broadcast: (sessions: Iterable<Session>, message: unknown) => void,
   sessions: Iterable<Session>,
@@ -106,7 +71,7 @@ export function appendStreamEvent(
     });
     return;
   }
-  const row = getOrCreateTimeline(agentId).append(event);
+  const row = timeline.append(event);
   broadcast(agentStreamRecipients(sessions), {
     type: "session",
     message: {
@@ -122,37 +87,95 @@ export function appendStreamEvent(
 /**
  * Seed `agentId`'s in-memory timeline from its provider's durable history when it has none yet (a
  * restarted daemon never has one). No-op when a store exists, or when the record has no persisted
- * handle / the provider has nothing to replay. Anything that is about to append to a timeline
- * outside `runTurn` must call this first: the first append would otherwise create an empty store,
- * and `seedTimeline` never overwrites an existing one, so history would never hydrate.
+ * handle / the provider has nothing to replay. Prefer `timelineFor` for anything that appends:
+ * the first append would otherwise create an empty store, and `TimelineRegistry.seed` never
+ * overwrites an existing one, so history would never hydrate.
  */
 export function ensureTimelineSeeded(
   agentId: string,
   manager: AgentManager,
   resolveClient: (provider: string) => AgentClient,
+  now?: () => string,
 ): void {
-  if (timelinesByAgentId.has(agentId)) return;
+  if (manager.timelines.get(agentId)) return;
   const record = manager.get(agentId)?.record;
   const handle = record?.persistence as PersistenceHandle | undefined;
   if (!record || !handle) return;
   const rows = resolveClient(record.provider).hydrateTimeline?.(handle) ?? [];
-  if (rows.length > 0) seedTimeline(agentId, rows);
+  if (rows.length > 0) manager.timelines.seed(agentId, rows, now);
 }
 
 /**
- * Ensure `agentId` has a live provider session: resume from a persisted handle, or — for a
- * deferred draft that was never spawned (`record.persistence` absent; see `AgentService.handleCreate`
- * step 2) — spawn it for the first time. Either way, replay the record's pinned model
+ * The one way to get a timeline store to append to: seeds it from the provider's durable history
+ * first (`ensureTimelineSeeded`), then returns the existing or a fresh store. `runTurn` and
+ * compaction append through it, so whichever of send, compact or fetch comes first after a
+ * restart, earlier history is already in the store.
+ *
+ * Refuses an agent that is gone or archived: the registry never regains a store an archive or
+ * delete evicted (`AgentManager.timelines`), so an operation that races one cannot bring it back.
+ */
+export function timelineFor(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    now?: () => string;
+  },
+  agentId: string,
+): AgentTimelineStore {
+  if (!acceptsHistory(deps.manager, agentId)) {
+    throw new Error(`agent ${agentId} is gone or archived`);
+  }
+  ensureTimelineSeeded(agentId, deps.manager, deps.resolveClient, deps.now);
+  return deps.manager.timelines.getOrCreate(agentId, deps.now);
+}
+
+/**
+ * Ensure `agentId` has a live provider session: the attached one, or a fresh one from
+ * `spawnOrResumeSession`. The one entry point for every caller that needs a process but did not
+ * start one itself (send, list commands, fork, clone, compact).
+ */
+export function ensureSession(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    logger?: Logger;
+  },
+  agentId: string,
+): Promise<AgentSession> {
+  const managed = deps.manager.get(agentId);
+  if (!managed) return Promise.reject(new Error(`unknown agent: ${agentId}`));
+  return managed.session ? Promise.resolve(managed.session) : spawnOrResumeSession(deps, agentId);
+}
+
+/**
+ * Spawn `agentId`'s provider session: resume from a persisted handle, or — for a deferred draft
+ * that was never spawned (`record.persistence` absent; see `AgentService.handleCreate` step 2) —
+ * spawn it for the first time. Either way, replay the record's pinned model
  * (`config.model`/`config.modelProvider`, written when a draft materializes — see
  * `slash-command-operations.ts` `persistModel` and the web-client's `ensureMaterialized`) via
  * `setProviderModel`, since neither `createSession` nor `resumeSession` consult
  * `AgentSessionConfig.model` — Pi resolves its own default at spawn regardless
  * (`providers/pi/agent.ts` `discoverState`'s doc comment). Attaches the session and persists its
  * handle either way. Always spawns/resumes fresh — callers that want "reuse the live session if
- * there is one" check `managed.session` themselves first (`AgentService.handleSendPrompt` does;
- * `SessionOperationsService.handleResume` intentionally always forces a fresh process).
+ * there is one" use `ensureSession` (`SessionOperationsService.handleResume` intentionally always
+ * forces a fresh process, and `AgentManager.attachSession` closes the one it replaces).
+ *
+ * One spawn per agent at a time (`AgentManager.spawnOnce`): a caller that arrives while one is in
+ * flight gets that spawn's session. A failure after the process started closes it.
  */
-export async function spawnOrResumeSession(
+export function spawnOrResumeSession(
+  deps: {
+    manager: AgentManager;
+    resolveClient: (provider: string) => AgentClient;
+    logger?: Logger;
+  },
+  agentId: string,
+): Promise<AgentSession> {
+  if (!deps.manager.get(agentId)) return Promise.reject(new Error(`unknown agent: ${agentId}`));
+  return deps.manager.spawnOnce(agentId, () => spawnSession(deps, agentId));
+}
+
+async function spawnSession(
   deps: {
     manager: AgentManager;
     resolveClient: (provider: string) => AgentClient;
@@ -182,19 +205,29 @@ export async function spawnOrResumeSession(
         { cwd },
       );
 
-  if (!handle) {
-    const modelId = record.config?.model;
-    const modelProvider = record.config?.modelProvider;
-    if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
-    // Replay the pinned thinking level strictly AFTER the model (sprint-070/task-003): Pi
-    // clamps thinking against the model, so a thinking-first replay would be silently
-    // overwritten by the model switch's own clamp. Skipped entirely when the record has no
-    // explicit pick — never clobber Pi's own restored/default level with a synthetic value.
-    // On RESUME the block does not run — Pi restores its own level from the session JSONL,
-    // exactly like the model, and with the clamp write-back (slash-command-operations.ts)
-    // config and JSONL cannot diverge, so the restored value already matches the record.
-    const thinking = record.config?.thinkingOptionId;
-    if (thinking) await session.setThinkingOption?.(thinking);
+  try {
+    if (!handle) {
+      const modelId = record.config?.model;
+      const modelProvider = record.config?.modelProvider;
+      if (modelId && modelProvider) await session.setProviderModel?.(modelProvider, modelId);
+      // Replay the pinned thinking level strictly AFTER the model (sprint-070/task-003): Pi
+      // clamps thinking against the model, so a thinking-first replay would be silently
+      // overwritten by the model switch's own clamp. Skipped entirely when the record has no
+      // explicit pick — never clobber Pi's own restored/default level with a synthetic value.
+      // On RESUME the block does not run — Pi restores its own level from the session JSONL,
+      // exactly like the model, and with the clamp write-back (slash-command-operations.ts)
+      // config and JSONL cannot diverge, so the restored value already matches the record.
+      const thinking = record.config?.thinkingOptionId;
+      if (thinking) await session.setThinkingOption?.(thinking);
+    }
+    // Archived or deleted while the process started: nothing owns this session any more.
+    const current = deps.manager.get(agentId);
+    if (!current || current.record.archivedAt) {
+      throw new Error(`agent ${agentId} was closed while its session started`);
+    }
+  } catch (error) {
+    await session.close().catch(() => {});
+    throw error;
   }
 
   deps.manager.attachSession(agentId, session);
@@ -269,7 +302,6 @@ export class AgentService {
       labels,
       lastStatus: "initializing",
       config: effectiveConfig as AgentRecord["config"],
-      timeline: [],
     };
 
     await this.deps.manager.add(record);
@@ -287,8 +319,8 @@ export class AgentService {
     // survives a reload/reconnect, but costing nothing (no process, no Pi-owned JSONL session
     // file) until the first real send actually needs one. That first send (`handleSendPrompt`) or
     // an explicit `resume_agent` (`session-operations.ts`) spawns it via `spawnOrResumeSession`,
-    // which also replays any pinned model. Every other caller of this RPC (CLI `run`, the MCP
-    // `create_agent` tool, scheduled/loop agents) always passes `initialPrompt`, so this branch is
+    // which also replays any pinned model. Every other caller of this RPC (CLI `run`, scheduled/loop
+    // agents) always passes `initialPrompt`, so this branch is
     // new behavior only for the web-client's deferred-draft path, never a regression for them.
     if (!initialPrompt) {
       await this.deps.manager.setStatus(agentId, "idle");
@@ -300,14 +332,59 @@ export class AgentService {
       return { type: "create_agent_response", requestId, payload: { agentId } };
     }
 
-    // 3. Eager path: spawn now and run the initial prompt.
-    const client = this.deps.resolveClient(provider);
-    let session: AgentSession;
-    try {
-      session = await client.createSession(
-        { provider, cwd, ...effectiveConfig } as Parameters<AgentClient["createSession"]>[0],
-        { cwd },
+    // 3. Eager path: spawn now and run the initial prompt. The agent is the turn's until it ends:
+    // a send that arrives once `agent_update` has announced the id is refused with `busy`.
+    await this.deps.manager.runExclusive(agentId, "turn", async () => {
+      const session = await this.deps.manager.spawnOnce(agentId, async () => {
+        const created = await this.createEagerSession(agentId, provider, cwd, effectiveConfig);
+        this.deps.manager.attachSession(agentId, created);
+        return created;
+      });
+      await this.deps.manager.persistSessionHandle(agentId);
+      await this.deps.manager.setStatus(agentId, "idle");
+      this.deps.logger?.info(
+        {
+          agentId,
+          provider,
+          model: config.model,
+          cwd,
+          title,
+          autoArchive: autoArchive || undefined,
+        },
+        "agent created",
       );
+      this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
+
+      await this.runTurn(agentId, session, initialPrompt, getSessions, {
+        clientMessageId,
+        autoArchive,
+        images: msg.images as ImageAttachment[] | undefined,
+      });
+    });
+
+    return {
+      type: "create_agent_response",
+      requestId,
+      payload: { agentId },
+    };
+  }
+
+  /** First spawn of a freshly created agent (`handleCreate` step 3); logs a provider failure. */
+  private async createEagerSession(
+    agentId: string,
+    provider: string,
+    cwd: string,
+    config: Record<string, unknown>,
+  ): Promise<AgentSession> {
+    try {
+      return await this.deps
+        .resolveClient(provider)
+        .createSession(
+          { provider, cwd, ...config } as Parameters<AgentClient["createSession"]>[0],
+          {
+            cwd,
+          },
+        );
     } catch (error) {
       this.deps.logger?.error(
         {
@@ -321,26 +398,6 @@ export class AgentService {
       );
       throw error;
     }
-    this.deps.manager.attachSession(agentId, session);
-    await this.deps.manager.persistSessionHandle(agentId);
-    await this.deps.manager.setStatus(agentId, "idle");
-    this.deps.logger?.info(
-      { agentId, provider, model: config.model, cwd, title, autoArchive: autoArchive || undefined },
-      "agent created",
-    );
-    this.broadcastAll(getSessions(), { type: "agent_update", agentId, status: "idle", labels });
-
-    await this.runTurn(agentId, session, initialPrompt, getSessions, {
-      clientMessageId,
-      autoArchive,
-      images: msg.images as ImageAttachment[] | undefined,
-    });
-
-    return {
-      type: "create_agent_response",
-      requestId,
-      payload: { agentId },
-    };
   }
 
   async handleSendPrompt(
@@ -352,15 +409,20 @@ export class AgentService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
 
-    // No live provider session — either a daemon restart (reloads records but never
-    // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
-    // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a draft
-    // that was never spawned, spawns it for the first time and replays its pinned model.
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    // One turn at a time: claimed before the spawn below, so two concurrent sends cannot both
+    // start a turn (each would subscribe and broadcast every later event twice). The workbench
+    // steers while a turn runs instead of sending; a send that loses the race gets `busy`.
+    await this.deps.manager.runExclusive(agentId, "turn", async () => {
+      // No live provider session — either a daemon restart (reloads records but never
+      // auto-resumes runtime, daemon-bootstrap.md § Recovery) or a deferred draft's first-ever
+      // send. Either way, `spawnOrResumeSession` resumes from the persisted handle or, for a
+      // draft that was never spawned, spawns it for the first time and replays its pinned model.
+      const session = await ensureSession(this.deps, agentId);
 
-    await this.runTurn(agentId, session, prompt, getSessions, {
-      clientMessageId: msg.clientMessageId as string | undefined,
-      images: msg.images as ImageAttachment[] | undefined,
+      await this.runTurn(agentId, session, prompt, getSessions, {
+        clientMessageId: msg.clientMessageId as string | undefined,
+        images: msg.images as ImageAttachment[] | undefined,
+      });
     });
     return { type: "agent_prompt_response", agentId, status: "idle" };
   }
@@ -372,7 +434,7 @@ export class AgentService {
     getSessions: () => Iterable<Session>,
     opts: RunOptions & { clientMessageId?: string; autoArchive?: boolean } = {},
   ): Promise<void> {
-    const timeline = getOrCreateTimeline(agentId, this.now);
+    const timeline = timelineFor(this.deps, agentId);
     timeline.startEpoch();
 
     await this.deps.manager.setStatus(agentId, "running");
@@ -415,7 +477,7 @@ export class AgentService {
       }
 
       // All other events: append + broadcast.
-      appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
+      appendStreamEvent(agentId, timeline, event, this.deps.broadcast, getSessions());
     });
 
     // If provider never emits a user_message, emit one ourselves.
@@ -459,7 +521,13 @@ export class AgentService {
       unsubscribe();
     }
 
+    // The agent was archived or deleted while the turn ran (the close ended it): nothing is left to
+    // settle, and the rejection `run()` may carry is the close's own doing, not a failure.
     const finalManaged = this.deps.manager.get(agentId);
+    if (!finalManaged || finalManaged.record.lastStatus === "closed") {
+      this.deps.logger?.info({ agentId }, "turn ended: agent closed");
+      return;
+    }
     const lastEvent = timeline.allRows().at(-1)?.event;
     const newStatus =
       runRejected || lastEvent?.kind === "turn_failed" || lastEvent?.kind === "error"

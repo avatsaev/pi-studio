@@ -70,7 +70,7 @@ I18nProvider (root):
 - Every resource module (`resources/<locale>.ts`) exports a flat-ish nested key tree consumed via
   `t("namespace.key")`, e.g. `t("sessions.title")`, `t("rewind.tooltip")`,
   `t("composer.clientCommands.archiveAgent")`, `t("settings.general.language.options.ptBR")`.
-  Namespaces roughly mirror feature areas (`sessions.*`, `schedules.*`, `settings.*`, `composer.*`,
+  Namespaces roughly mirror feature areas (`sessions.*`, `settings.*`, `composer.*`,
   `rewind.*`, `shell.commandCenter.*`, `common.errors.*`, …).
 
 ## Data & Persistence

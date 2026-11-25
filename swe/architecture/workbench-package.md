@@ -220,7 +220,7 @@ and vitest, exactly as it does for `ui-library`. Consequences:
 
 Remove `build:electron`, the `VITE_TARGET` switch, the relative-base branch and the
 `import.meta.env.VITE_TARGET` define from `web-client`. `dist/web` stays the only output and keeps
-its path, which the CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` depend on.
+its path, which `docker/web-client.Dockerfile` depends on.
 
 ### Release wiring
 
@@ -290,8 +290,8 @@ Criterion 12 is ticked on the rehearsal recorded there.
       errors.
 - [x] The same consumer can render a custom shell from `WorkbenchProvider`, `WorkbenchBoot`,
       `SessionList` and `PaneArea`, and connect through `useConnection()`.
-- [x] `build:electron` and `VITE_TARGET` are gone; `pi-studio ui` and the web-client Docker image
-      still build and serve.
+- [x] `build:electron` and `VITE_TARGET` are gone; the web-client Docker image still builds and
+      serves.
 - [x] `scripts/publish.sh --dry-run` succeeds on a clean tree with the new package in the order.
 - [x] Docs are updated in the same change: `packages/workbench/{README.md,AGENTS.md,CHANGELOG.md}`,
       `packages/web-client/{README.md,AGENTS.md}`, root `AGENTS.md` and `README.md`,

@@ -151,13 +151,11 @@ describe("PiStudioClient — update handlers", () => {
 });
 
 describe("PiStudioClient — provider actions", () => {
-  it("lists models and modes and triggers a snapshot refresh", async () => {
+  it("lists models and triggers a snapshot refresh", async () => {
     const { client } = await makeFacade();
     const models = (await client.providers.listModels("mock")) as { models: { id: string }[] };
-    const modes = (await client.providers.listModes("mock")) as { modes: { id: string }[] };
     const refresh = (await client.providers.refreshSnapshot()) as { refreshed: boolean };
     expect(models.models.map((m) => m.id)).toEqual(["m1", "m2"]);
-    expect(modes.modes.map((m) => m.id)).toEqual(["plan", "default"]);
     expect(refresh.refreshed).toBe(true);
   });
 

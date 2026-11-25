@@ -1,6 +1,7 @@
 {
   "name": "@av-pi-studio/ui-library",
   "version": "0.0.132",
+  "private": true,
   "description": "Reusable React UI primitives, theme system and global styles for Pi-Studio client apps",
   "license": "AGPL-3.0",
   "repository": {

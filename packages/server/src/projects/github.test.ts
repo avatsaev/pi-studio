@@ -39,7 +39,6 @@ describe("createPr", () => {
       ghRunner: gh,
       gitRunner: okGit,
       generate: noopGenerate,
-      setAutoMergeEnabled: true,
     });
     const result = await svc.createPr({ cwd: "/w" });
     expect(result.ok).toBe(true);
@@ -54,7 +53,7 @@ describe("createPr", () => {
     const { gh } = makeGh({
       "auth status": { code: 1, stderr: "You are not logged into any GitHub hosts" },
     });
-    const svc = new GitHubService({ ghRunner: gh, gitRunner: okGit, setAutoMergeEnabled: true });
+    const svc = new GitHubService({ ghRunner: gh, gitRunner: okGit });
     const result = await svc.createPr({ cwd: "/w" });
     expect(result.ok).toBe(false);
     expect(result.error).toBe("github_auth_required");
@@ -64,7 +63,7 @@ describe("createPr", () => {
 describe("setAutoMerge + feature gate", () => {
   it("registers checkout.github.set_auto_merge and echoes requestId in the payload", async () => {
     const { gh } = makeGh({ "auth status": { code: 0 }, "pr merge": { code: 0 } });
-    const svc = new GitHubService({ ghRunner: gh, gitRunner: okGit, setAutoMergeEnabled: true });
+    const svc = new GitHubService({ ghRunner: gh, gitRunner: okGit });
     const registry = new HandlerRegistry();
     svc.registerHandlers(registry);
 
@@ -86,14 +85,6 @@ describe("setAutoMerge + feature gate", () => {
     expect(response.payload.success).toBe(true);
     expect(response.payload.enabled).toBe(true);
   });
-
-  it("does NOT register the dotted RPC when the feature is disabled (old daemon)", () => {
-    const { gh } = makeGh({});
-    const svc = new GitHubService({ ghRunner: gh, setAutoMergeEnabled: false });
-    const registry = new HandlerRegistry();
-    svc.registerHandlers(registry);
-    expect(registry.get("checkout.github.set_auto_merge.request")).toBeUndefined();
-  });
 });
 
 describe("auto-archive-on-merge", () => {
@@ -108,7 +99,6 @@ describe("auto-archive-on-merge", () => {
     });
     const svc = new GitHubService({
       ghRunner: gh,
-      setAutoMergeEnabled: true,
       archiveWorkspace: async (id) => {
         archived.push(id);
       },
@@ -126,7 +116,6 @@ describe("auto-archive-on-merge", () => {
     });
     const svc = new GitHubService({
       ghRunner: gh,
-      setAutoMergeEnabled: true,
       archiveWorkspace: async (id) => archived.push(id),
     });
     expect(await svc.autoArchiveOnMerge("/w", "ws-1")).toBe(false);

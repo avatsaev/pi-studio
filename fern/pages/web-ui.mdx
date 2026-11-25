@@ -3,24 +3,13 @@ title: Web UI
 subtitle: The production browser UI — chat, terminals, file diffs, and split panes.
 ---
 
-`pi-studio ui` serves the production Pi-Studio browser UI — a three-column workspace (sessions
-on the left, chat/terminal/code in the middle, files and git changes on the right) — as a static
-site, with no separate install or build step. Point it at any daemon, local or remote:
+The Pi-Studio browser UI is a three-column workspace (sessions on the left, chat/terminal/code in
+the middle, files and git changes on the right). It is not served by the CLI; use the desktop app or
+the hosted web client, which connect to your daemon through the relay.
 
-```bash
-pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
-pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
-```
-
-| Flag | Description |
-|---|---|
-| `--ui-host <host>` | Interface the static server binds to |
-| `--ui-port <port>` | Port the static server listens on (default `4173`) |
-| `--daemon-host <host>` | Pre-fills the printed URL's `?host=&connect=1` so the browser tab auto-connects (falls back to the global `--host`) |
-
-The command serves the built `@av-pi-studio/web-client` SPA (`dist/web`) via a minimal static
-file server with SPA fallback — it never itself probes or starts a daemon — and blocks until
-`SIGINT`/`SIGTERM`.
+The browser build ("Pi Studio Lite") connects only with a pairing link from `pi-studio daemon pair`
+(pasted into its one field, or opened as a link). It has no address or password field and refuses a
+direct daemon address; use the desktop app to connect to a daemon directly.
 
 ## Tool calls, inline
 

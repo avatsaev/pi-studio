@@ -1,6 +1,12 @@
 import type { Command } from "commander";
 
-import { loadConfig, type PersistedConfig } from "@av-pi-studio/server";
+import {
+  isUnprotectedBind,
+  loadConfig,
+  UNPROTECTED_BIND_CODE,
+  unprotectedBindMessage,
+  type PersistedConfig,
+} from "@av-pi-studio/server";
 
 import { type CliContext, type GlobalOptions, EXIT_ERROR, EXIT_OK } from "./cli-core.js";
 import { resolveHome } from "./client-id.js";
@@ -117,7 +123,8 @@ export async function printPairing(
 /**
  * Ensure a local daemon is running (start it if not), then print the pairing QR. With
  * `startOpts.json` (only `daemon start|restart` pass it) it writes exactly one JSON line instead:
- * `{ up, started, host, port, pairingUrl, relay }`, `{ up: false, host, port, error: "not_healthy" }`
+ * `{ up, started, host, port, pairingUrl, relay }`, `{ up: false, host, port, error: "not_healthy" }`,
+ * `{ up: false, host, port, error: "unprotected_bind" }` (non-loopback host, no password),
  * or, when healthy but no keypair file exists, `{ up: true, started, host, port, error: "no_keypair" }`.
  */
 export async function ensureLocalDaemonAndPair(
@@ -135,6 +142,21 @@ export async function ensureLocalDaemonAndPair(
   if (await runtime.probe(host, port)) {
     if (!json) ctx.sink.write(`daemon already running at ${host}:${port}`);
   } else {
+    // The daemon refuses this bind itself; checking first reports it instead of a health timeout.
+    const config = loadConfig(daemonPaths(home).config);
+    if (
+      isUnprotectedBind(host, {
+        configPassword: config.daemon.auth.password,
+        envPassword: process.env.PI_STUDIO_PASSWORD,
+      })
+    ) {
+      if (json) {
+        ctx.sink.write(JSON.stringify({ up: false, host, port, error: UNPROTECTED_BIND_CODE }));
+      } else {
+        ctx.sink.error(unprotectedBindMessage(host, port));
+      }
+      return EXIT_ERROR;
+    }
     if (!json) ctx.sink.write(`starting local daemon at ${host}:${port} …`);
     await runtime.start({ home, listen: `${host}:${port}`, piHome: opts.piHome });
     const up = await waitForDaemon(runtime, host, port, { sleep: startOpts.sleep });

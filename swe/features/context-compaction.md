@@ -223,10 +223,9 @@ success.
 # daemon — manual path
 handleCompact(agentId, instructions):
     managed = manager.get(agentId) or raise unknown agent
-    if managed.record.lastStatus == "running": raise busy("agent is running")
-    if agentId in compactionsInFlight:        raise busy("compaction already in progress")
-    compactionsInFlight.add(agentId)
-    try:
+    # runExclusive(agentId, "compaction", ...): a turn, a compaction or a session operation already
+    # holding the agent raises busy("agent <id> is running | is compacting | is changing its session")
+    claim held until the block ends, on every path incl. resume/unsupported failures:
         session = managed.session or await spawnOrResumeSession(agentId)
         if not session.compact:               raise unsupported
         if no in-memory timeline for agentId: seed it from hydrateTimeline(handle)
@@ -245,8 +244,6 @@ handleCompact(agentId, instructions):
             raise err
         finally:
             unsubscribe()
-    finally:
-        compactionsInFlight.delete(agentId)   # every path, incl. resume/unsupported failures
     broadcastAgentUpdate(agentId, {compacted: true})
     return payload
 
@@ -269,8 +266,8 @@ meterState(stats, compacting):
 
 ## Data & persistence touchpoints
 
-- No new daemon state files. `compactionsInFlight` is an in-memory set (a daemon restart kills the
-  Pi child process and any compaction with it).
+- No new daemon state files. The busy claim (`AgentManager.runExclusive`) is in memory (a daemon
+  restart kills the Pi child process and any compaction with it).
 - Compaction rows live in the in-memory `AgentTimelineStore` like any other event. After a daemon
   restart they are rebuilt from Pi's JSONL by session hydration (completed compactions only).
 - `stats-store` gains `contextEstimated?: boolean` (client memory only).
@@ -353,9 +350,9 @@ meterState(stats, compacting):
   inline). The `errorMessage` text is `Compaction failed: <cause>` (manual) or
   `Auto-compaction failed: <cause>` (automatic); the mapper strips that prefix so the divider does
   not read `Compaction failed: Compaction failed: ...` (found by this run).
-- **`busy` wording:** `busy: agent <id> is running; wait for the turn to finish before compacting`
+- **`busy` wording:** at sprint-074 it was `busy: agent <id> is running; wait for the turn to finish before compacting`
   (`handler_error` envelope), observed from `pi-studio agent compact` against a running agent, with
-  the turn continuing undisturbed.
+  the turn continuing undisturbed; since sprint-149 it is `busy: agent <id> is running` (or `is compacting`).
 - **Cancel:** Stop mid-summarisation produces a `canceled` divider within ~0.3 s. Pi rejects the RPC
   afterwards (`Turn prefix summarization failed: This operation was aborted`); the web client
   classifies that as `canceled` (no inline error) because the user requested the cancel.

@@ -177,9 +177,8 @@ export interface PiStudioAgentActions {
     message: string,
     opts?: { clientMessageId?: string; images?: unknown[] },
   ): Promise<unknown>;
-  /** Update model/mode/thinking/features/title/labels without recreating the session. */
+  /** Update model/thinking/features/title/labels without recreating the session. */
   update(patch: {
-    modeId?: string;
     model?: string;
     thinkingOptionId?: string;
     featureValues?: Record<string, unknown>;
@@ -296,8 +295,6 @@ export interface PiStudioProviderActions {
   /** List models for a provider. `agentId`: answer from that agent's live process when it has
    *  one — the list its `setModel` accepts (Pi reads `models.json` once per process). */
   listModels(provider: string, opts?: { agentId?: string }): Promise<ListProviderModelsResponse>;
-  /** List modes for a provider. */
-  listModes(provider: string): Promise<unknown>;
   /** Resolve the model a brand-new session would run on with no override — backs the
    * web-client's "preselect the default model on a new chat" before anything is spawned. */
   resolveDefaultModel(provider: string, cwd?: string): Promise<ResolveDefaultModelResponse>;
@@ -1296,7 +1293,6 @@ class AgentHandle implements PiStudioAgentActions {
   }
 
   update(patch: {
-    modeId?: string;
     model?: string;
     thinkingOptionId?: string;
     featureValues?: Record<string, unknown>;
@@ -1434,9 +1430,6 @@ class ProviderHandle implements PiStudioProviderActions {
       provider,
       ...(opts?.agentId ? { agentId: opts.agentId } : {}),
     });
-  }
-  listModes(provider: string): Promise<unknown> {
-    return this.daemon.request("list_provider_modes", { provider });
   }
   resolveDefaultModel(provider: string, cwd?: string): Promise<ResolveDefaultModelResponse> {
     return this.daemon.request<ResolveDefaultModelResponse>("resolve_default_model", {

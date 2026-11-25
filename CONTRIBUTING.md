@@ -53,8 +53,8 @@ By default the production daemon:
 - writes a PID lock at **`$PI_STUDIO_HOME/pi-studio.pid`**
 - generates a persistent Curve25519 keypair at **`$PI_STUDIO_HOME/daemon-keypair.json`** (used for
   relay pairing; see [Relay](README.md#optional-e2ee-relay-reaching-a-daemon-behind-natfirewall))
-- registers the **full** RPC surface (agents, terminals, git/worktrees, projects, chat, loops,
-  schedules, files, providers) — this is the real daemon (`bootstrap.ts`), not a stub
+- registers the **full** RPC surface (agents, terminals, git/worktrees, projects, files,
+  providers) — this is the real daemon (`bootstrap.ts`), not a stub
 
 It runs in the foreground; press **Ctrl-C** (SIGINT) or send SIGTERM to shut down cleanly (the PID
 lock is released and the HTTP/WS servers close).
@@ -129,7 +129,7 @@ node packages/cli/dist/cli.js --host workstation.local:6767 ls   # target a remo
 ```
 
 Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`run`/`ls`/`attach`,
-`auth`, `daemon`, `relay`, `chat`, `terminal`, `loop`, `schedule`, `permit`, `provider`,
+`auth`, `daemon`, `relay`, `terminal`, `permit`, `provider`,
 `worktree`).
 
 ### Web UI dev server
@@ -139,7 +139,7 @@ Run `node packages/cli/dist/cli.js --help` for the full command tree (`agent`/`r
 browser host. The UI code lives in `packages/workbench`; both are resolved from source, so edits
 there hot-reload. It talks to the daemon only through the `@av-pi-studio/client` SDK (never a raw
 WebSocket).
-For UI work, run it under Vite with hot reload instead of through `pi-studio ui`:
+For UI work, run it under Vite with hot reload:
 
 ```bash
 # run the dev daemon (all features + mock provider available) in one terminal
@@ -177,7 +177,7 @@ Per-package tests run with `npx vitest run packages/<pkg>` (this repo has no vit
 packages/
   protocol/    wire schemas + shared protocol types (zero workspace deps)
   client/      low-level daemon WS driver + PiStudioClient SDK facade
-  server/      the daemon (agents, terminals, git, projects, orchestration, relay transport)
+  server/      the daemon (agents, terminals, git, projects, relay transport)
   cli/         pi-studio terminal client + local daemon/relay lifecycle control
   relay/       relay protocol 2 (standalone relay server, E2EE channel primitives shared by daemon and client)
   web-client/  browser shell: renders the workbench, ships the static SPA

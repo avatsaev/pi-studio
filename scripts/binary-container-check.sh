@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Minimal acceptance check of an unpacked linux binary folder in a bare container (no Node, no npm):
-# --version, daemon start/status/stop, __pi, __skills, `ui` serving the SPA, relay start/stop; then
+# --version, daemon start/status/stop, __pi, __skills, relay start/stop; then
 # the folder is moved and --version and a daemon start run again. The release smoke test is a
 # separate, larger script (sprint-140/task-003).
 #
@@ -24,7 +24,7 @@ fi
 export HOME=/tmp/home PI_STUDIO_HOME=/tmp/psh PI_CODING_AGENT_DIR=/tmp/home/.pi/agent
 export PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 mkdir -p "$HOME" "$PI_STUDIO_HOME"
-DAEMON=127.0.0.1:16767 RELAY=127.0.0.1:17000 UI_PORT=14173
+DAEMON=127.0.0.1:16767 RELAY=127.0.0.1:17000
 fail() { echo "FAIL: $*"; exit 1; }
 ok() { echo "ok:   $*"; }
 get() ( # get <port> <path> → the HTTP status line, through bash's /dev/tcp (no curl in the image)
@@ -57,13 +57,6 @@ ok "--json daemon start / status / stop"
 ok "__pi --version"
 [[ "$("$BIN" __skills --help)" == *"Manage Skills"* ]] || fail "__skills --help"
 ok "__skills --help"
-
-"$BIN" ui --ui-host 127.0.0.1 --ui-port "$UI_PORT" >/tmp/ui.log 2>&1 &
-UI_PID=$!
-for _ in $(seq 40); do get "$UI_PORT" / >/dev/null 2>&1 && break; sleep 0.25; done
-[[ "$(get "$UI_PORT" /)" == *" 200 "* ]] || { cat /tmp/ui.log; fail "ui did not serve index.html"; }
-kill "$UI_PID"
-ok "ui serves the SPA (200)"
 
 "$BIN" relay start --listen "$RELAY" >/dev/null
 for _ in $(seq 40); do get 17000 /health >/dev/null 2>&1 && break; sleep 0.25; done

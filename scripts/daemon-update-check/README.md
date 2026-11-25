@@ -41,7 +41,7 @@ also after a failure, unless `--keep` is given. Remove a kept run with
 `lib.mjs` packs each package once (`npm pack`), and per version rewrites the tarball's
 `package.json` (version, internal ranges), then publishes to the local registry. The broken N+2 has
 `process.exit(3)` at the top of `dist/daemon/main.js` (the entry the update helper starts). Packages:
-protocol, relay, client, server, web-client, cli (cli last, as in `scripts/publish.sh`).
+protocol, relay, client, server, cli (cli last, as in `scripts/publish.sh`).
 
 `run.mjs` runs the scenarios in order against one daemon container (the state carries over):
 

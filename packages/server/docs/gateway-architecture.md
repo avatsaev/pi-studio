@@ -1,7 +1,7 @@
 # Gateway architecture
 
 The **daemon** is Pi-Studio's gateway: a single long-lived Node process that accepts client
-connections over WebSocket (browser, CLI, mobile, MCP), authenticates and routes every frame, and
+connections over WebSocket (browser, CLI, mobile), authenticates and routes every frame, and
 fans work out to feature services. The most important of those services is the **agent layer**,
 which spawns and drives `pi` agent processes and streams their output back to every connected
 client.
@@ -21,7 +21,7 @@ flowchart LR
   subgraph Outside["Outside the gateway"]
     Browser["Browser client<br/>(@av-pi-studio/web-client)"]
     CLI["CLI<br/>(@av-pi-studio/cli)"]
-    Mobile["Mobile / MCP"]
+    Mobile["Mobile"]
   end
 
   subgraph Daemon["Daemon process (the gateway)"]
@@ -38,7 +38,6 @@ flowchart LR
       Term["TerminalManager"]
       Proj["Projects / git"]
       Files["Files"]
-      Orch["Chat / schedules / loops"]
     end
   end
 
@@ -53,7 +52,7 @@ flowchart LR
   WS --> Sess
   Sess --> Router
   Router --> Registry
-  Registry --> Agent & Term & Proj & Files & Orch
+  Registry --> Agent & Term & Proj & Files
   Agent -- "spawn + JSONL stdio" --> Pi
   Agent -. "in-process" .-> Mock
   Pi -- "events" --> Agent
@@ -70,7 +69,7 @@ flowchart LR
 | Handshake / session | `ws/ws-server.ts`, `ws/session.ts`                             | First frame must be `hello`; a `Session` object is created and capabilities are persisted.                      |
 | Routing             | `ws/router.ts`                                                 | Parse envelopes, answer `ping`, dispatch `session` messages by `type`, correlate replies/errors by `requestId`. |
 | Handlers            | `HandlerRegistry`                                              | Map a message `type` to a feature handler.                                                                      |
-| Feature services    | `agent/`, `terminal/`, `projects/`, `files/`, `orchestration/` | The actual business logic.                                                                                      |
+| Feature services    | `agent/`, `terminal/`, `projects/`, `files/`                   | The actual business logic.                                                                                      |
 | Providers           | `agent/providers/pi`, `agent/providers/mock`                   | Drive the underlying agent runtime (a `pi` child process, or an in-process mock).                               |
 
 
@@ -176,7 +175,7 @@ so every send — first or follow-up — is `send_agent_prompt`. Both RPCs are r
 (`agent/agent-service.ts`).
 
 The eager path — `create_agent_request` **with** `initialPrompt` — still exists and is used by the CLI
-`run` command, the MCP `create_agent` tool, and by `ScheduleService`/`LoopService` for automated agents.
+`run` command for automated agents.
 That path spawns the provider process immediately and runs the initial turn.
 
 ```mermaid
@@ -405,8 +404,8 @@ gateway: identity + PID lock, config, auth, host checker, HTTP server, WS server
 `HandlerRegistry`. It then registers the **full** RPC surface — the `HandlerRegistry` is handed to every
 feature service (`agentService.registerHandlers`, `sessionOps.registerHandlers`,
 `slashCommandOps.registerHandlers`, `registerTimelineHandler`, `permissionService`, projects/git,
-files, terminals, orchestration; see `bootstrap.ts:236-256`), which populate it with handlers for agents,
-terminals, projects/git/worktrees, files, chat, schedules, loops, providers.
+files, terminals; see `bootstrap.ts:236-256`), which populate it with handlers for agents,
+terminals, projects/git/worktrees, files, providers.
 
 `devBootstrap()` (`daemon/dev-bootstrap.ts`) is the **minimal** variant: it uses in-memory persistence,
 the mock provider only, no auth, and registers only a small handler subset for local testing. It does

@@ -26,7 +26,7 @@ const RESTORE_SCROLLBACK_LINES = 200;
  * Server-side terminal screen model backed by `@xterm/headless` (features/terminals.md § capture).
  *
  * The binary Snapshot frame sent to subscribing clients is the raw byte ring (each client's own
- * xterm replays it faithfully). But CLI/MCP `capture()` needs the *visible grid as text* — replaying
+ * xterm replays it faithfully). But CLI `capture()` needs the *visible grid as text* — replaying
  * raw bytes through `strip-ansi` is wrong for anything that moves the cursor, clears the screen, or
  * redraws (progress bars, full-screen apps). Feeding the byte stream through a headless terminal and
  * reading the grid yields the true on-screen text.

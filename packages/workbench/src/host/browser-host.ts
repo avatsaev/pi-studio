@@ -28,6 +28,22 @@ export interface BrowserHostOptions {
    * user cancelled. Omitted: the browser's Blob and download anchor.
    */
   saveTarget?: (suggestedName: string) => Promise<SaveTarget | null>;
+  /**
+   * Developer switch: also dial the page's same-origin `/daemon-ws` proxy directly, and connect to
+   * it at boot. A shell passes `import.meta.env.DEV`. Default off: Lite connects by pairing link only.
+   */
+  devDirect?: boolean;
+}
+
+/** An older build kept the daemon password under this key; the page no longer holds one. */
+const LEGACY_PASSWORD_KEY = "password";
+
+function removeLegacyPassword(): void {
+  try {
+    globalThis.localStorage?.removeItem(LEGACY_PASSWORD_KEY);
+  } catch {
+    // Storage unavailable: nothing to remove.
+  }
 }
 
 const DEFAULT_APP: AppIdentity = { title: "Pi-Studio", version: "" };
@@ -40,6 +56,7 @@ const browserDialogs: HostDialogs = {
 
 /** The host `web-client` uses: today's browser behaviour behind the host contract. */
 export function createBrowserHost(overrides: Partial<BrowserHostOptions> = {}): WorkbenchHost {
+  removeLegacyPassword();
   return {
     app: overrides.app ?? DEFAULT_APP,
     storage: localStorageKvStore,
@@ -47,8 +64,8 @@ export function createBrowserHost(overrides: Partial<BrowserHostOptions> = {}): 
     dialogs: browserDialogs,
     // No `openExternal`: anchors keep their native `target="_blank"` behaviour.
     links: {},
-    launch: createBrowserLaunch(),
-    connection: createBrowserConnection(),
+    launch: createBrowserLaunch({ devDirect: overrides.devDirect }),
+    connection: createBrowserConnection({ devDirect: overrides.devDirect }),
     // No `pickUploads`: the explorer uses its `<input type="file">`.
     files: createBrowserFiles(currentFileTransfer, overrides.saveTarget),
     ...(overrides.pdf ? { pdf: overrides.pdf } : {}),

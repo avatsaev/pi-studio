@@ -61,7 +61,6 @@ import {
   extensionPacksSetRequestSchema,
   extensionPacksSetResponseSchema,
   fetchAgentTimelineResponseSchema,
-  legacyRespondToPermissionSchema,
   providerAuthCancelRequestSchema,
   providerAuthCancelResponseSchema,
   providerAuthInfoSchema,
@@ -111,7 +110,6 @@ describe("create_agent_request", () => {
   const fullConfig = {
     provider: "pi",
     cwd: "/work/repo",
-    modeId: "default",
     model: "claude",
     thinkingOptionId: "medium",
     featureValues: { webSearch: true },
@@ -122,7 +120,6 @@ describe("create_agent_request", () => {
     webSearch: true,
     extra: { pi: { foo: 1 } },
     systemPrompt: "be nice",
-    mcpServers: {},
   };
 
   it("validates a full AgentSessionConfig", () => {
@@ -264,7 +261,7 @@ describe("AgentStreamEvent + ToolCallDetail discrimination", () => {
   });
 });
 
-describe("dotted RPC naming + legacy flat names", () => {
+describe("dotted RPC naming", () => {
   it("builds dotted RPC names", () => {
     expect(rpcName("checkout", "github", "set_auto_merge", "request")).toBe(
       "checkout.github.set_auto_merge.request",
@@ -287,17 +284,6 @@ describe("dotted RPC naming + legacy flat names", () => {
       payload: { resolved: true },
     });
     expect(req.requestId).toBe(res.requestId);
-  });
-
-  it("still parses a legacy flat name", () => {
-    expect(
-      legacyRespondToPermissionSchema.safeParse({
-        type: "respond_to_permission",
-        requestId: "r1",
-        permissionRequestId: "perm-1",
-        response: "deny",
-      }).success,
-    ).toBe(true);
   });
 });
 

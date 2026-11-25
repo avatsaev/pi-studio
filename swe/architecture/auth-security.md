@@ -7,7 +7,7 @@
 ## Purpose
 
 Defines the daemon's trust boundaries: when network reachability alone grants control, the optional
-shared-secret password, Host-header validation (DNS-rebinding defense), and CORS. The model mirrors
+shared-secret password, Host-header validation (DNS-rebinding defense), and the WebSocket Origin check. The model mirrors
 Docker's daemon: the boundary is access to the socket/listening address.
 
 ## Public Contract
@@ -15,10 +15,9 @@ Docker's daemon: the boundary is access to the socket/listening address.
 ### Password auth (optional)
 - Configured via `auth.password` in `config.json` or `PI_STUDIO_PASSWORD` env; **stored bcrypt-hashed**.
 - When configured:
-  - Every HTTP request must carry `Authorization: Bearer <password>`.
   - Every WebSocket upgrade must include subprotocol `Sec-WebSocket-Protocol: pi-studio.bearer.<password>`
     (browsers can't set custom WS headers, so the token rides in the subprotocol).
-  - **Exempt:** `GET /api/health` and CORS preflight (`OPTIONS`).
+  - HTTP serves only `/api/health`, which is exempt.
 - Intended for direct-TCP exposure (e.g. `tcp://host:port?ssl=true&password=...`). It is **not** a
   substitute for the relay's E2E encryption on untrusted networks.
 
@@ -29,18 +28,19 @@ Docker's daemon: the boundary is access to the socket/listening address.
   with `.` match a domain and its subdomains. The literal value `true` disables the allowlist.
 - Rejection: `403 Host not allowed`.
 
-### CORS
-- `daemon.cors.allowedOrigins` controls which browser origins may call the daemon. Defense-in-depth
-  only; not a complete boundary.
+### Origin check
+- WebSocket upgrades carrying an `Origin` header are refused (`403 Origin not allowed`) unless the
+  origin is in `daemon.devAllowedOrigins` (exact match; default none). CLI/desktop send no `Origin`
+  and are unaffected. Order: Host, Origin, password. HTTP serves only `/api/health`.
 
 ## Behavior & Algorithms
 
 ```
 on http request / ws upgrade:
-    if path == /api/health or method == OPTIONS: skip auth + host checks
+    if path == /api/health: skip auth + host checks
     if host header not in allowlist: respond 403 "Host not allowed"
-    if password configured:
-        token = bearerFromHeader(req) or bearerSubprotocol(wsUpgrade)
+    if password configured (ws upgrade only):
+        token = bearerSubprotocol(wsUpgrade)
         if not bcryptCompare(token, storedHash): reject 401
     proceed
 ```
@@ -61,8 +61,8 @@ on http request / ws upgrade:
 | Condition | Expected behavior | Surface |
 |-----------|-------------------|---------|
 | Unknown Host header | Reject | `403 Host not allowed` |
-| Missing/invalid password when required | Reject | `401` (HTTP) / upgrade refused (WS) |
-| Health check / preflight | Always allowed | `200` / CORS headers |
+| Missing/invalid password when required | Reject | upgrade refused (WS) |
+| Health check | Always allowed | `200` |
 | Browser cannot set WS headers | Token via `pi-studio.bearer.<password>` subprotocol | — |
 
 ## Dependencies

@@ -244,7 +244,7 @@ describe("agent commands", () => {
     expect(code).toBe(0);
     expect(out[0]).toBe("done");
     const req = fake.requests.find((r) => r.type === AGENT_RPC.timeline)!;
-    expect(req.msg.direction).toBe("backward");
+    expect(req.msg.direction).toBe("before");
     expect(req.msg.limit).toBe(10);
   });
 

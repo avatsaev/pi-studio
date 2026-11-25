@@ -4,9 +4,8 @@
 # served as a static SPA by nginx. Built from local monorepo source.
 # Build context MUST be the repo root:  docker build -f docker/web-client.Dockerfile -t pi-studio-web-client .
 #
-# The daemon URL is entered at runtime in the toolbar (or via ?host=…), NOT baked at build time.
-# Optionally set PI_STUDIO_DAEMON_UPSTREAM at container start to enable a same-origin /daemon-ws
-# proxy (browser connects to ws://<web-host>/daemon-ws instead of the daemon port directly).
+# The web UI is relay-only: it connects with a pairing link (`pi-studio daemon pair`), so the
+# image needs no daemon address and nginx proxies nothing.
 #
 # Build-time white-label override (packages/web-client's README.md § Brand configuration):
 #   docker build --build-arg PI_STUDIO_BRAND_TITLE="Acme Coder" \
@@ -48,9 +47,6 @@ RUN npm run build:web -w @av-pi-studio/web-client
 
 # ── Stage 2: nginx static server ──────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
-
-# Default upstream points at the compose `daemon` service; override at run time.
-ENV PI_STUDIO_DAEMON_UPSTREAM=daemon:6767
 
 COPY --from=build /repo/packages/web-client/dist/web /usr/share/nginx/html
 COPY docker/web-client.nginx.conf.template /etc/nginx/templates/default.conf.template

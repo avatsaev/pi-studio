@@ -53,12 +53,6 @@ export interface AgentModelDefinition {
   thinkingLevels?: string[];
 }
 
-export interface AgentModeDefinition {
-  id: string;
-  label?: string;
-  description?: string;
-}
-
 /**
  * Provider-neutral shape for a discoverable session command (sprint-040: command discovery, e.g.
  * Pi `get_commands`). `id`/`label`/`description` predate discovery and stay put for backward
@@ -132,7 +126,6 @@ export interface ProviderRuntimeInfo {
    * actually running with after Pi's own clamping, re-read from Pi `get_state` after every
    * set/model-switch. Distinct from `thinkingOptionId` (the requested/pinned option id). */
   thinkingLevel?: string;
-  modeId?: string;
   extra?: Record<string, unknown>;
 }
 
@@ -198,15 +191,6 @@ export interface CreateSessionOptions {
   env?: Record<string, string>;
 }
 
-/** A row in the importable-session picker (no full transcript). */
-export interface ImportableSessionRow {
-  providerHandleId: string;
-  cwd: string;
-  title?: string;
-  promptPreview?: string;
-  lastActivityAt?: string;
-}
-
 export interface ImportSessionArgs {
   providerHandleId: string;
   cwd: string;
@@ -215,7 +199,6 @@ export interface ImportSessionArgs {
 export interface ImportSessionResult {
   session: AgentSession;
   persistence: PersistenceHandle;
-  timeline: AgentStreamEvent[];
 }
 
 /** One running instance of an agent: one provider, one model, one cwd, one timeline. */
@@ -229,15 +212,24 @@ export interface AgentSession {
   startTurn(prompt: string, opts?: StartTurnOptions): Promise<{ turnId: string }>;
 
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe;
-  streamHistory(): AsyncGenerator<AgentStreamEvent>;
+  /**
+   * Called once, with the reason, when the session's runtime ends without `close()` asking for it
+   * (Pi: the process was killed or exited). A turn in progress has already ended by then, with a
+   * `turn_failed` carrying the same reason; no turn is invented between turns. The session is dead
+   * from then on: the owner detaches it and the next prompt starts a fresh one. `close()` never
+   * calls it. A session already dead when this is called reports at once. Absent on a provider
+   * whose sessions have no runtime that can end on its own.
+   */
+  onExit?(cb: (reason: string) => void): Unsubscribe;
 
   getRuntimeInfo(): ProviderRuntimeInfo;
-  getAvailableModes(): AgentModeDefinition[];
-  getCurrentMode(): string | null;
-  setMode(id: string): Promise<void>;
 
   describePersistence(): PersistenceHandle | null;
   interrupt(): Promise<void>;
+  /**
+   * Ends the runtime. A turn still running ends first as `turn_canceled` (never `turn_failed`), so
+   * its `run()` resolves; subscribers and `onExit` listeners are dropped afterwards.
+   */
   close(): Promise<void>;
 
   // Optional capabilities.
@@ -332,8 +324,6 @@ export interface AgentClient {
   isAvailable(): Promise<boolean> | boolean;
 
   // Optional capabilities.
-  listModes?(opts?: { cwd?: string }): Promise<AgentModeDefinition[]>;
-  listImportableSessions?(opts?: { cwd?: string }): Promise<ImportableSessionRow[]>;
   importSession?(args: ImportSessionArgs): Promise<ImportSessionResult>;
   getDiagnostic?(): Promise<unknown>;
   /**

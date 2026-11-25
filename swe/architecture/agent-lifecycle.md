@@ -30,8 +30,8 @@ initializing ──> idle ⇄ running
 `ManagedAgent` is a discriminated union over the lifecycle tag.
 
 ### Relationship labels
-- `labels["pi-studio.parent-agent-id"]` — parent agent id; set automatically when an agent is created
-  via the agent-scoped `create_agent` MCP tool, unless `detached: true`. Surfaced to clients as
+- `labels["pi-studio.parent-agent-id"]` — parent agent id, read from the agent's labels when a creator
+  sets it. Surfaced to clients as
   `agent.parentAgentId`.
 
 ## Behavior & Algorithms
@@ -99,7 +99,7 @@ function archiveAgent(id):
 | Cross-client tab dismissal | Layout-local; archive is the global gesture |
 
 ## Dependencies
-- Internal: AgentManager, agent storage, worktree service (auto-archive), MCP `create_agent`.
+- Internal: AgentManager, agent storage, worktree service (auto-archive).
 - External: agent provider runtimes.
 
 ## Acceptance Criteria

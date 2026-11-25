@@ -12,7 +12,6 @@ import type {
   AgentClient,
   AgentCommandDefinition,
   AgentCompactResult,
-  AgentModeDefinition,
   AgentModelDefinition,
   AgentSession,
   AgentTodoList,
@@ -60,8 +59,6 @@ import { getUiScriptHelpText, parseUiScript, type UiScriptStep } from "./ui-scri
 export const MOCK_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
-  supportsDynamicModes: true,
-  supportsMcpServers: false,
   supportsReasoningStream: true,
   supportsToolInvocations: true,
   supportsSteering: true,
@@ -82,10 +79,6 @@ const mockTodosByHandle = new Map<string, AgentTodoList>();
  *  real `agent_timeline_reset` broadcast path is reachable without a Pi session file. */
 export const MOCK_REBIND_ENTRY_ID = "mock-rebind";
 
-const MOCK_MODES: AgentModeDefinition[] = [
-  { id: "default", label: "Default" },
-  { id: "plan", label: "Plan" },
-];
 /** Static thinking-level list for the mock provider (sprint-070/task-001) — small enough to
  * exercise clamping in the dev daemon without mirroring Pi's full 7-level ladder. */
 const MOCK_THINKING_LEVELS = ["off", "low", "medium", "high"];
@@ -115,8 +108,8 @@ export class MockAgentSession implements AgentSession {
   private readonly compactDelayMs: number;
   private activeTurn: string | null = null;
   private completionTimer: ReturnType<typeof setTimeout> | null = null;
-  private mode = "default";
   private closed = false;
+  private readonly exitListeners = new Set<(reason: string) => void>();
   private thinkingLevel = "off";
 
   // Extension UI (features/extension-ui-rpc.md, sprint-066): no `pi` process exists to script this
@@ -149,9 +142,7 @@ export class MockAgentSession implements AgentSession {
   }
 
   private emit(event: AgentStreamEvent): void {
-    // Ephemeral partial tool snapshots reach subscribers but never the replay buffer — the mirror
-    // of the Pi coalescer's history rule (tool-output-streaming.md tenet 2), so a post-restart
-    // hydration contains no partials.
+    // Private script/stats list: ephemeral partial tool snapshots reach subscribers but are not kept.
     if (!(event.kind === "tool_call" && event.partial)) this.history.push(event);
     for (const cb of this.subscribers) cb(event);
   }
@@ -159,10 +150,6 @@ export class MockAgentSession implements AgentSession {
   subscribe(cb: (event: AgentStreamEvent) => void): Unsubscribe {
     this.subscribers.add(cb);
     return () => this.subscribers.delete(cb);
-  }
-
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    for (const event of this.history) yield event;
   }
 
   startTurn(prompt: string): Promise<{ turnId: string }> {
@@ -429,22 +416,8 @@ export class MockAgentSession implements AgentSession {
       sessionId: this.id,
       model: this.config.model ?? "mock-model",
       thinkingLevel: this.thinkingLevel,
-      modeId: this.mode,
       extra: { cwd: this.config.cwd },
     };
-  }
-
-  getAvailableModes(): AgentModeDefinition[] {
-    return MOCK_MODES;
-  }
-
-  getCurrentMode(): string | null {
-    return this.mode;
-  }
-
-  setMode(id: string): Promise<void> {
-    this.mode = id;
-    return Promise.resolve();
   }
 
   /** Sprint-070/task-001: store the level clamped to the mock's static list, mirroring Pi's
@@ -637,12 +610,40 @@ export class MockAgentSession implements AgentSession {
     ]);
   }
 
+  onExit(cb: (reason: string) => void): Unsubscribe {
+    this.exitListeners.add(cb);
+    return () => this.exitListeners.delete(cb);
+  }
+
+  /** Test hook: the runtime dies on its own. A turn in progress ends as `turn_failed` with
+   *  `reason`, then every `onExit` listener runs — what a killed `pi` process does. */
+  crash(reason: string): void {
+    if (this.closed) return;
+    clearTimeout(this.completionTimer ?? undefined);
+    this.completionTimer = null;
+    if (this.activeTurn !== null) {
+      this.activeTurn = null;
+      this.emit({ kind: "turn_failed", error: reason });
+    }
+    this.closed = true;
+    const listeners = [...this.exitListeners];
+    this.exitListeners.clear();
+    for (const cb of listeners) cb(reason);
+  }
+
   close(): Promise<void> {
+    // A turn still running ends as `turn_canceled`, so a `run()` waiting on it resolves.
+    if (this.activeTurn) {
+      const turnId = this.activeTurn;
+      this.activeTurn = null;
+      this.emit({ kind: "turn_canceled", turnId });
+    }
     this.closed = true;
     if (this.completionTimer) clearTimeout(this.completionTimer);
     this.completionTimer = null;
     this.activeTurn = null;
     this.subscribers.clear();
+    this.exitListeners.clear();
     return Promise.resolve();
   }
 
@@ -687,10 +688,6 @@ export class MockAgentClient implements AgentClient {
     ]);
   }
 
-  listModes(): Promise<AgentModeDefinition[]> {
-    return Promise.resolve(MOCK_MODES);
-  }
-
   resolveDefaultModel(): Promise<{
     provider?: string;
     model?: string;
@@ -721,13 +718,11 @@ export class MockAgentClient implements AgentClient {
   async importSession(args: { providerHandleId: string; cwd: string }): Promise<{
     session: import("../../provider-contract.js").AgentSession;
     persistence: import("../../provider-contract.js").PersistenceHandle;
-    timeline: import("@av-pi-studio/protocol").AgentStreamEvent[];
   }> {
     const session = new MockAgentSession({ provider: "mock", cwd: args.cwd }, this.options);
     return {
       session,
       persistence: { provider: "mock", sessionId: session.id, nativeHandle: `mock:${session.id}` },
-      timeline: [],
     };
   }
 }

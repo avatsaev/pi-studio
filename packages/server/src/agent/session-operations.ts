@@ -6,7 +6,7 @@ import type { HandlerRegistry } from "../ws/router.js";
 import type { AgentManager } from "./agent-manager.js";
 import type { AgentClient } from "./provider-contract.js";
 import type { AgentService } from "./agent-service.js";
-import { getTimeline, spawnOrResumeSession } from "./agent-service.js";
+import { spawnOrResumeSession } from "./agent-service.js";
 import type { ImageAttachment } from "@av-pi-studio/protocol";
 
 /**
@@ -52,8 +52,6 @@ export class SessionOperationsService {
     registry.register("follow_up_agent_request", (ctx) =>
       this.handleSteer(ctx.message as Record<string, unknown>, getActiveSessions, "followUp"),
     );
-    // Legacy flat alias.
-    registry.registerAlias("cancel_agent", "interrupt_agent");
   }
 
   private broadcastAll(sessions: Iterable<Session>, msg: unknown): void {
@@ -117,7 +115,7 @@ export class SessionOperationsService {
     if (!fn) return { type: responseType, agentId, ok: false };
 
     // Optimistic user_message row (best-effort — only if a live timeline exists for this turn).
-    const timeline = getTimeline(agentId);
+    const timeline = this.deps.manager.timelines.get(agentId);
     if (timeline) {
       const messageId = (msg.clientMessageId as string | undefined) ?? randomUUID();
       const row = timeline.append({ kind: "user_message", messageId, text: message, images });
@@ -145,19 +143,9 @@ export class SessionOperationsService {
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
 
-    // Update fields that do NOT require a session recreate.
-    const title =
-      typeof msg.title === "string" ? msg.title : (managed.record.title as string | undefined);
-    const labels = (msg.labels as Record<string, string> | undefined) ?? managed.record.labels;
-    const config = {
-      ...managed.record.config,
-      ...(msg.config as Record<string, unknown> | undefined),
-    };
-
-    // Apply mode/model/thinking to the live session (if attached).
+    // Apply model/thinking to the live session (if attached).
     let effectiveThinking: string | undefined;
     if (managed.session) {
-      if (typeof msg.modeId === "string") await managed.session.setMode(msg.modeId);
       if (typeof msg.model === "string") await managed.session.setModel?.(msg.model);
       if (typeof msg.thinkingOptionId === "string") {
         // Same apply-then-effective semantics as `agent_set_thinking_request`
@@ -171,6 +159,18 @@ export class SessionOperationsService {
         }
       }
     }
+
+    // Merge into the record only now, after every await above: a model or thinking-level change
+    // that landed meanwhile (`agent_set_model_request`, `agent_set_thinking_request`) is already in
+    // the record, and a config computed before the awaits would write it back over.
+    const record = this.deps.manager.get(agentId)?.record;
+    if (!record) throw new Error(`unknown agent: ${agentId}`);
+    const title = typeof msg.title === "string" ? msg.title : record.title;
+    const labels = (msg.labels as Record<string, string> | undefined) ?? record.labels;
+    const config = {
+      ...record.config,
+      ...(msg.config as Record<string, unknown> | undefined),
+    };
     if (effectiveThinking !== undefined) config.thinkingOptionId = effectiveThinking;
 
     // Persist updated record without recreating the session — actually write it to disk
@@ -200,8 +200,11 @@ export class SessionOperationsService {
     // deliberate "restart the process" action) — and, for a deferred draft that was never spawned
     // (`record.persistence` absent), first-spawns it and replays its pinned model instead of the
     // old "no persistence handle → rpc_error" behavior (see `spawnOrResumeSession`'s doc comment).
-    await spawnOrResumeSession(this.deps, agentId);
-    await this.deps.manager.setStatus(agentId, "idle");
+    // Replacing the process under a running turn or compaction would orphan it: refused with `busy`.
+    await this.deps.manager.runExclusive(agentId, "session", async () => {
+      await spawnOrResumeSession(this.deps, agentId);
+      await this.deps.manager.setStatus(agentId, "idle");
+    });
     this.broadcastAll(getSessions(), {
       type: "agent_update",
       agentId,
@@ -232,7 +235,6 @@ export class SessionOperationsService {
       updatedAt: this.now(),
       labels: {},
       lastStatus: "idle",
-      timeline: result.timeline.map((e) => ({ epoch: 0, seq: 0, timestamp: this.now(), event: e })),
       persistence: result.persistence as unknown as AgentRecord["persistence"],
     };
 

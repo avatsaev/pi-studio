@@ -110,7 +110,7 @@ const client = new PiStudioClient(daemonClient);
 | `createAgent(req)` | `create_agent_request` RPC |
 | `agent(agentId)` | Scoped actions for an existing agent (`send`, `interrupt`, `update`, `resume`, `archive`, `delete`, `onUpdate`, `timeline.fetch`/`.subscribe`) |
 | `workspace(workspaceId)` | Scoped actions for a workspace |
-| `providers` | `listProviders()`, `listModels(provider)`, `listModes(provider)`, `refreshSnapshot()` |
+| `providers` | `listProviders()`, `listModels(provider)`, `refreshSnapshot()` |
 | `onAgentUpdate(handler)` / `onWorkspaceUpdate(handler)` | Subscribe to broadcasts across all agents/workspaces |
 | `connection` | Escape hatch back to the underlying `DaemonClient` |
 | `importAgentSession(daemon, args)` | Named export — resume a provider-native session by handle |

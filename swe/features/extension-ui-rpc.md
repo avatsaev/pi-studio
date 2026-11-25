@@ -3,7 +3,7 @@
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [tool-permissions.md](tool-permissions.md) (adjacent family — see § Relationship to
 > tool permissions), [agent-providers.md](agent-providers.md), [agent-sessions.md](agent-sessions.md),
-> [mcp-server.md](mcp-server.md), [preinstalled-extensions.md](preinstalled-extensions.md),
+> [preinstalled-extensions.md](preinstalled-extensions.md),
 > [../architecture/websocket-protocol.md](../architecture/websocket-protocol.md)
 
 ## Purpose
@@ -228,22 +228,6 @@ untouched.
 escape hatch (`messages.ts:258-305`) and it is timeline-persisted; UI requests are ephemeral,
 out-of-band, and must never enter the append-only timeline.
 
-### MCP mirror
-
-Following `list_pending_permissions` / `respond_to_permission` (`agent/mcp-server.ts:247-260`):
-
-| Tool | Params | Returns |
-|------|--------|---------|
-| `list_pending_ui_requests` | `{ agentId?: string }` | `{ ok: true, requests: AgentUiPendingRequest[] }` |
-| `respond_to_ui_request` | `{ requestId: string, response: AgentUiResponse }` | `{ ok: true }` \| `{ ok: false, error: "unknown_ui_request" }` |
-
-`requestId` here is the daemon-minted id, same as the WS wire. The error string differs from the WS
-side's `not_found` on purpose: each surface follows its own precedent — MCP's `unknown_permission`
-style vs. the WS payload-error style — rather than inventing a third convention.
-
-Rationale beyond symmetry: it lets a parent agent unblock a child agent's questionnaire, which is
-otherwise a deadlock in an orchestrated run (`subagents.md`).
-
 ### New/changed files
 
 | File | Responsibility |
@@ -257,7 +241,6 @@ otherwise a deadlock in an orchestrated run (`subagents.md`).
 | `packages/server/src/agent/agent-ui/agent-ui-service.ts` | Wire-id minting, pending map, surface retention/clearing, broadcast, first-wins resolution, lifecycle sweeps |
 | `packages/server/src/agent/agent-ui/agent-ui-rpc.ts` | `registerAgentUiHandlers(registry, deps)` — the established service+`-rpc` module pair (`registerProviderAuthHandlers` / `registerFileWatchHandlers`) |
 | `packages/server/src/agent/agent-manager.ts` | Optional `onSessionAttached(agentId, session)` hook invoked from `attachSession()` — the single choke point every spawn/resume/import path already funnels through (`agent-service.ts:104`, `:228`), so no per-call-site threading and no path can forget to attach. Archive/delete cleanup rides the manager's **existing** subscriber events (`agent_archived` / `agent_deleted`) |
-| `packages/server/src/agent/mcp-server.ts` | The two mirror tools |
 | `packages/server/src/daemon/bootstrap.ts` + `dev-bootstrap.ts` | Construct the service, wire it to the manager hook + subscriber, register handlers in **both** (see § Dev daemon) |
 
 ## Behavior & algorithms
@@ -387,7 +370,7 @@ AgentUiService:
 | Two agents' providers emit the same provider-scoped request id | No interference: wire ids are daemon-minted; provider ids are per-entry private state |
 | Provider lacks `respondToUi` | `{ ok:false, error:"unsupported" }` |
 | Provider's `respondToUi` throws (process died mid-answer) | `{ ok:true }` to the answering client, failure logged, `agent_ui_resolved` still broadcast (try/finally) — no ghost dialogs |
-| Client disconnects with a dialog pending | Dialog **stays pending**; another client (or MCP) answers it |
+| Client disconnects with a dialog pending | Dialog **stays pending**; another client answers it |
 | Agent interrupted | **Nothing happens**: pending dialogs and surfaces untouched (see § Behavior) |
 | Agent archived / deleted | Terminal sweep: every pending dialog answered `{ cancelled:true }` toward the provider best-effort, broadcast `reason:"aborted"`, pending + surfaces + channel dropped |
 | Forced respawn (`resume_agent` always spawns a fresh process) | `attach` sweeps first: old pending resolved `reason:"aborted"`, surfaces dropped (extensions re-emit them on `session_start` in the new process); stale ids answer `not_found` |
@@ -425,7 +408,6 @@ divergence from them, not an oversight.
 - `tool-permissions.md` — adjacent, deliberately separate family (§ Relationship above).
 - `preinstalled-extensions.md` — supplies the `core` pack extensions that produce this traffic and
   make the bridge observable end to end.
-- `mcp-server.md` — the two mirror tools.
 
 ## Acceptance criteria
 
@@ -476,8 +458,7 @@ divergence from them, not an oversight.
       exact-sorted-key-set assertion is updated (8 → 9 keys).
 - [ ] A session from a provider without `onUiRequest` produces no UI traffic and no errors; every
       spawn path (create, resume, import) attaches via the single `onSessionAttached` hook.
-- [ ] MCP `list_pending_ui_requests` / `respond_to_ui_request` resolve a dialog the same way the WS
-      RPC does, and report `unknown_ui_request` for a stale id.
+- [ ] A pending dialog resolved by one client is first-wins for every other client.
 - [ ] Live smoke test against a real `pi --mode rpc` with `@juicesharp/rpiv-ask-user-question`
       installed: the questionnaire's RPC fallback surfaces as `agent_ui_request`(s) over the socket
       and an answer sent over WS lets the tool call complete — proving the POC auto-cancel is gone in

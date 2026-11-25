@@ -1,8 +1,8 @@
 # `@av-pi-studio/server`
 
 The **Pi-Studio daemon** — the long-lived server process that runs on a developer's machine and is
-the heart of Pi-Studio. It supervises AI-agent processes, PTY terminals, git worktrees, projects,
-chat rooms, schedules, and loops, and exposes a single **WebSocket JSON+binary API** (plus a small
+the heart of Pi-Studio. It supervises AI-agent processes, PTY terminals, git worktrees, and projects,
+and exposes a single **WebSocket JSON+binary API** (plus a small
 HTTP surface) that every client — the CLI, the web UI, and future native apps — connects to.
 
 Your code never leaves your machine: the daemon runs locally, talks to the `pi` agent locally, and
@@ -39,10 +39,7 @@ A single daemon process owns all runtime state and mediates every operation:
   with screen-buffer snapshots so late subscribers see the current screen.
 - **Projects & git** — opens projects, tracks workspaces, runs git status/branch/diff/commit,
   manages worktrees, and integrates with the GitHub API for PRs/issues.
-- **Orchestration** — chat rooms with `@mentions`, cron/interval **schedules** that fire agent
-  prompts, and iterative worker+verifier **loops**.
 - **Files** — directory listing, text/binary file preview, and chunked file download by path (byte ranges, resume with `ifUnchanged`, cancel).
-- **Service proxy** — an HTTP reverse proxy that routes to localhost services started by agents.
 
 The daemon is **provider-agnostic**: the rest of the code only ever touches the `AgentClient` /
 `AgentSession` interfaces in `src/agent/provider-contract.ts`. Two providers ship today — the real
@@ -107,14 +104,14 @@ pi-studio daemon listening on http://127.0.0.1:6767
 
 By default the daemon:
 
-- listens on **`127.0.0.1:6767`** (loopback only). Override with `PI_STUDIO_LISTEN` or `config.json` `daemon.listen` (env wins); for LAN access use `0.0.0.0:6767` **together with `PI_STUDIO_PASSWORD`** — an unprotected non-loopback bind logs a warning
+- listens on **`127.0.0.1:6767`** (loopback only). Override with `PI_STUDIO_LISTEN` or `config.json` `daemon.listen` (env wins); for LAN access use `0.0.0.0:6767` **together with `PI_STUDIO_PASSWORD`** — a non-loopback bind without a password is **refused** (the daemon logs the reason, exits 1 and never listens)
 - (**Upgrade note:** earlier builds bound `0.0.0.0` by default. To keep LAN access set `PI_STUDIO_LISTEN=0.0.0.0:6767` or `daemon.listen`, together with `PI_STUDIO_PASSWORD`.)
 - stores all state under **`$PI_STUDIO_HOME`** (default **`~/.pi-studio`**)
 - writes logs to **`$PI_STUDIO_HOME/logs/`**
 - uses the **`pi`** provider
 
 It runs in the foreground; **Ctrl-C** (SIGINT) or SIGTERM triggers a clean shutdown that closes every
-live agent session (each limited to 5 s; a `pi` child is killed with its process tree), kills the
+live agent session (each limited to 7 s; a `pi` child is killed with its process tree), kills the
 terminals, closes the HTTP/WS servers and removes `pi-studio.pid`.
 
 ### Verify it's up
@@ -162,7 +159,7 @@ binaries need glibc 2.17 or newer; `git` must be on the machine for `skills add 
 
 `src/daemon/dev-main.ts` is a development entry that wires only a **minimal handler subset**
 (`dev-bootstrap.ts`: agent list/archive/delete, workspaces/projects listing, providers, file
-read/diff, schedule listing — no terminals, git ops, worktrees, chat, loops, or relay), the mock
+read/diff — no terminals, git ops, worktrees, or relay), the mock
 provider, and in-memory state, and binds `127.0.0.1:6767` (override with `PI_STUDIO_LISTEN`; non-loopback logs a no-auth warning) with developer-friendly defaults. From the root:
 
 ```bash
@@ -170,7 +167,7 @@ npm run dev:daemon
 ```
 
 > `bootstrap.ts` (production) registers the **full** RPC surface — agents, terminals, git/worktrees/
-> GitHub, files, service proxy, schedules/chat/loops, rewind, optional outbound relay — with the
+> GitHub, files, rewind, optional outbound relay — with the
 > real provider and disk persistence. `dev-bootstrap.ts` stays intentionally minimal for fast local
 > iteration and **must never grow to duplicate that surface**; `bootstrap.ts` must never import
 > `dev-bootstrap.ts` (the reverse — `dev-bootstrap.ts` importing one shared helper,
@@ -208,15 +205,13 @@ All optional.
 | `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`, then the default |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (comma-separated, or `true` to allow all) |
+| `PI_STUDIO_DEV_ALLOWED_ORIGINS` | _(empty)_ | Developer switch: comma-separated browser `Origin`s (exact scheme+host+port) the direct WebSocket port accepts; overrides `config.json` `daemon.devAllowedOrigins`. Any other `Origin` gets `403 Origin not allowed`; requests without an `Origin` (CLI, desktop) are unaffected. Logs a `warn` at start when non-empty |
 | `PI_STUDIO_SERVER_ID` | _(persisted/generated)_ | Stable server identity |
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into the outbound relay dial (env equivalent of `daemon.relay.enabled`; `1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay server to dial outbound to when `daemon.relay.enabled` (`host:port`) |
 | `PI_STUDIO_RELAY_USE_TLS` | `false` | Use `wss://` for the outbound relay dial (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Client-facing relay address, if different from the daemon's own dial target |
 | `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | `false` | TLS setting for the client-facing relay address (independent of the outbound dial) |
-| `PI_STUDIO_SERVICE_PROXY_LISTEN` | _(unset)_ | Service-proxy listen address |
-| `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL` | _(unset)_ | Public base URL advertised for proxied services |
-| `PI_STUDIO_SERVICE_PROXY_ENABLED` | _(unset)_ | Enable the service proxy (`1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — set to your own web-client URL for self-hosted/local pairing |
 | `PI_STUDIO_UPDATE_AUTOCHECK` | `true` | Daemon self-update checks (`daemon.update.autoCheck`): `false`/`0` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json` |
 | `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection and decides whether the daemon can update itself. The Docker image sets `docker`. The compiled single binary is detected as `binary` without it |
@@ -248,24 +243,19 @@ defaults and `.passthrough()` tolerance for unknown/future keys. Notable section
     "listen": "127.0.0.1:6767",
     "hostnames": ["localhost", "*.localhost"],
     "auth": { "password": "$2b$…bcrypt-hash…" },
-    "mcp": { "enabled": true, "injectIntoAgents": true },
-    "appendSystemPrompt": "",
-    "cors": { "allowedOrigins": [] },
-    "serviceProxy": { "enabled": false },
     "relay": { "enabled": false, "endpoint": "relay-host:7000", "useTls": false }
   },
   "agents": {
     "providers": {
       "pi": { "command": ["/abs/path/to/pi", "--mode", "rpc"] }
     }
-  },
-  "log": { "level": "info", "format": "json" }
+  }
 }
 ```
 
 To use a **different `pi` binary** than the bundled one, set
-`agents.providers.pi.command` to an absolute path as shown above. Custom Pi-compatible profiles can
-extend the `pi` provider via `"extends": "pi"` (a custom provider must also set a `label`).
+`agents.providers.pi.command` to an absolute path as shown above. `agents.providers` accepts only
+the `pi` key; any other key fails config load.
 
 **Relay (opt-in, off by default):** with `daemon.relay.enabled: true`, the daemon dials outbound
 to the `endpoint` (a self-hosted `@av-pi-studio/relay` server) after the WS server is up, so remote
@@ -321,17 +311,14 @@ size) first, then `Begin → Chunk* → End`; `file_download_cancel_request { st
 
 ### HTTP surface
 
-The HTTP server is intentionally minimal. Beyond liveness, its only application route in production
-is the **service proxy** (reverse proxy to localhost services started by agents).
+The HTTP server is intentionally minimal: it answers `GET /api/health` and nothing else.
 
 | Route | Auth | Purpose |
 |-------|------|---------|
 | `GET /api/health` | none | Liveness — `{ "status": "ok", "version": "<daemon version>" }` |
-| `OPTIONS *` | none | CORS preflight (`204`) |
-| _other paths_ | bearer | Delegated to the service proxy; `404` if unmatched |
+| _other paths_ | none | `404` (after the Host-allowlist check, `403` on mismatch) |
 
-The request pipeline: health + preflight are exempt; then Host-allowlist (`403` on mismatch), CORS
-headers, optional bearer auth (`401`), then application routes (`404` if unmatched).
+The response carries no CORS headers.
 
 The **schemas are the single source of truth** and are **append-only**: new fields are optional,
 types are never narrowed, and fields/discriminants are never removed — so an older daemon can always
@@ -358,7 +345,7 @@ surface the rest of the daemon depends on is `src/agent/provider-contract.ts`:
   stdin/stdout (`PiRpcTransport`).
 - `event-mapper.ts` maps raw Pi events (`assistant_message`, `tool_call`, `turn_completed`, …) into
   the normalized `AgentStreamEvent` stream.
-- Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
+- Discovers models via the top-level `get_available_models` RPC (no scratch session).
 - **Prompt images:** `startTurn` converts the wire shape `{ mimeType, data }` into Pi's
   `ImageContent` shape `{ type: "image", data, mimeType }` before the `prompt` RPC.
 - **Resuming a session** (`resumeSession`, used by the lazy resume-on-send path and by
@@ -381,7 +368,7 @@ All state lives under `$PI_STUDIO_HOME/`. Every write goes through `AtomicStore`
 (write-to-temp-then-rename) for crash safety.
 
 ```
-config.json                      Daemon config (password hash, provider overrides, relay, service proxy, …)
+config.json                      Daemon config (password hash, provider overrides, relay, …)
 pi-studio.pid                    PID of the running daemon (removed on a clean shutdown when it still names that process)
 update-result.json               Written by the update restart helper once the new daemon answers; read once and removed (`lastResult`), at the start or within 30 s after it
 server-id                        Stable server identity (plain UUID via randomUUID())
@@ -391,9 +378,6 @@ logs/update-restart.log            The update restart helper's own log
 agents/
   <sanitized-cwd>/
     <agentId>.json               Agent record (status, config, timeline seq, labels, …)
-chat/rooms.json                  Chat rooms + messages
-loops/loops.json                 ALL loop records (single queued-write file, NOT one file per loop)
-schedules/<scheduleId>.json      Schedule records
 projects/projects.json           Project registry
 projects/workspaces.json         Workspace registry
 ```
@@ -412,7 +396,6 @@ src/
     dev-main.ts         Dev entry: wires dev-bootstrap.ts (all features, LAN bind).
     bootstrap.ts        Production handler wiring (full RPC surface, real provider, disk state).
     dev-bootstrap.ts    Dev handler wiring (local testing only).
-    orchestration-rpc.ts
 
   agent/                Agent lifecycle, provider registry, timeline.
     agent-manager.ts    Single source of truth for agent state + FSM + persistence + broadcast.
@@ -429,10 +412,8 @@ src/
   config/               DaemonConfig (env + config.json merge) and per-project config.
   persistence/          Zod entity schemas, JSON stores, AtomicStore.
   terminal/             TerminalManager (PTY lifecycle, slot mux, snapshot, binary broadcast).
-  projects/             Workspaces, projects, git ops, worktrees, GitHub, reconciliation.
-  orchestration/        ChatService, ScheduleService, LoopService, cron.
+  projects/             Workspaces, projects, git ops, worktrees, GitHub.
   files/                File explorer + chunked download/upload transfer.
-  proxy/                ServiceProxy + port registry for agent-started services.
   logging/              Pino logger factory.
   util/                 Concurrency helpers.
 ```
@@ -445,8 +426,7 @@ config) goes through `updateRecord(id, patch)`, which persists but leaves broadc
 call site. Archiving soft-deletes (sets `archivedAt`). On startup, persisted records are
 rehydrated with no live session re-attached; any record still stuck at `running`/`initializing`
 (daemon killed mid-turn) is reconciled back to `idle` since neither status is valid without a
-session — `interrupt_agent` applies the same reconciliation as a second line of defense. `running`
-loops are recovered as `stopped` with an interruption log entry.
+session — `interrupt_agent` applies the same reconciliation as a second line of defense.
 
 For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package and the specs under
 [`swe/`](../../swe/).
@@ -463,8 +443,6 @@ For a deeper subsystem reference, see [`AGENTS.md`](AGENTS.md) in this package a
   `pi-studio-bearer.<base64(password)>` WS subprotocol. An unset password allows all connections
   (fine for a trusted localhost-only setup; set one before exposing the daemon beyond a trusted
   network).
-- **Service-proxy auth bypass is intentional** — the proxy route is deliberately not gated by
-  daemon password auth (per spec).
 - **RPC timeouts are operation-level**, never socket death — an `rpcTimeoutMs` expiry yields an
   `rpc_error`, it does not close or reconnect the WebSocket.
 

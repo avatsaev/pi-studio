@@ -28,10 +28,10 @@ client → ui-library → workbench → server → web-client → ui-gallery →
 
 `web-client` is built by Vite (`build:web`, one `dist/web` target) on top of `tsc -b`. It does **not**
 consume the workbench's or ui-library's built `dist`: `vite.config.ts` and the root `vitest.config.ts`
-alias them to their sources (fast HMR, no library build needed to run dev or tests), so the published
-`dist` is proven separately by `packages/workbench/scripts/pack-smoke.sh` (a packed-tarball consumer
-outside the workspace). The desktop client is a Tauri app in a separate repository and is outside this
-build; it consumes the published `@av-pi-studio/workbench`.
+alias them to their sources (fast HMR, no library build needed to run dev or tests), so their built
+`dist` is not consumed by web-client. `workbench`, `ui-library` and `web-client` are private workspace
+packages (never published to npm; only protocol, relay, client, server and cli are). The desktop client
+(`desktop/`) is outside this build; it also aliases workbench and ui-library to their sources.
 
 ## Scripts (root `package.json`)
 

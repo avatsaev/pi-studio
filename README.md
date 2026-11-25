@@ -10,7 +10,6 @@ Your code never leaves your machine.
 npm install -g @av-pi-studio/cli
 
 pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
-pi-studio ui             # serve the browser UI, connected to that daemon
 ```
 
 **The desktop app needs none of this.** On macOS and Linux it downloads its own `pi-studio` daemon the first
@@ -38,9 +37,6 @@ pi-studio auth login
 # start a local daemon (if one isn't already running) and print a pairing QR code
 pi-studio daemon start
 
-# open the full browser UI, pointed at that daemon
-pi-studio ui
-
 # ...or stay in the terminal: run an agent, list it, attach to stream live output
 pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
 pi-studio agent ls
@@ -56,14 +52,8 @@ group, global option, and the library API.
 
 ## The web UI
 
-`pi-studio ui` serves the production browser UI — a three-column workspace (sessions on the left,
-chat/terminal/code in the middle, files and git changes on the right) — as a static site, with no
-separate install or build step. Point it at any daemon, local or remote:
-
-```bash
-pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
-pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
-```
+The browser UI is not served by the CLI; use the desktop app or the hosted web client, which reach
+your daemon through the relay.
 
 Every tool call an agent makes (read/edit/write/shell) renders as its own card, with live diff
 stats, right in the chat — that's the screenshot above. Review what it changed without leaving the
@@ -100,7 +90,7 @@ All are optional.
 | Variable                   | Default                 | Purpose                                                   |
 | -------------------------- | ----------------------- | --------------------------------------------------------- |
 | `PI_STUDIO_HOME`           | `~/.pi-studio`          | State + config + logs directory                           |
-| `PI_STUDIO_LISTEN`         | `127.0.0.1:6767`        | Daemon listen address (`host:port`); also `config.json` `daemon.listen`. Use `0.0.0.0:6767` + `PI_STUDIO_PASSWORD` for LAN access |
+| `PI_STUDIO_LISTEN`         | `127.0.0.1:6767`        | Daemon listen address (`host:port`); also `config.json` `daemon.listen`. Use `0.0.0.0:6767` + `PI_STUDIO_PASSWORD` for LAN access (a non-loopback bind without a password is refused) |
 | `PI_STUDIO_PASSWORD`       | _(unset)_               | Require this password for connections (bcrypt-checked)    |
 | `PI_STUDIO_HOSTNAMES`      | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
 | `PI_STUDIO_SERVER_ID`      | _(generated UUID)_      | Stable server identity                                    |
@@ -239,11 +229,12 @@ All build from local monorepo source.
 
 ```bash
 cd docker
-docker compose up --build   # relay :7000 + daemon :6767 + web UI :8080, daemon dials the relay
+PI_STUDIO_PASSWORD=choose-a-password docker compose up --build   # relay :7000 + daemon :6767 + web UI :8080; the password is required
 ```
 
-Then open the UI at <http://localhost:8080> and enter the daemon URL (`http://localhost:6767`) in
-the toolbar, or drive it from the CLI: `pi-studio --host http://localhost:6767 ls`. Mount your
+Then drive it from the CLI: `pi-studio --host http://localhost:6767 --password "$PI_STUDIO_PASSWORD" ls`.
+The web UI connects through the relay only, with a pairing link (see [`docker/README.md`](docker/README.md)
+for generating one). Mount your
 projects at `/workspace` (`PI_STUDIO_PROJECTS=/abs/path`), persist state in the `/data` volume, and
 supply pi credentials via `ANTHROPIC_API_KEY` or a mounted `auth.json`. See
 [`docker/README.md`](docker/README.md) for the full env/volume/auth/security matrix.

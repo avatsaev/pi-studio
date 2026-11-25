@@ -3,28 +3,33 @@
  * page-level resume signals.
  */
 
-import {
-  createRelayTransport,
-  createWebSocketTransport,
-  type Transport,
-} from "@av-pi-studio/client";
+import { createRelayTransport, type Transport } from "@av-pi-studio/client";
 import { createWorkerTimers } from "./browser-worker-timers.js";
 import { type ConnectTarget, type HostConnection } from "./types.js";
 
-/** Relay transport for a relay-routed pairing link, a bearer-subprotocol socket when a password is
- *  set, otherwise the SDK's default socket. */
+/** What the browser host says to a target it will not dial. */
+export const LITE_REFUSAL =
+  "Pi Studio Lite connects with a pairing link. Use the desktop app to connect to a daemon directly.";
+
+/**
+ * Relay transport for a relay-routed pairing link. Anything else is refused, except the developer
+ * switch: `devDirectUrl` (the page's same-origin `/daemon-ws` proxy) is dialed with the SDK's
+ * default socket. The bearer subprotocol is never offered.
+ */
 export function createBrowserTransport(
   target: ConnectTarget,
-  options: { password?: string },
+  devDirectUrl?: string,
 ): Transport | undefined {
   if (target.mode === "relay") {
     return createRelayTransport({ daemonPublicKey: target.daemonPublicKey });
   }
-  if (options.password) {
-    const protocol = `pi-studio.bearer.${options.password}`;
-    return createWebSocketTransport((url) => new WebSocket(url, [protocol]) as unknown as never);
-  }
-  return undefined;
+  if (devDirectUrl !== undefined && target.url === devDirectUrl) return undefined;
+  throw new Error(LITE_REFUSAL);
+}
+
+/** The page's same-origin `/daemon-ws` URL (`ws://` or `wss://`). */
+export function sameOriginDaemonUrl(location: { protocol: string; host: string }): string {
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/daemon-ws`;
 }
 
 /** `visibilitychange` (hidden → visible only) and `online`. Returns the unsubscribe. */
@@ -40,9 +45,10 @@ function onBrowserResume(listener: () => void): () => void {
   };
 }
 
-export function createBrowserConnection(): HostConnection {
+export function createBrowserConnection(options: { devDirect?: boolean } = {}): HostConnection {
+  const devDirectUrl = options.devDirect ? sameOriginDaemonUrl(window.location) : undefined;
   return {
-    createTransport: createBrowserTransport,
+    createTransport: (target) => createBrowserTransport(target, devDirectUrl),
     // Worker-backed timers keep backoff accurate in a hidden, throttled tab (sprint-050); they fall
     // back to plain `setTimeout` when a Worker cannot be built.
     timers: createWorkerTimers(),

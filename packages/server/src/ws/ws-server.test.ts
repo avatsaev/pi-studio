@@ -279,3 +279,49 @@ describe("Session connection metadata (sprint-084/task-003)", () => {
     ws2.close();
   });
 });
+
+function upgradeStatus(port: number, headers?: Record<string, string>): Promise<number> {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers });
+  return new Promise((resolve) => {
+    ws.once("open", () => {
+      ws.close();
+      resolve(101);
+    });
+    ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
+    ws.once("error", () => undefined);
+  });
+}
+
+describe("upgrade Origin policy", () => {
+  it("refuses a foreign Origin with 403 and creates no session", async () => {
+    const { port, sessions } = await startServer();
+    expect(await upgradeStatus(port, { Origin: "https://evil.example" })).toBe(403);
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("accepts an upgrade with no Origin", async () => {
+    const { port } = await startServer();
+    expect(await upgradeStatus(port)).toBe(101);
+  });
+
+  it("accepts an allowlisted Origin (exact match only)", async () => {
+    const { port } = await startServer({ allowedOrigins: ["http://localhost:5173"] });
+    expect(await upgradeStatus(port, { Origin: "http://localhost:5173" })).toBe(101);
+    expect(await upgradeStatus(port, { Origin: "http://localhost:5174" })).toBe(403);
+    expect(await upgradeStatus(port, { Origin: "https://localhost:5173" })).toBe(403);
+  });
+
+  it("still enforces the Host check and the password for an allowed Origin", async () => {
+    const { port } = await startServer({
+      allowedOrigins: ["http://localhost:5173"],
+      hostCheck: () => false,
+    });
+    expect(await upgradeStatus(port, { Origin: "http://localhost:5173" })).toBe(403);
+    const authed = await startServer({
+      allowedOrigins: ["http://localhost:5173"],
+      auth: { authenticateUpgrade: () => false } as never,
+    });
+    expect(await upgradeStatus(authed.port, { Origin: "http://localhost:5173" })).toBe(401);
+    expect(await upgradeStatus(authed.port)).toBe(401);
+  });
+});

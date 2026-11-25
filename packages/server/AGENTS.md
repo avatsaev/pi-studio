@@ -1,8 +1,8 @@
 # `@av-pi-studio/server` — AGENTS.md
 
 The Pi-Studio **daemon**. Manages agent processes, PTY terminals, git worktrees, projects,
-chat rooms, schedules, loops, file transfer, and a service proxy.
-Exposes a WebSocket JSON+binary API and an HTTP health/download endpoint.
+and file transfer.
+Exposes a WebSocket JSON+binary API and an HTTP health endpoint.
 
 ---
 
@@ -40,7 +40,7 @@ src/
                                    `false` when undefined), `piCommand(args)` / `skillsCommand(args)`
                                    (`null` on Node when the package is not installed), `daemonCommand(opts,
                                    resolveServerUrl)` / `relayCommand(opts, resolveRelayUrl)`,
-                                   `helperCommand(params, script)`, `assetsDir()`, `webDist(resolveNodeDist)`.
+                                   `helperCommand(params, script)`, `assetsDir()`.
                                    Node: exactly the argv each site built before; binary:
                                    `[execPath, "__pi" | "__skills" | "__daemon" | "__relay" |
                                    "__update-helper", …]` (`SUBCOMMAND`). Every function takes a trailing
@@ -118,12 +118,12 @@ src/
     run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
     binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
-    loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
+    loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
-                                   projects/git/worktrees/GitHub, terminals, files, service proxy,
-                                   schedules/chat/loops, provider auth, optional outbound relay).
+                                   projects/git/worktrees/GitHub, terminals, files,
+                                   provider auth, optional outbound relay).
                                    `close()` is memoized (a second call returns the first's
-                                   promise): agent sessions (`manager.closeAll()`, 5 s each), PTYs,
+                                   promise): agent sessions (`manager.closeAll()`, 7 s each), PTYs,
                                    file watchers, status/log services, relay, sockets, http server,
                                    then `pi-studio.pid` is removed only when it still holds this
                                    process's PID. shutdown.test.ts covers it.
@@ -135,8 +135,6 @@ src/
                                    (`PI_STUDIO_DEV_UPDATE`, see "Daemon update service");
                                    `close()` closes every live agent session, then
                                    kills every PTY.
-    orchestration-rpc.ts          registerOrchestrationHandlers — schedules/chat/loops RPC surface
-                                   wired onto the real disk-backed services (bootstrap.ts only).
     relay-transport.ts            connectRelay(keypair, config, { onConnection, logger, limits?,
                                    random?, timers? }) — keeps ONE control socket registered with
                                    protocol 2 (`relay_daemon_register`; 10 s registration answer,
@@ -159,13 +157,22 @@ src/
   agent/                          Agent lifecycle, provider registry, session operations.
     agent-manager.ts              AgentManager — in-memory state + persistence + broadcast;
                                    closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS) closes every live
-                                   session at shutdown (see Agent subsystem).
+                                   session at shutdown (see Agent subsystem); spawnOnce(id, fn)
+                                   memoizes one in-flight spawn per agent. `manager.timelines` (a
+                                   `TimelineRegistry`) holds every agent's in-memory timeline
+                                   store; `archiveAgent` (after the session closes) and
+                                   `deleteAgent` (as the agent leaves memory), cascades included,
+                                   evict the agent's store (sprint-150/task-004). No idle eviction:
+                                   a rebuild restarts numbering, which would make an open tab drop
+                                   live events it already has.
     agent-service.ts              AgentService — RPC handler wiring for agent operations;
-                                   resetTimeline(agentId, rows) (sprint-071/task-002) —
+                                   ensureSession / spawnOrResumeSession — the one spawn path;
+                                   `manager.timelines.reset(agentId, rows)` (sprint-071/task-002) —
                                    unconditionally replaces an agent's in-memory timeline (unlike
-                                   seedTimeline, which no-ops once a store exists) — the entry
+                                   `seed`, which no-ops once a store exists) — the entry
                                    point `handleFork`'s post-fork resync installs the hydrated
-                                   forked branch through. appendStreamEvent(agentId, event,
+                                   forked branch through (skipped for an archived agent).
+                                   appendStreamEvent(agentId, timeline, event,
                                    broadcast, sessions) (sprint-074) — the one append-to-timeline +
                                    `agent_stream` broadcast path, used by `runTurn` and by any
                                    operation that subscribes outside a turn (compaction). Ephemeral
@@ -173,8 +180,24 @@ src/
                                    `queue_update` are broadcast with a daemon `timestamp`, no `seq`,
                                    and are never appended to the timeline (so never fetched);
                                    ensureTimelineSeeded(agentId, manager, resolveClient) — seeds a
-                                   store-less agent from `hydrateTimeline` (used by
-                                   `timeline-rpc.ts` and `handleCompact`).
+                                   store-less agent from `hydrateTimeline`;
+                                   timelineFor({manager, resolveClient}, agentId) (sprint-150/task-001)
+                                   — the one way to get a store to append to: seeds first, then
+                                   get-or-create (used by `runTurn` and `handleCompact`;
+                                   `timeline-rpc.ts` seeds via `ensureTimelineSeeded`), so a send
+                                   before any fetch after a restart keeps the history. Throws for
+                                   an agent that is gone or archived (sprint-150/task-004), so an
+                                   operation racing an archive or delete cannot bring the evicted
+                                   store back; a turn still ending appends to the store object it
+                                   holds, which nothing registers again. A fetch for an archived
+                                   agent still rebuilds from the Pi file (`ensureTimelineSeeded`).
+    timeline-registry.ts          TimelineRegistry — the per-manager map of agentId ->
+                                   AgentTimelineStore: get / getOrCreate / seed (no-op if present) /
+                                   reset / evict / size (sprint-150/task-004). Replaces the old
+                                   module-global map in agent-service.ts. The agent record no longer
+                                   has a `timeline` field (an old file that has one still loads: the
+                                   schema is `.passthrough()`), and `ImportSessionResult` has no
+                                   `timeline`.
     inline-image-instructions.ts  INLINE_IMAGE_INSTRUCTIONS — the short agent-facing instruction
                                    for markdown image rendering (task-006, sprint-045); bound at
                                    spawn time only (see its own header comment for the accepted
@@ -213,7 +236,6 @@ src/
     provider-registry.ts          ProviderRegistry — register/lookup AgentClient by provider id;
                                    re-exports pi-home.ts's resolvePiAgentDir for its existing
                                    import surface (provider-registry.test.ts's path-parity tests).
-    provider-snapshot.ts          ProviderSnapshot — cached models/modes/features per provider.
     session-operations.ts         Helpers: interrupt, steer/follow-up, update, resume, import.
     slash-command-operations.ts   SlashCommandOperationsService — RPCs for Pi built-in slash
                                    commands with a real Pi RPC equivalent (/session, /compact,
@@ -227,13 +249,32 @@ src/
                                    broadcasts `agent_timeline_reset` to every active session
                                    whenever the fork's persistence handle actually changed — see
                                    "Fork resync" below.
-    timeline-store.ts             TimelineStore — append/page/cursor the agent event log;
+    timeline-store.ts             TimelineStore — append/page/cursor the agent event log.
+                                   One row per message, not per chunk (sprint-150/task-003):
+                                   CONSECUTIVE `assistant_message`/`reasoning` events of one kind
+                                   (and `messageId`) in one epoch merge on `append` into the last
+                                   row (text grows in place via a NEW event object — the broadcast
+                                   one is never mutated; a `final` chunk seals the row). Every
+                                   other event is one row. `seq` stays per event (each chunk takes
+                                   the next number; `append` returns that event's own
+                                   `{epoch, seq, timestamp}`), a row covers `seq..seqEnd`.
+                                   Cursors stay the base-10 string of a seq: `after c` → rows with
+                                   `seqEnd > c`, `before c` → rows with `seq < c`, a row
+                                   straddling `c` comes back whole; a page's `seqStart`/`seqEnd`
+                                   are the lowest `seq` / highest `seqEnd` of its rows (so the
+                                   workbench's `fetchedThrough` rule holds). An assistant item's
+                                   `events` hold one merged event per row. A fetch during streaming
+                                   returns the text so far. Rows from hydration/fork are one event
+                                   each (`seqEnd === seq`).
                                    replaceRows(rows) (sprint-071/task-002) unconditionally
                                    replaces the row set for a fork resync, continuing epoch/seq
                                    numbering from the installed rows' maximum. The former
                                    truncateBeforeMessage (the dead rewind RPC's only caller) was
                                    removed in sprint-071/task-001.
-    timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded).
+    timeline-rpc.ts               fetch_agent_timeline handler (seeds via ensureTimelineSeeded);
+                                   rejects a `direction` other than `before`/`after` (absent =
+                                   `after`). `timeline-store-equivalence.test.ts` pins the merged
+                                   store against the per-chunk reference kept in the test.
     agent-ui/                     Extension UI bridge (sprint-066, swe/features/extension-ui-rpc.md)
                                    — see "Extension UI" below.
       agent-ui-service.ts         AgentUiService — wire-id minting, pending dialogs, retained
@@ -257,10 +298,6 @@ src/
                                    `createAgentTitleGenerator(paths, configuredCandidates)` — the
                                    one concrete `StructuredGenerationProvider` implementation,
                                    `ModelRuntime`-backed. See "Agent title generation" below.
-    mcp-server.ts                 MCP server bridge — `McpBackend` includes
-                                   `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005,
-                                   see "Extension UI" below); no live `/mcp/agents` HTTP endpoint or
-                                   real backend is wired into either bootstrap (pre-existing gap).
     index.ts
     providers/
       pi/
@@ -276,7 +313,8 @@ src/
                                    `tool_call` throttle for `PiAgentSession.emit()`; exports
                                    PARTIAL_MIN_INTERVAL_MS (200) and PARTIAL_OUTPUT_CAP_BYTES
                                    (65536); injected clock/timers for tests.
-        rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout).
+        rpc-transport.ts          Spawn + JSONL RPC transport (stdin/stdout): per-request timeouts,
+                                   `close()` SIGTERM→SIGKILL, UTF-8 decoding across chunks.
         session-hydration.ts      hydrateTimelineFromSessionFile — rebuild a timeline by reading
                                    Pi's own on-disk JSONL session file (no live process needed);
                                    `readTodosFromSessionFile` (throws on an unreadable file).
@@ -321,7 +359,7 @@ src/
     index.ts
 
   http/
-    http-server.ts                HTTP server: /api/health, Host-allowlist, CORS, optional bearer auth, and an `onRequest` delegate (wired to the service proxy).
+    http-server.ts                HTTP server: `/api/health` and the Host allowlist; everything else is 404.
     host-allowlist.ts             Host header validation (prevents DNS rebinding).
     index.ts
 
@@ -428,7 +466,6 @@ src/
     git-detect.ts                 Detect git root + remote from a cwd.
     worktree-service.ts           Git worktree create/list/delete.
     workspace-git-service.ts      WorkspaceGitService — git RPCs for a workspace.
-    workspace-activity.ts         Workspace activity tracking (last-used timestamps).
     git-checkout-rpc.ts           Git checkout RPC handlers.
     github-service.ts             GitHub API integration (PRs, issues).
     checkout-diff-manager.ts      Manages diff snapshots for checkout review.
@@ -437,14 +474,6 @@ src/
                                   `!` lines populate the projection's `ignored[]` (a wholly
                                   ignored directory collapses to one `dir/` entry — `=matching`
                                   would walk node_modules and emit six figures of output).
-    reconciliation.ts             Project/workspace reconciliation on startup.
-    index.ts
-
-  orchestration/
-    chat-service.ts               ChatService — rooms, messages, @mentions, cursor-based reads.
-    loop-service.ts               LoopService — iterative worker+verifier agent loops.
-    schedule-service.ts           ScheduleService — cron/interval schedules firing agent prompts.
-    cron.ts                       Cron/interval next-fire-time computation.
     index.ts
 
   files/
@@ -671,12 +700,6 @@ src/
                                     `remove({packageSource})` matches the request on its
                                     redacted form and spawns with the REAL settings entry.
 
-  proxy/
-    service-proxy.ts              ServiceProxy — HTTP reverse proxy to localhost agent services.
-    service-port-registry.ts      ServicePortRegistry — register/lookup agent service ports.
-    service-hostname.ts           Hostname derivation for service routes.
-    index.ts
-
   logging/
     logger.ts                     Pino logger factory (stdout pretty + rotating NDJSON file; optional `tap`).
     log-tap.ts                    `LogTap`: pino destination -> sanitised, 8 KiB-capped 1000-line ring + live listeners.
@@ -706,8 +729,7 @@ src/
 6. Routes subsequent frames to `deps.onMessage(session, frame)`.
 
 `HandlerRegistry` (`router.ts`):
-- `register(type, handler)` — register a handler for a canonical dotted message type.
-- `registerAlias(alias, canonical)` — map legacy flat names to canonical names.
+- `register(type, handler)` — register a handler for a message type.
 - A handler that throws yields a correlated `rpc_error` back to the sender.
 - `ctx.afterReply(fn)` (handler context, sprint-097): `fn` runs after the router has sent the
   handler's reply (also when that send threw; never when the handler threw; a throwing `fn` is only
@@ -736,14 +758,51 @@ src/
   rename, fixed by routing both rename RPCs through `updateRecord`).
 - Every status transition and every `updateRecord` call persists the record to disk.
 - Archives (`agent_archived`) soft-delete by setting `archivedAt`.
-- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* 5000 */)` is the daemon-shutdown seam: every live
+- A session whose runtime ends on its own (`AgentSession.onExit`) is detached at once
+  (`managed.session = null`, status `error`, `warn` "agent session ended on its own; detached");
+  the next prompt resumes it. `archiveAgent`, `deleteAgent` and `closeAll` close silently: no
+  `onExit`, no `turn_failed`.
+- **One Pi process per agent** (sprint-149 task 004). `spawnOrResumeSession` goes through
+  `AgentManager.spawnOnce(id, fn)`, a memoized in-flight promise per agent: a caller that arrives
+  while a spawn runs awaits it (send, list commands, fork messages, fork, clone, compact,
+  resume). `ensureSession(deps, agentId)` (`agent-service.ts`) is the one "attached session or
+  spawn" entry point every one of those callers uses; `handleCreate`'s eager path spawns through
+  `spawnOnce` too. `attachSession` closes the session it replaces (`handleResume` deliberately
+  forces a fresh process; the old one is closed, a failure is logged). A spawn that fails after
+  the process started closes it: `resumeSession` on a failed `switch_session`, and
+  `spawnSession` on a failed model/thinking replay or when the agent was archived or deleted
+  meanwhile. **Archive and delete mid-turn**: both interrupt a `running` turn first
+  (`interruptRunningTurn`), then close the session; `close()` ends a running turn as
+  `turn_canceled`, so `run()` and the send RPC resolve. `archiveAgent` has already set status
+  `closed`, `deleteAgent` removes the agent from memory before it closes the session, so
+  `runTurn` finds a closed or missing agent and returns (`info` "turn ended: agent closed")
+  without a status write, a rethrow or an error log. Tests: `agent/one-process-per-agent.test.ts`.
+- **One turn, compaction or session operation at a time per agent** (sprint-149 task 003):
+  `runExclusive(id, kind, fn)` holds an in-memory claim (`turn` | `compaction` | `session`) while
+  `fn` runs and throws `busy: agent <id> is running | is compacting | is changing its session` for
+  any second claim, before it spawns, subscribes or touches the timeline (the router answers
+  `rpc_error` / `handler_error`; the CLI prints `error: busy: …`). Claimed by `handleSendPrompt`
+  (before its spawn/resume, so two concurrent sends cannot both start a turn and double every
+  event) and `handleCreate`'s eager path, `handleCompact`, and the session operations that replace
+  or fork the provider session: `handleNewSession`, `handleSwitchSession`, `handleFork`,
+  `handleClone`, `handleResume`. Not claimed: steer/follow-up (they target the running turn),
+  interrupt, model and thinking-level changes (`handleSetModel`, `handleSetThinking`,
+  `handleCycleModel`; Pi applies them to the next turn), and reads. `runTurn` itself does not claim
+  (tests call it directly). The workbench sends only when idle and steers while running
+  (`Composer.tsx`), so it only sees `busy` in a race; the composer's catch marks the optimistic row
+  failed. `SessionOperationsService.handleUpdate` merges title, labels and config into the record
+  after its awaits (it re-reads the record), so a concurrent model or thinking-level change is not
+  written back over. Tests: `agent/one-turn-at-a-time.test.ts`, `agent-manager.test.ts`.
+- `closeAll(timeoutMs = AGENT_CLOSE_TIMEOUT_MS /* PI_KILL_GRACE_MS + 2 s */)` is the daemon-shutdown seam: every live
   session (`managed.session !== null`) is closed at once, each raced against `timeoutMs`; a close
   that throws, rejects or never resolves is logged (`warn`, "closing agent session failed on
   shutdown") and never holds the others back. Each agent's `session` is cleared first, so a second
   call is a no-op. Records are untouched (no status write, no broadcast): an agent resumes its
   provider session at the next prompt, as after any restart. The manager holds no pid: the
-  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM before it
-  resolves); the limit only bounds a provider whose `close()` hangs. Called by
+  process-tree kill is the provider's `close()` (the Pi transport tree-kills with SIGTERM, then
+  SIGKILLs after its `PI_KILL_GRACE_MS` grace, and resolves once the process has exited); the limit
+  is that grace plus a 2 s margin, so a Pi that ignores SIGTERM is SIGKILLed before the manager
+  gives up, and it only bounds a provider whose `close()` hangs. Called by
   `startDaemon().close()` and `startDevDaemon().close()`.
 - On startup, `recover()` rehydrates every persisted record with no live session attached, and
   normalizes any record still stuck at `running`/`initializing` (daemon killed mid-turn) back to
@@ -759,7 +818,7 @@ src/
   and `record.persistence` stays unset. Backs the web-client's "New chat" tab materializing into a
   real, restorable draft — surviving reload/reconnect — without paying for a `pi` process or a
   Pi-owned JSONL session file until the user actually sends. Every other caller of this RPC (CLI
-  `run`, the MCP `create_agent` tool, `ScheduleService`, `LoopService`) always passes
+  `run`) always passes
   `initialPrompt`, so eager creation is unaffected. `spawnOrResumeSession` (`agent-service.ts`,
   shared by `AgentService.handleSendPrompt` and `SessionOperationsService.handleResume`) is the
   single place that turns a record into a live session: `resumeSession` from `record.persistence`
@@ -845,7 +904,7 @@ src/
   `undefined` staying `undefined`). `effectiveConfig` (not the raw `config`) is what both the
   persisted `AgentRecord.config` AND the eager-spawn path's `client.createSession(...)` call use, so
   a same-turn immediate spawn and a later `spawnOrResumeSession` replay both see the composed value.
-  No `wsSession` (every CLI/MCP/scheduled-agent caller — none of them has a `Session` at hand) →
+  No `wsSession` (every CLI caller — none of them has a `Session` at hand) →
   every flag check returns `false` → `effectiveConfig.systemPrompt === config.systemPrompt`,
   untouched. Task-005 (below) is what makes the composed value survive a daemon restart:
   `spawnOrResumeSession` passes `record.config.systemPrompt` as `overrides.systemPrompt`, and
@@ -918,7 +977,7 @@ creation" above.
   timeline row so history shows it; `ok:false` when there is no live session.
 - `AgentSession.close()` — shut down the session.
 - `AgentSession.update(patch)` — change model/mode/features without recreating.
-- `AgentSession.importSession(args)` / `AgentClient.listImportableeSessions()` — resume a
+- `AgentSession.importSession(args)` / `AgentClient.importSession(args)` — resume a
   provider-native session by its handle.
 - **`RunOptions.images`** (`RunOptions`/`StartTurnOptions`) carries `ImageAttachment[]` (the
   protocol wire shape `{ mimeType?, data? }`, base64 data). The provider is responsible for
@@ -941,14 +1000,15 @@ creation" above.
   (sprint-074; today: `handleCompact`). `AgentService.runTurn` holds the only standing
   `session.subscribe`, and the Pi adapter's `emit` reaches subscribers only, so an event emitted
   while no turn runs is otherwise dropped. `SlashCommandOperationsService.handleCompact`:
-  (1) rejects with `busy: …` when `record.lastStatus === "running"` or the agent is in the
-  module-local `compactionsInFlight` set — Pi's `compact()` starts with `abort()`, so compacting
-  mid-turn would kill the run and a second compact would cancel the first (a deliberate CLI-visible
-  change: `pi-studio agent compact` on a running agent now errors); (2) adds the id to the set,
-  released in a `finally` covering every later step; (3) resumes a process-less record through
+  (1) rejects with `busy: …` through `AgentManager.runExclusive(id, "compaction", …)` when a turn,
+  a compaction or a session operation holds the agent — Pi's `compact()` starts with `abort()`, so
+  compacting mid-turn would kill the run and a second compact would cancel the first (a deliberate
+  CLI-visible change: `pi-studio agent compact` on a running agent errors); (2) the claim is held
+  until every later step has finished, and also refuses a send meanwhile; (3) resumes a
+  process-less record through
   `spawnOrResumeSession` (every record after a daemon restart) instead of failing with
-  `has no live session`; (4) `ensureTimelineSeeded` BEFORE the first append, because the first
-  append would otherwise create an empty store that `seedTimeline` never overwrites; (5) holds a
+  `has no live session`; (4) `timelineFor` BEFORE the first append (seeds history from the provider;
+  an unseeded first append would create an empty store that `seedTimeline` never overwrites); (5) holds a
   subscription for the duration of `compact()` and forwards only `kind === "compaction"` events
   through `appendStreamEvent`; (6) if `compact()` rejects after a `started` event with no terminal
   seen, records and broadcasts a synthetic `failed` with the same `compactionId`. Status is never
@@ -964,7 +1024,7 @@ creation" above.
   set disjoint from the built-in slash commands above (Pi's own structured RPCs are never returned
   by `get_commands`). Wired as `agent_list_commands_request`/`_response` by
   `slash-command-operations.ts`'s `handleListCommands`; unlike every other handler in that file it
-  lazily spawns/resumes (`spawnOrResumeSession`, same as `AgentService.handleSendPrompt`) instead
+  lazily spawns/resumes (`ensureSession`, same as `AgentService.handleSendPrompt`) instead
   of requiring an already-live `managed.session` — the web-client's `/` picker must work on a
   never-sent "New chat" draft, which otherwise has no process yet. `AgentCommandDefinition` carries
   `name` (required), optional `id`/`label`/`description`/`source`
@@ -1005,18 +1065,44 @@ creation" above.
   the daemon log (`pi process exited non-zero` / `… with commands in flight`) and the `error`
   stream event's `message` on a crash — a non-zero/signal exit with no stderr output surfaces as
   a bare exit-code message instead.
-- **A dead Pi process ends the turn with its error.** A non-zero exit with nothing in flight that
-  `close()` did not ask for also fails the transport (a turn's `prompt` is a `notify`, so nothing is
-  waiting for an answer). `PiAgentSession` keeps the transport's `error` frame (`processFailure`;
-  only the transport emits that frame, only once the process is gone): `run()` ends a turn at once
-  with an `error` stream event when the process died before it (the frame went out while nobody
-  listened: Pi exits at start-up when an extension fails to load and its stderr names it), and ends
-  one in flight when the process dies. `runTurn` then settles the agent as `error` with the message
-  on the timeline, and `create_agent` answers instead of timing out; before, the agent stayed
-  `running` forever and the stderr reached only the daemon log (found by the binary's live check,
-  `docs/binary-live-results.md`). The dead session answers every later prompt the same way until
-  `agent reload` respawns it. Tests: `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi
-  process ends the turn").
+- **Requests to Pi time out; a closed Pi is really stopped** (sprint-149/task-002).
+  `createProcessTransport(spawnArgs, {requestTimeoutMs, longRequestTimeoutMs, killGraceMs})`
+  (defaults `PI_REQUEST_TIMEOUT_MS` 60 s, `PI_LONG_REQUEST_TIMEOUT_MS` 10 min, `PI_KILL_GRACE_MS`
+  5 s). A request unanswered after its timeout rejects with `pi request '<command>' timed out
+  after <n> ms` and logs `warn` "pi request timed out"; the process is left running and a late
+  answer is dropped. `compact` (the SDK's `COMPACT_TIMEOUT_MS` is the same 10 min) and the
+  correlated slash `prompt` (Pi acks it only after an extension command ran inline) use the long
+  bound. `close()` rejects what is pending (later requests reject too), tree-kills with SIGTERM,
+  SIGKILLs the tree if the process has not exited when the grace ends (`warn` "pi process ignored
+  SIGTERM; sending SIGKILL") and resolves when the process has exited; memoized. `PiAgentClient`'s
+  `topLevel` (model listing, default-model resolution) closes its transient process in `finally`,
+  so a timeout reaps it. stdout/stderr are decoded with `setEncoding("utf8")`, so a multibyte
+  character split across chunks arrives intact. Tests: `rpc-transport.test.ts` (fake timers for
+  the timeout; real child scripts for SIGKILL and the split character).
+- **A Pi process that ends on its own ends its turn and is replaced at the next message**
+  (sprint-149/task-001). The transport's `exit` handler fails it on *any* exit that `close()` did
+  not ask for — non-zero, a signal (`code` null, e.g. the OOM killer's SIGKILL) or an unrequested
+  exit 0 — rejecting what is pending and emitting one `error` frame with the exit status and stderr
+  (a turn's `prompt` is a `notify`, so nothing is pending during a turn). A requested exit only
+  rejects what is pending, with no frame. `PiAgentSession.handleProcessExit` takes that frame (only
+  the transport emits it, only once the process is gone; the first one counts) and records
+  `processFailure`. If `run()` is in flight it emits `turn_failed{error}` — the terminal the turn
+  waits for — and between turns it emits nothing (no turn to fail). It then calls the `onExit`
+  listeners. `run()` on an already dead session ends at once with `turn_failed` and writes no
+  `prompt` (Pi exits at start-up when an extension fails to load; stderr names it).
+  `close()` (archive, delete, shutdown) sets `closed`, drops the listeners and never reports; a
+  turn still running ends as `turn_canceled` first (never `turn_failed`), so `run()` resolves, and
+  a slash prompt's pending ack rejected by the close is not a failure. The mock does the same.
+- **`AgentSession.onExit?(cb)`** (`provider-contract.ts`) is the dead-session signal: called once
+  with the reason when the runtime ends without `close()`; a session already dead reports at once.
+  Pi implements it; the mock implements it with a `crash(reason)` test hook (turn in progress →
+  `turn_failed`, then the listeners). `AgentManager.attachSession` subscribes; on exit
+  `detachDeadSession` sets `managed.session = null` (only if that session is still the attached
+  one) and the status to `error` (not for a `closed` agent), so `send_agent_prompt` goes through
+  `spawnOrResumeSession` and resumes the persisted session file. A turn in progress gets the same
+  `error` status from `runTurn` (last row `turn_failed`), and its send RPC resolves. Tests:
+  `agent-recovery.test.ts` (service + real `PiAgentClient` over a fake transport),
+  `transport-errors.test.ts`, `pi-adapter.test.ts` ("a dead Pi process ends the turn").
 - **`resumeSession(handle, …)` always spawns a fresh `pi --mode rpc` process, then issues
   `switch_session` to load `handle.nativeHandle`'s JSONL history into it.** RPC mode has no CLI
   flag to preload a session at spawn — `--session <path>` is a TUI-only flag (docs/usage.md),
@@ -1048,7 +1134,7 @@ creation" above.
   `record.persistence?.nativeHandle` once before and once after `persistSessionHandle`; if it
   changed, `resolveClient(record.provider).hydrateTimeline?.(handle)` rebuilds the forked
   branch's rows (the same synchronous-fs-read path `timeline-rpc.ts` already uses for restarted
-  daemons), `agent-service.ts`'s `resetTimeline(agentId, rows)` installs them, and only then does
+  daemons), `manager.timelines.reset(agentId, rows)` installs them, and only then does
   the daemon broadcast `{ type: "agent_timeline_reset", agentId, reason: "fork" }` — a
   no-subscribe-RPC passthrough push following the `terminals_update` convention exactly (root
   `AGENTS.md` § Protocol overview), reaching every active session including relay ones —
@@ -1065,18 +1151,13 @@ creation" above.
   (`{cancelled: true}` via `session_before_fork`) performs neither the reset nor the broadcast —
   nothing rebound, nothing to resync.
 - **`createSession`/`resumeSession` must stay in agreement on `systemPrompt` handling** (task-005,
-  sprint-045 — a pre-existing defect this fixed): `resumeSession` used to build its spawn args
-  with `appendSystemPrompt: this.deps.appendSystemPrompt` unconditionally, ignoring
-  `overrides?.systemPrompt` even though `overrides` is exactly `record.config` passed down from
-  `spawnOrResumeSession`/`SessionOperationsService.handleResume` — so every daemon restart (and
-  the first spawn of a deferred draft that happens to resume rather than create) silently dropped
-  the session's own per-session system prompt back to the daemon-wide default. Both methods now
-  read `config.systemPrompt ?? this.deps.appendSystemPrompt` /
-  `overrides?.systemPrompt ?? this.deps.appendSystemPrompt` — identical fallback shape, each with
-  a `NOTE:` comment pointing at the other so a future edit to one is not made in isolation.
-  `importSession` shares `resumeSession`'s code path and inherited the fix for free. This is what
+  sprint-045): `resumeSession` builds its spawn args from `overrides?.systemPrompt` (the session's
+  `record.config`), exactly as `createSession` does from `config.systemPrompt`, so a restart or a
+  deferred draft's first resume keeps the per-session prompt. There is no daemon-wide default
+  prompt (`PiClientDeps.appendSystemPrompt` and `daemon.appendSystemPrompt` were removed). Each method
+  carries a `NOTE:` pointing at the other. `importSession` shares `resumeSession`'s path. This is what
   makes the inline-image capability's composed system prompt (`handleCreate`'s `effectiveConfig`
-  above) survive a restart-then-resume instead of reverting on the very next process spawn.
+  above) survive a restart-then-resume.
 - **`hydrateTimelineFromSessionFile`'s user-message mapping used to drop attached images on
   restart+resume** (`session-hydration.ts`'s `mapMessage()`, `case "user"` — a real bug, not a
   documented limitation): it only ever extracted `type === "text"` blocks from a persisted
@@ -1185,7 +1266,7 @@ creation" above.
   Pi persists neither `reason` nor `estimatedTokensAfter`, and nothing for failed/cancelled ones.
   The mock provider's `compact()` emits `started`, waits `compactDelayMs` (default 1.5 s, a
   `MockSessionOptions` field) and emits `completed` with 168k → 14k.
-- Discovers models/modes via top-level `get_modes`/`get_models` RPCs (no scratch session).
+- Discovers models via the top-level `get_available_models` RPC (no scratch session).
 - A `~` in `cwd` is expanded to `os.homedir()` before spawning.
 - **`daemon.piHome`** (`config.json`, or `PI_STUDIO_PI_HOME` env): redirects the bundled Pi CLI's
   own `.pi` config dir. `provider-registry.ts#buildPiClient` derives
@@ -1206,7 +1287,7 @@ creation" above.
 - Cursor-based paging via `fetchAgentTimeline(agentId, cursor, direction, limit)`.
 - Collapsed/merged view for UI display.
 
-**Tool-call permissions** are retired (sprint-086): no `PermissionService`, provider-contract members, MCP tools or CLI group remain. The `agent_permission_*` / `agent.permission.respond.request` / `respond_to_permission` schemas stay in the protocol (append-only, unread) and answer `unknown_message_type`. Pi's questions travel on `agent_ui_*`.
+**Tool-call permissions** are retired (sprint-086): no `PermissionService`, provider-contract members, MCP tools or CLI group remain. The `agent_permission_*` / `agent.permission.respond.request` schemas stay in the protocol (append-only, unread) and answer `unknown_message_type`. Pi's questions travel on `agent_ui_*`.
 
 ### Provider auth (`agent/provider-auth/`)
 
@@ -1356,7 +1437,7 @@ silently unusable in RPC mode.
     `surfaces` — never the provider's own `requestId`, which Pi only promises unique per-process.
     Two agents whose providers happen to emit the identical internal id stay fully independent.
   - **First-answer-wins.** `respond()` deletes the pending entry the instant it is found, before
-    calling `respondToUi` — a second answer for the same id, from any client or from MCP, always
+    calling `respondToUi` — a second answer for the same id, from any client, always
     sees `not_found`. A fire-and-forget request was never inserted into `pending`, so answering one
     reports the identical `not_found`.
   - **Resolution broadcasts unconditionally**, even when `respondToUi` throws (dead stdin after a
@@ -1382,15 +1463,6 @@ silently unusable in RPC mode.
   `extensions` above. The mock provider (`MockAgentSession.emitUiRequest`) is this family's
   designated test producer, so the dev daemon must be able to drive it end to end with no real `pi`
   process (`packages/server/src/daemon/agent-ui-e2e.test.ts`).
-- **MCP mirror is surface-only, no live endpoint.** `mcp-server.ts`'s `McpBackend` gained
-  `listPendingUiRequests`/`respondToUiRequest` (sprint-066/task-005) so an orchestrating agent can
-  unblock a child's questionnaire (closing a real deadlock: no MCP path previously existed for a
-  parent to answer a child's extension dialog). `McpServer`/`McpBackend` itself has **no live HTTP
-  endpoint or real backend implementation anywhere in the daemon** — a pre-existing gap from
-  sprint-010 (its own summary flagged "HTTP transport for `/mcp/agents` is a bootstrap step" as an
-  unresumed follow-up), unrelated to and unenlarged by this sprint. The exact delegation a future
-  bootstrap-wiring task must paste into the real `McpBackend` object is written and tested against a
-  live `AgentUiService` in `mcp-server.test.ts`.
 - **Verified against real Pi**, not only fakes (sprint-066/task-006): a live daemon + a real
   `pi --mode rpc` process running `@juicesharp/rpiv-ask-user-question` proved the questionnaire
   completes because a WS client answered it (the auto-cancel POC is gone from the live path),
@@ -1511,7 +1583,7 @@ daemon derives an agent's todo list itself and serves it as the `agent_todos_*` 
     chunk-list representation could not answer "is this offset mid-sequence?" without flattening.
 - **`ScreenBuffer`** (`screen-buffer.ts`, `@xterm/headless` + `@xterm/addon-serialize`): a live
   headless terminal grid fed every output byte as it arrives. Two consumers: `capture(slot)`'s
-  one-shot screen-accurate text (CLI/MCP), and — as of sprint-053/task-004 — `serialize()`, which
+  one-shot screen-accurate text (CLI), and — as of sprint-053/task-004 — `serialize()`, which
   the reflowable restore tier calls on `subscribe` to build the `Restore` frame's payload. Neither
   path touches the byte ring; the ring stays the basic tier's payload source exclusively.
 - **Size validation is centralized** in `resize`/`createTerminal` via `isValidGrid` (integers,
@@ -1758,32 +1830,10 @@ passthrough fallback, NOT a `messages.ts` discriminated union):
 
 - **`WorkspaceRegistry`** / **`ProjectRegistry`**: JSON array files with `archivedAt` soft-delete.
 - **Project key derivation**: normalizes git remote URLs to `host/owner/repo` form for grouping.
-- **`WorkspaceKind`**: `local_checkout | worktree | directory` (legacy `checkout` → `local_checkout`).
+- **`WorkspaceKind`**: `local_checkout | worktree | directory`.
 - **`WorktreeService`**: `git worktree add/list/remove` via shell.
 - **`WorkspaceGitService`**: git status, branch, diff, commit, log per workspace.
 - **`GitHubService`**: GitHub API (PRs, issues) via `GITHUB_TOKEN`.
-- **Reconciliation**: on startup, reconciles workspace records with filesystem reality.
-
-### Orchestration (`orchestration/`)
-
-**`ChatService`**:
-- Rooms: unique names (case-insensitive), `purpose` field, soft-delete.
-- Messages: cursor-based reads, `@mention` parsing → `mentionAgentIds`.
-- Wait API: `waitForMessages(roomId, sinceCursor, timeoutMs)` — long-poll for new messages.
-
-**`ScheduleService`**:
-- Cadences: `cron` (crontab expression), `every` (interval in seconds), `once` (absolute datetime).
-- Targets: `new-agent` (create + prompt) or `agent` (heartbeat into an existing agent).
-- Records `ScheduleRun` per firing; respects `maxRuns`, `expiresAt`.
-- Next-fire computation via `cron.ts` (`assertValidCron`, `nextCronTime`, `nextEveryTime`).
-
-**`LoopService`** ("Ralph loops"):
-- Each iteration: run worker agent → run `verifyChecks` shell commands → run optional `verifyPrompt`
-  verifier agent.
-- Iteration succeeds only if ALL checks AND the prompt pass.
-- Loop ends: first success → `succeeded`; `maxIterations`/`maxTimeMs` exceeded → `failed`;
-  explicit stop → `stopped`.
-- On startup, `running` loops are recovered as `stopped` with an interruption log entry.
 
 ### Persistence (`persistence/`)
 
@@ -1791,9 +1841,6 @@ All stores use `AtomicStore` (write-to-temp-then-rename) for crash safety.
 
 **Entity file locations** (relative to `$PI_STUDIO_HOME`):
 - `agents/<sanitized-cwd>/<agentId>.json`
-- `chat/rooms.json`
-- `loops/<loopId>.json`
-- `schedules/<scheduleId>.json`
 - `projects.json`
 - `workspaces.json`
 - `viewer-settings.json` (`viewers/` — per-viewer enable/disable state, not managed by
@@ -2181,11 +2228,10 @@ kill switch every future viewer plugin reads. Invariants:
 
 ### HTTP server (`http/`)
 
-- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from Host + auth checks; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
-- Host-header allowlist (403 on mismatch) → CORS headers (`daemon.cors.allowedOrigins`) → optional
-  bearer auth → delegates to an injected `onRequest` handler else 404. The daemon wires `onRequest`
-  to the service proxy (`proxy/service-proxy.ts`) only — there is no HTTP file-download route;
-  file downloads happen over the WebSocket via binary frames (`files/file-transfer.ts`), not HTTP.
+- `GET /api/health` → `{ status: "ok", version: SERVER_VERSION }` (unauthenticated, exempt from the Host check; the version lets a supervisor tell which build answers; the Docker HEALTHCHECK reads the status code only)
+- Host-header allowlist (403 on mismatch), then 404 for everything else — the HTTP server has no
+  CORS, no bearer auth and no application routes. File downloads happen over the WebSocket via
+  binary frames (`files/file-transfer.ts`), not HTTP.
 - `HostAllowlist` rejects requests with disallowed `Host` headers (DNS-rebinding protection)
 
 ### Auth (`auth/`)
@@ -2222,11 +2268,11 @@ The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
 | Where | What gets logged |
 |---|---|
 | `bootstrap.ts` / `dev-bootstrap.ts` | daemon starting (home, configPath, serverId), agent recovery count, agent archived/deleted, relay dial lifecycle, bind errors, shutdown |
-| `ws/ws-server.ts` | upgrade rejections (host allowlist, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
+| `ws/ws-server.ts` | upgrade rejections (host allowlist, origin, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
 | `ws/router.ts` (`HandlerRegistry(logger)`) | every RPC at `debug` (type, requestId, clientId, durationMs), handler failures at `warn`, unknown types at `debug` — one instrumentation point covering the whole RPC surface |
 | `agent/agent-service.ts` | agent created (provider, model, cwd), turn started (prompt SIZE, never contents), turn finished (outcome + durationMs), provider session failures |
 | `terminal/terminal-manager.ts` | terminal opened (slot, shell, cwd, size), kill requested, exited, spawn failures |
-| `agent/providers/pi/rpc-transport.ts` | `pi` process spawned (pid, cwd), spawn failures, exits (code/signal; `error` when commands were in flight) |
+| `agent/providers/pi/rpc-transport.ts` | `pi` process spawned (pid, cwd), spawn failures, exits (code/signal; `error` when commands were in flight), request timeouts and SIGKILL escalation (`warn`) |
 
 **Logs are metadata-only by convention**: prompt text, message contents, and terminal output are
 user data — never log them (sizes/counts only). Connection metadata, ids, durations, and error
@@ -2253,13 +2299,12 @@ messages are fair game.
   terminal output.
 - **Terminal snapshot is optional for correctness.** A subscriber that arrives after PTY exit gets
   the last snapshot; no new Output frames will arrive.
-- **Service proxy auth bypass is intentional.** The service proxy route is not gated by daemon
-  password auth (per spec). Do not add auth there.
 - **`bootstrap.ts` must never import `dev-bootstrap.ts`** (the reverse is fine, and happens today —
   `dev-bootstrap.ts` imports the shared `wrapSessionEnvelope` helper from `bootstrap.ts`, nothing
-  more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
+  more). `bootstrap.ts` owns the full disk-backed feature surface (real provider,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
+- **A non-loopback bind with no password is refused.** `startDaemon` checks it right after resolving the listen address (before the pid lock or any service): it logs an error naming `PI_STUDIO_PASSWORD` and `daemon.auth.password`, sets `process.exitCode = 1`, calls `onFatalError` with an error whose `code` is `unprotected_bind`, and throws; nothing listens. `startDevDaemon` (no auth) refuses every non-loopback host the same way. There is no warning-and-start path.
 - **`startDaemon` never calls `process.exit()`.** On an unrecoverable HTTP-server error (in
   practice `EADDRINUSE` on bind) it logs, sets `process.exitCode = 1`, tears down the WS server,
   and reports the error through the optional `DaemonOptions.onFatalError` callback; after a
@@ -2335,3 +2380,7 @@ and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, 
 `ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
 (create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
 the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.
+
+## Direct-port Origin rule
+
+`ws/ws-server.ts` refuses (`403 Origin not allowed`, socket destroyed, `warn` with origin + remote address) every upgrade carrying an `Origin` header that is not in `deps.allowedOrigins` (exact match; default none). Order: Host, Origin, password. CLI/desktop send no `Origin` and are unaffected; the relay path has no daemon-side upgrade. Developer switch: `daemon.devAllowedOrigins` in `config.json`, overridden by `PI_STUDIO_DEV_ALLOWED_ORIGINS` (comma-separated); `bootstrap.ts` logs one `warn` naming them when non-empty. `dev-bootstrap.ts` (`npm run dev:daemon`) hardcodes `http://localhost:5173` and `http://127.0.0.1:5173`.

@@ -1,5 +1,7 @@
 # Schedules & Heartbeats — Clean Room Scope
 
+> **Status: retired (2026-11-24).** Dropped from the daemon, CLI and docs; see [daemon-audit-handoff.md](../../docs/daemon-audit-handoff.md) § Decisions → Approved drops.
+
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [agent-sessions.md](agent-sessions.md), [mcp-server.md](mcp-server.md),
 > [cli.md](cli.md), [../architecture/persistence.md](../architecture/persistence.md)

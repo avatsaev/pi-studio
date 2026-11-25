@@ -323,9 +323,6 @@ describe("send prompt", () => {
       subscribe: () => () => {},
       run: () => Promise.resolve(),
       getRuntimeInfo: () => ({ provider: "mock", model: "picked-model" }),
-      getAvailableModes: () => [],
-      getCurrentMode: () => null,
-      setMode: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",
@@ -386,9 +383,6 @@ describe("send prompt", () => {
       subscribe: () => () => {},
       run: () => Promise.resolve(),
       getRuntimeInfo: () => ({ provider: "mock" }),
-      getAvailableModes: () => [],
-      getCurrentMode: () => null,
-      setMode: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",
@@ -430,9 +424,6 @@ describe("send prompt", () => {
       subscribe: () => () => {},
       run: () => Promise.resolve(),
       getRuntimeInfo: () => ({ provider: "mock", model: "picked-model" }),
-      getAvailableModes: () => [],
-      getCurrentMode: () => null,
-      setMode: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",
@@ -494,9 +485,6 @@ describe("send prompt", () => {
       subscribe: () => () => {},
       run: () => Promise.resolve(),
       getRuntimeInfo: () => ({ provider: "mock" }),
-      getAvailableModes: () => [],
-      getCurrentMode: () => null,
-      setMode: () => Promise.resolve(),
       describePersistence: () => ({
         provider: "mock",
         sessionId: "fake-session",

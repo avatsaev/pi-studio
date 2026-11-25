@@ -196,14 +196,6 @@ export function makeScriptedDaemon(opts?: { features?: Record<string, boolean> }
         });
         return;
       }
-      case "list_provider_modes": {
-        reply({
-          type: "list_provider_modes_response",
-          requestId,
-          payload: { modes: [{ id: "plan" }, { id: "default" }] },
-        });
-        return;
-      }
       case "providers.snapshot.refresh.request": {
         reply({
           type: "providers.snapshot.refresh.response",

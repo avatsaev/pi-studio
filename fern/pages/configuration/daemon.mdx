@@ -10,9 +10,10 @@ All are optional.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State + config + logs directory |
-| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`. For LAN access set `0.0.0.0:6767` and `PI_STUDIO_PASSWORD` (a non-loopback bind without a password logs a warning) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`. For LAN access set `0.0.0.0:6767` and `PI_STUDIO_PASSWORD` (a non-loopback bind without a password is refused: the daemon logs the reason and exits 1) |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (literal IPs always allowed) |
+| `PI_STUDIO_DEV_ALLOWED_ORIGINS` | _(empty)_ | Developer switch: comma-separated browser `Origin`s (exact scheme+host+port) the direct WebSocket port accepts; overrides `config.json` `daemon.devAllowedOrigins`. Any other `Origin` gets `403 Origin not allowed`; requests without an `Origin` (CLI, desktop) are unaffected. Logs a `warn` at start when non-empty |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino log level |
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt in to dialing out to a relay — see [E2EE relay](/configuration/relay) |

@@ -30,7 +30,7 @@ npm install @av-pi-studio/protocol
 - **Endpoint parsing** (`endpoint.ts`) — turns a daemon target string (`host:port`, `ws://…`,
   `relay://…`) into a structured `EndpointDescriptor`.
 - **Provider manifest types** (`provider-manifest.ts`) — UI-facing scaffolding for describing
-  providers/modes (labels, color tiers, capability flags).
+  providers (labels, capability flags).
 
 ## Usage
 

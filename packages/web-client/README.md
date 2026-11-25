@@ -2,8 +2,8 @@
 
 The Pi-Studio browser app: a thin Vite shell that renders `@av-pi-studio/workbench` (the
 application — chat, timelines, terminals, files, git; see `packages/workbench/README.md`) with a
-browser host. Ships as a prebuilt static SPA (`dist/web`), served by `pi-studio ui`,
-`docker/web-client.Dockerfile`, or any static file host.
+browser host. Ships as a prebuilt static SPA (`dist/web`), served by
+`docker/web-client.Dockerfile` or any static file host.
 
 ---
 

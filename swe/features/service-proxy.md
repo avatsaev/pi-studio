@@ -1,5 +1,7 @@
 # Service Proxy — Clean Room Scope
 
+> **Status: retired (2026-11-25).** The service proxy, its config and the `PI_STUDIO_SERVICE_PROXY_*` variables, CORS and the HTTP password check are dropped; see [daemon-audit-handoff.md](../../docs/daemon-audit-handoff.md) § Decisions → Approved drops.
+
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [terminals.md](terminals.md), [../architecture/config.md](../architecture/config.md),
 > [projects-workspaces.md](projects-workspaces.md), [../architecture/auth-security.md](../architecture/auth-security.md)

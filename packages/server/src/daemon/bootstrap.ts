@@ -2,7 +2,7 @@
  * Production daemon bootstrap — the REAL daemon: loads `PI_STUDIO_HOME/config.json`, resolves the
  * real provider (`pi` spawns `pi --mode rpc`), persists agents to disk, and registers the full RPC
  * surface (agents/sessions/timeline, projects/workspaces/open-project, git status/diff/
- * ops + GitHub PR + worktrees, file explorer + transfer, service proxy, terminals + binary frames,
+ * ops + GitHub PR + worktrees, file explorer + transfer, terminals + binary frames,
  * schedules/chat/loops, providers). Mirrors `dev-bootstrap.ts` but is production-grade.
  *
  * See: architecture/daemon-bootstrap.md, config.md, persistence.md, auth-security.md.
@@ -44,7 +44,7 @@ import { AgentUiService } from "../agent/agent-ui/agent-ui-service.js";
 import { registerAgentTodosHandlers } from "../agent/agent-todos/agent-todos-rpc.js";
 import { AgentTodosService } from "../agent/agent-todos/agent-todos-service.js";
 import { AgentManager } from "../agent/agent-manager.js";
-import { AgentService, getTimeline } from "../agent/agent-service.js";
+import { AgentService } from "../agent/agent-service.js";
 import { SessionOperationsService } from "../agent/session-operations.js";
 import { SlashCommandOperationsService } from "../agent/slash-command-operations.js";
 import { registerTimelineHandler } from "../agent/timeline-rpc.js";
@@ -76,17 +76,7 @@ import { WorktreeService } from "../projects/worktree-service.js";
 import { TerminalManager } from "../terminal/terminal-manager.js";
 import { registerTerminalHandlers, makeTerminalBinaryHandler } from "../terminal/terminal-rpc.js";
 
-import { ServiceProxy, resolveServiceProxyConfig } from "../proxy/service-proxy.js";
-
-import { ScheduleService, type ScheduleExecutor } from "../orchestration/schedule-service.js";
-import { ChatService } from "../orchestration/chat-service.js";
 import { isBinary } from "../runtime/self.js";
-import {
-  LoopService,
-  type LoopExecutor,
-  type WorkerOutcome,
-} from "../orchestration/loop-service.js";
-import { registerOrchestrationHandlers } from "./orchestration-rpc.js";
 import { ExtensionsService } from "../extensions/extensions-service.js";
 import { registerExtensionsHandlers } from "../extensions/extensions-rpc.js";
 import { updateInstalledExtensions, type InstallSpawn } from "../extensions/sync-executor.js";
@@ -120,7 +110,7 @@ import {
 
 import { SERVER_FEATURES } from "@av-pi-studio/protocol";
 import { parseDaemonListen } from "./index.js";
-import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
+import { isUnprotectedBind, unprotectedBindError } from "./loopback.js";
 import { attachRelaySession } from "./relay-sessions.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
@@ -178,8 +168,6 @@ export interface DaemonHandle {
   logger: Logger;
   /** The address actually bound. */
   listen: { host: string; port: number };
-  /** True when bound beyond loopback with no password configured (a warning was logged). */
-  exposedWithoutPassword: boolean;
   close(): Promise<void>;
 }
 
@@ -284,16 +272,6 @@ export function wrapSessionEnvelope(
   if (isRecord && (message as Record<string, unknown>).type === "session") return message;
   return { type: "session", message };
 }
-const lastAssistantText = (agentId: string): string | undefined => {
-  const rows = getTimeline(agentId)?.allRows() ?? [];
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const ev = rows[i]!.event as { kind?: string; text?: string };
-    // Skip textless `final` block-close markers (`assistant_message.final`) — they carry no
-    // text and would otherwise mask the real last reply.
-    if (ev.kind === "assistant_message" && ev.text) return ev.text;
-  }
-  return undefined;
-};
 
 /**
  * Start the real production daemon. Returns a handle exposing the HTTP server, serverId, and a
@@ -314,6 +292,18 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger.error({ err: (err as Error).message }, "invalid listen address");
     process.exitCode = 1;
     opts.onFatalError?.(err as NodeJS.ErrnoException);
+    throw err;
+  }
+  if (
+    isUnprotectedBind(listen.host, {
+      configPassword: config.daemon.auth.password,
+      envPassword: process.env.PI_STUDIO_PASSWORD,
+    })
+  ) {
+    const err = unprotectedBindError(listen.host, listen.port);
+    logger.error({ host: listen.host, port: listen.port, code: err.code }, err.message);
+    process.exitCode = 1;
+    opts.onFatalError?.(err);
     throw err;
   }
   const serverId = resolveServerId(home, opts.serverId);
@@ -556,7 +546,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   // ── Providers (metadata for the new-agent picker) ────────────────────────────
   const providerRegistry = new ProviderRegistry();
-  providerRegistry.replaceMetadata(config);
   registry.register("list_providers", (ctx) => ({
     type: "list_providers_response",
     requestId: ctx.requestId ?? "",
@@ -661,12 +650,10 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   registerGitCheckoutHandlers(registry, {
     gitService,
     diffManager,
-    checkoutRefreshEnabled: true,
     subscriptions,
   });
   new GitOperationsService({ gitService }).registerHandlers(registry);
   new GitHubService({
-    setAutoMergeEnabled: true,
     archiveWorkspace: async (workspaceId) => {
       await workspaceRegistry.archiveWorkspace(workspaceId);
     },
@@ -775,9 +762,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     }
   });
 
-  // ── Service proxy (workspace scripts) ─────────────────────────────────────────
-  const serviceProxy = new ServiceProxy(resolveServiceProxyConfig(config.daemon.serviceProxy));
-
   // ── Terminals: manager + control RPCs + binary stream ─────────────────────────
   const terminalManager = new TerminalManager({ logger });
   registerTerminalHandlers(
@@ -785,7 +769,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     {
       manager: terminalManager,
       broadcast,
-      restoreModesEnabled: true,
       projectConfigPath: (cwd: string) => join(cwd, "pi-studio.json"),
     },
     getActiveSessions,
@@ -795,85 +778,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     broadcast,
     getActiveSessions,
   );
-
-  // ── Orchestration: schedules / chat / loops (real, disk-backed) ───────────────
-  const scheduleExecutor: ScheduleExecutor = {
-    async createAndPrompt(agentConfig, prompt) {
-      const res = (await agentService.handleCreate(
-        { config: agentConfig, initialPrompt: prompt, requestId: randomUUID() },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      return { agentId: res?.payload?.agentId ?? "" };
-    },
-    async promptExisting(agentId, prompt) {
-      await agentService.handleSendPrompt({ agentId, prompt }, getActiveSessions);
-      return {};
-    },
-  };
-  const scheduleService = new ScheduleService({ home, executor: scheduleExecutor });
-  const chatService = new ChatService({ home });
-
-  const loopExecutor: LoopExecutor = {
-    async runWorker({ provider, model, modeId, cwd, prompt }) {
-      const res = (await agentService.handleCreate(
-        {
-          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
-          initialPrompt: prompt,
-        },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      const agentId = res?.payload?.agentId ?? "";
-      const rows = getTimeline(agentId)?.allRows() ?? [];
-      const last = rows.at(-1)?.event as { kind?: string } | undefined;
-      const outcome: WorkerOutcome =
-        last?.kind === "turn_failed" || last?.kind === "error"
-          ? "failed"
-          : last?.kind === "turn_canceled"
-            ? "canceled"
-            : "completed";
-      return { agentId, outcome, output: lastAssistantText(agentId) };
-    },
-    runShellCheck(command, cwd) {
-      return new Promise((resolve) => {
-        execFile(
-          "/bin/sh",
-          ["-c", command],
-          { cwd, windowsHide: true },
-          (error, stdout, stderr) => {
-            const exitCode =
-              error && typeof (error as { code?: unknown }).code === "number"
-                ? (error as { code: number }).code
-                : error
-                  ? 1
-                  : 0;
-            resolve({ exitCode, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
-          },
-        );
-      });
-    },
-    async runVerifier({ provider, model, modeId, cwd }, verifyPrompt, workerOutput) {
-      const prompt = `${verifyPrompt}\n\n--- Worker output ---\n${workerOutput ?? "(none)"}`;
-      const res = (await agentService.handleCreate(
-        {
-          config: { provider, cwd, ...(model && { model }), ...(modeId && { modeId }) },
-          initialPrompt: prompt,
-        },
-        getActiveSessions,
-      )) as { payload?: { agentId?: string } };
-      const agentId = res?.payload?.agentId ?? "";
-      const text = lastAssistantText(agentId) ?? "";
-      const passed =
-        /\b(pass|passed|success|succeeded|ok|yes)\b/i.test(text) &&
-        !/\b(fail|failed|no)\b/i.test(text);
-      return { passed, reason: text.slice(0, 200), agentId };
-    },
-    async archiveAgent(agentId) {
-      await manager.archiveAgent(agentId);
-    },
-  };
-  const loopService = new LoopService({ home, executor: loopExecutor });
-
-  registerOrchestrationHandlers(registry, { scheduleService, chatService, loopService });
 
   // ── Security: host allowlist + optional password auth ─────────────────────────
   const hostnames = config.daemon.hostnames;
@@ -901,16 +805,22 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   // ── HTTP + WS wiring ─────────────────────────────────────────────────────────
   const httpServer = createHttpServer({
     hostnames,
-    allowedOrigins: config.daemon.cors.allowedOrigins,
-    authenticate: (req) => auth.authenticateHttp(req),
-    onRequest: (req, res) => serviceProxy.handleRequest(req, res),
   });
 
   /** `server_info.features`: every `SERVER_FEATURES` key (incl. `daemonUpdate`), direct and relay. */
   const serverFeatures = Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true]));
 
+  const devAllowedOrigins = config.daemon.devAllowedOrigins;
+  if (devAllowedOrigins.length > 0) {
+    logger.warn(
+      { origins: devAllowedOrigins },
+      "dev: direct WebSocket port accepts browser Origins: " + devAllowedOrigins.join(", "),
+    );
+  }
+
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
+    allowedOrigins: devAllowedOrigins,
     features: serverFeatures,
     hostname: opts.host,
     version: SERVER_VERSION,
@@ -1021,9 +931,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   httpServer.listen(listen.port, listen.host);
   logger.info({ host: listen.host, port: listen.port }, "http/ws server accepting connections");
-  const exposedWithoutPassword = !isLoopbackHost(listen.host) && !passwordHash;
-  if (exposedWithoutPassword)
-    logger.warn({ host: listen.host, port: listen.port }, UNPROTECTED_BIND_WARNING);
 
   // Fire-and-forget: never delays daemon readiness, never blocks the return below. Mirrors the
   // agent-recovery block above, but deliberately kicked off AFTER listen() rather than before —
@@ -1065,7 +972,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     provider: "pi",
     logger,
     listen,
-    exposedWithoutPassword,
     close: closeDaemon,
   };
 }

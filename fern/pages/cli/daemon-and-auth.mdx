@@ -16,7 +16,9 @@ subtitle: Start the daemon, pair clients, and log in to model providers.
 | `daemon rotate-key` | Mint a fresh pairing keypair — revokes every previously issued pairing link/QR |
 
 `pi-studio onboard` (top-level) is an alias for `daemon start`'s behavior, and bare `pi-studio`
-does the same thing. See [Daemon configuration](/configuration/daemon) for the environment
+does the same thing. Starting on a non-loopback `-H` host with no password (`PI_STUDIO_PASSWORD` or
+`daemon.auth.password`) is refused with `unprotected_bind` under `--json`; set a password with
+`daemon set-password` first. See [Daemon configuration](/configuration/daemon) for the environment
 variables and `config.json` fields that shape how a started daemon behaves.
 
 ## `auth`

@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# Publish the Pi-Studio library packages to npm.
+# Publish the Pi-Studio packages to npm.
 #
 # - Bumps the patch version of EVERY workspace package so the whole monorepo stays on one
-#   aligned version number, even though only the library packages below are actually pushed to
-#   the registry.
-# - Rewrites internal "@av-pi-studio/*" dependency ranges to match the new version.
+#   aligned version number (web-client shows its own version in the UI), even though only the
+#   five packages below are actually pushed to the registry. workbench, ui-library and
+#   web-client are private (built from source by the desktop app and the web-client image).
+# - Rewrites internal "@av-pi-studio/*" dependency ranges of the PUBLISHED packages to match the
+#   new version. Private packages depend on each other with "*" and are left alone.
 # - Builds, typechecks, and tests before publishing anything.
-# - Publishes the library packages to npm in dependency order (protocol/relay have no
-#   workspace deps and go first; client depends on protocol+relay; ui-library has no workspace
-#   deps; workbench (the application as a library) consumes protocol/client/ui-library and
-#   precedes web-client, which consumes it; web-client is a static-asset dependency of
-#   cli, built and published before it; server/cli depend on the others and go last).
+# - Publishes the packages to npm in dependency order (protocol/relay have no workspace deps and
+#   go first; client depends on protocol+relay; server/cli depend on the others and go last).
 #
 # Usage:
 #   npm run publish                 # bump patch + publish everything below
@@ -24,11 +23,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# Packages actually published to the npm registry, in dependency order.
-PUBLISH_ORDER=(protocol relay client ui-library workbench web-client server cli)
+# Packages actually published to the npm registry, in dependency order. They must not depend on
+# any private workspace package.
+PUBLISH_ORDER=(protocol relay client server cli)
 
-# Every workspace package, kept in version lockstep for a consistent release tag.
-ALL_PACKAGES=(protocol relay client ui-library workbench server cli web-client)
+# Every versioned workspace package, kept in version lockstep for a consistent release tag. The
+# private ones (ui-library workbench web-client) are bumped but never published.
+ALL_PACKAGES=(protocol relay client server cli ui-library workbench web-client)
 
 DRY_RUN=false
 BUMP=true
@@ -80,15 +81,22 @@ if [[ "$BUMP" == true ]]; then
   echo "New version: $NEXT_VERSION"
 
   for pkg in "${ALL_PACKAGES[@]}"; do
+    PUBLISHED=false
+    for published in "${PUBLISH_ORDER[@]}"; do
+      [[ "$published" == "$pkg" ]] && PUBLISHED=true
+    done
     node -e "
       const fs = require('fs');
       const path = 'packages/$pkg/package.json';
       const p = JSON.parse(fs.readFileSync(path, 'utf8'));
       p.version = '$NEXT_VERSION';
-      for (const depsKey of ['dependencies', 'devDependencies']) {
-        if (!p[depsKey]) continue;
-        for (const dep of Object.keys(p[depsKey])) {
-          if (dep.startsWith('@av-pi-studio/')) p[depsKey][dep] = '^$NEXT_VERSION';
+      // Private packages keep \"*\" workspace ranges: nothing is published against them.
+      if ($PUBLISHED) {
+        for (const depsKey of ['dependencies', 'devDependencies']) {
+          if (!p[depsKey]) continue;
+          for (const dep of Object.keys(p[depsKey])) {
+            if (dep.startsWith('@av-pi-studio/')) p[depsKey][dep] = '^$NEXT_VERSION';
+          }
         }
       }
       fs.writeFileSync(path, JSON.stringify(p, null, 2) + '\n');

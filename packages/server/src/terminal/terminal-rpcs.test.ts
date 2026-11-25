@@ -88,9 +88,7 @@ function makeSession(
   return { session, text, binary };
 }
 
-function setup(
-  opts: { restoreModesEnabled?: boolean; projectConfigPath?: (cwd: string) => string } = {},
-): {
+function setup(opts: { projectConfigPath?: (cwd: string) => string } = {}): {
   registry: HandlerRegistry;
   manager: TerminalManager;
   backend: FakeBackend;
@@ -109,7 +107,6 @@ function setup(
     {
       manager,
       broadcast,
-      restoreModesEnabled: opts.restoreModesEnabled ?? true,
       projectConfigPath: opts.projectConfigPath ?? ((cwd) => join(cwd, "pi-studio.json")),
     },
     () => sessions,
@@ -414,7 +411,7 @@ describe("terminal lifecycle RPCs", () => {
 
 describe("restore-mode gating", () => {
   it("honors restoreMode when the feature + client capability are present: Restore frame, no Snapshot", async () => {
-    const { registry } = setup({ restoreModesEnabled: true });
+    const { registry } = setup();
     const { session: creator } = makeSession("c");
     const created = await call(registry, creator, {
       type: "create_terminal_request",
@@ -435,7 +432,7 @@ describe("restore-mode gating", () => {
 
   it("an old client without restore-modes falls back to basic snapshot: Snapshot frame, no Restore", async () => {
     // Daemon advertises the feature, but the client did NOT advertise the reflowable capability.
-    const { registry } = setup({ restoreModesEnabled: true });
+    const { registry } = setup();
     const { session: creator } = makeSession("c");
     const created = await call(registry, creator, {
       type: "create_terminal_request",
@@ -454,31 +451,12 @@ describe("restore-mode gating", () => {
     expect(decodeTerminalFrame(binary[0]!).opcode).toBe("Snapshot");
   });
 
-  it("the daemon feature being disabled falls back to basic even for an eligible client", async () => {
-    const { registry } = setup({ restoreModesEnabled: false });
-    const { session: creator } = makeSession("c");
-    const created = await call(registry, creator, {
-      type: "create_terminal_request",
-      workspaceId: "ws1",
-    });
-    const slot = (created!.terminal as { slot: number }).slot;
-
-    const { session, binary } = makeSession("s", { terminal_reflowable_snapshot: true });
-    const res = await call(registry, session, {
-      type: "subscribe_terminal_request",
-      slot,
-      restoreMode: "reflowable",
-    });
-    expect(res!.restoreMode).toBe("basic");
-    expect(decodeTerminalFrame(binary[0]!).opcode).toBe("Snapshot");
-  });
-
   // Regression (sprint-053/task-004): the negotiation used to pass through whatever string the
   // client sent verbatim (`requestedMode ?? "basic"`), so a typo'd/future value like "reflow"
   // would be echoed back as-is while actually being served the basic tier underneath — the
   // response would name a tier the subscriber never got.
   it("an unrecognized restoreMode value is served AND echoed as basic, never named verbatim", async () => {
-    const { registry } = setup({ restoreModesEnabled: true });
+    const { registry } = setup();
     const { session: creator } = makeSession("c");
     const created = await call(registry, creator, {
       type: "create_terminal_request",

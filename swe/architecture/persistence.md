@@ -22,10 +22,7 @@ $PI_STUDIO_HOME/
 ├── daemon-keypair.json                 # { v:2, publicKeyB64, secretKeyB64 } mode 0600
 ├── pi-studio.pid                           # { pid, startedAt, ... }
 ├── daemon.log                          # pino output (rotating)
-├── agents/{sanitized-cwd}/{id}.json    # one file per agent (record + timeline rows)
-├── schedules/{id}.json                 # one file per schedule (id = 8 hex)
-├── chat/rooms.json                     # all rooms + messages
-├── loops/loops.json                    # all loops (non-atomic, queued)
+├── agents/{sanitized-cwd}/{id}.json    # one file per agent (the record; the timeline is not stored)
 ├── projects/projects.json              # project registry
 └── projects/workspaces.json            # workspace registry
 ```
@@ -39,50 +36,24 @@ separators with `-` (Windows drive letters become a `C-`-style prefix).
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | string (UUID) | primary key |
-| `provider` | string | `pi` (or a custom `extends:"pi"` profile id) |
+| `provider` | string | `pi` |
 | `cwd` | string | working directory |
 | `createdAt`, `updatedAt` | ISO 8601 | |
 | `lastActivityAt`, `lastUserMessageAt` | ISO 8601? | |
 | `title` | string? | user-visible |
 | `labels` | Record<string,string> | default `{}`; `pi-studio.parent-agent-id` set for subagents |
 | `lastStatus` | `initializing`/`idle`/`running`/`error`/`closed` | |
-| `lastModeId` | string? | |
-| `config` | SerializableConfig? | title, modeId, model, thinkingOptionId, featureValues, extra, systemPrompt, mcpServers |
-| `runtimeInfo` | RuntimeInfo? | provider, sessionId, model, thinkingOptionId, modeId, extra |
+| `config` | SerializableConfig? | title, model, thinkingOptionId, featureValues, extra, systemPrompt |
+| `runtimeInfo` | RuntimeInfo? | provider, sessionId, model, thinkingOptionId, extra |
 | `features` | AgentFeature[]? | toggle/select provider features |
 | `persistence` | PersistenceHandle? | provider, sessionId, nativeHandle, metadata |
 | `lastError` | string? (nullable) | |
-| `internal` | boolean? | system-internal agent (loop workers, etc.) |
+| `internal` | boolean? | system-internal agent |
 | `archivedAt` | ISO 8601? | soft-delete timestamp |
 
 `AgentFeature` is a discriminated union on `type`: **toggle** `{ type, id, label, description?,
 tooltip?, icon?, value: boolean }` or **select** `{ ..., value: string|null, options:
 AgentSelectOption[] }`.
-
-### Schedule (`schedules/{id}.json`)
-`{ id (8 hex), name?, prompt, cadence, target, status: active|paused|completed, createdAt,
-updatedAt, nextRunAt?, lastRunAt?, pausedAt?, expiresAt?, maxRuns?, runs: ScheduleRun[] }`.
-- `cadence`: `{ type:"every", everyMs }` or `{ type:"cron", expression, timezone? }` (absent
-  timezone = UTC).
-- `target`: `{ type:"agent", agentId }` or `{ type:"new-agent", config:{ provider, cwd, modeId?,
-  model?, thinkingOptionId?, title?, approvalPolicy?, sandboxMode?, networkAccess?, webSearch?,
-  extra?, systemPrompt?, mcpServers? } }`.
-- `ScheduleRun`: `{ id, scheduledFor, startedAt, endedAt?, status: running|succeeded|failed,
-  agentId?, output?, error? }`.
-
-### Loop (`loops/loops.json`)
-Array of loop records (non-atomic write, serialized through an in-memory queue). Fields include
-`id` (8-char), `name?`, `prompt`, `cwd`, `provider`, `model?`, `modeId?`, worker/verifier overrides,
-`verifyPrompt?`, `verifyChecks: string[]`, `archive`, `sleepMs`, `maxIterations?`, `maxTimeMs?`,
-`status: running|succeeded|failed|stopped`, timestamps, `iterations: LoopIteration[]`,
-`logs: LoopLogEntry[]`, `nextLogSeq`, `activeIteration?`, `activeWorkerAgentId?`,
-`activeVerifierAgentId?`. See [features/loops.md](../features/loops.md) for nested shapes.
-
-### Chat (`chat/rooms.json`)
-`{ rooms: ChatRoom[], messages: ChatMessage[] }`.
-- `ChatRoom`: `{ id (UUID), name (unique, case-insensitive), purpose?, createdAt, updatedAt }`.
-- `ChatMessage`: `{ id (UUID), roomId, authorAgentId, body, replyToMessageId?, mentionAgentIds:
-  string[], createdAt }`.
 
 ### Project registry (`projects/projects.json`)
 Array of `{ projectId, rootPath, kind: git|non_git, displayName, createdAt, updatedAt,
@@ -107,7 +78,6 @@ function loadStore(path, schema):
 ```
 - **No versioned migrations.** Legacy provider entries are normalized inline on load
   (`persisted-config.ts`, `migrateProviderSettings`). Forward-compat = optional fields + defaults.
-- Loop store writes are direct (not atomic) and queued; on startup, `running` loops → `stopped`.
 
 ## Client-side stores (app)
 - **Draft store** (AsyncStorage key `pi-studio-drafts`, v2): `{ drafts: Record<draftKey, { input: {
@@ -122,7 +92,7 @@ function loadStore(path, schema):
 | Missing store file | Return defaults |
 | Corrupt/partial JSON | Reject or fall back to defaults; never crash the daemon |
 | Legacy field shapes | Normalize inline on load |
-| Concurrent writes | Atomic rename prevents torn files; loop store serializes via queue |
+| Concurrent writes | Atomic rename prevents torn files |
 | Crash mid-write | Temp file discarded; previous file intact |
 
 ## Dependencies
@@ -133,9 +103,8 @@ function loadStore(path, schema):
 - [ ] Each agent persists to `agents/{sanitized-cwd}/{id}.json` and round-trips through Zod.
 - [ ] A crash during write never leaves a corrupt primary file (atomic rename).
 - [ ] Unknown/optional fields are tolerated on load (no migration needed).
-- [ ] Loop records with `status:"running"` become `stopped` after a restart.
 - [ ] Project registry deduplicates by normalized `rootPath`, preferring remote-keyed ids.
 
 ## TODO(verify)
 - [ ] Exact `PersistedConfigSchema` defaults per field.
-- [ ] Which stores are atomic vs. plain (loop store confirmed plain/queued).
+- [ ] Which stores are atomic vs. plain.

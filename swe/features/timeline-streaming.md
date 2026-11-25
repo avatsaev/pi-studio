@@ -76,8 +76,11 @@ apply agent_stream rows immediately; reconcile against authoritative fetch by se
   activity) is for notification routing only and must never gate live-stream delivery or hide rows.
 
 ## Data & Persistence
-- Timeline rows persist alongside the agent record (`agents/{cwd}/{id}.json`). The store assigns
-  epochs + sequence numbers. See [../architecture/persistence.md](../architecture/persistence.md).
+- The timeline is **not persisted by the daemon**. It lives in memory as one row per message (chunks of
+  a streamed message merge on append; every chunk still takes its own sequence number), is evicted on
+  archive and delete, and after a restart is rebuilt from Pi's own session file (seeded before the
+  first append). The store assigns epochs + sequence numbers; numbering after a rebuild restarts. See
+  [../architecture/agent-timeline-persistence.md](../architecture/agent-timeline-persistence.md) (a file design, not adopted).
 
 ## Error Handling & Edge Cases
 | Condition | Expected behavior |

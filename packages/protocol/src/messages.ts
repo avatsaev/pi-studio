@@ -158,14 +158,13 @@ export const agentAttachmentsSchema = z
   .passthrough();
 
 /**
- * `AgentSessionConfig` — provider/mode/model and run options for an agent. `provider`/`modeId`/
+ * `AgentSessionConfig` — provider/model and run options for an agent. `provider`/
  * `model`/`thinkingOptionId` are dynamic strings (discovered at runtime per agent-providers.md),
  * not fixed enums, so they are not narrowed here.
  */
 export const agentSessionConfigSchema = z.object({
   provider: z.string(),
   cwd: z.string(),
-  modeId: z.string().optional(),
   model: z.string().optional(),
   /** The model's own underlying LLM provider (e.g. `"anthropic"`), pinned alongside `model` when
    * a deferred draft materializes (either the resolved default or an explicit `/model` pick) —
@@ -181,7 +180,6 @@ export const agentSessionConfigSchema = z.object({
   webSearch: z.boolean().optional(),
   extra: z.object({ pi: z.unknown().optional() }).passthrough().optional(),
   systemPrompt: z.string().optional(),
-  mcpServers: z.record(z.string(), z.unknown()).optional(),
 });
 export type AgentSessionConfig = z.infer<typeof agentSessionConfigSchema>;
 
@@ -438,14 +436,6 @@ export const respondToPermissionResponseSchema = z.object({
   type: z.literal("agent.permission.respond.response"),
   requestId: z.string(),
   payload: z.object({ resolved: z.boolean() }).passthrough(),
-});
-
-/** Legacy flat name for the same operation — still accepted (parsed), never generated. */
-export const legacyRespondToPermissionSchema = z.object({
-  type: z.literal("respond_to_permission"),
-  requestId: z.string(),
-  permissionRequestId: z.string(),
-  response: z.unknown(),
 });
 
 // ===========================================================================
@@ -2212,7 +2202,7 @@ export type RpcError = z.infer<typeof rpcErrorSchema>;
 
 /**
  * The discriminated union of session messages defined so far. Later feature sprints extend this
- * union with workspace/git/terminal/chat/schedule/loop families.
+ * union with workspace/git/terminal families.
  */
 export const sessionMessageSchema = z.discriminatedUnion("type", [
   createAgentRequestSchema,
@@ -2229,7 +2219,6 @@ export const sessionMessageSchema = z.discriminatedUnion("type", [
   agentPermissionResolvedSchema,
   respondToPermissionRequestSchema,
   respondToPermissionResponseSchema,
-  legacyRespondToPermissionSchema,
   agentRewindRequestSchema,
   agentRewindResponseSchema,
   agentSessionStatsRequestSchema,

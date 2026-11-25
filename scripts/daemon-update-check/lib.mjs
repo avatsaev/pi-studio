@@ -82,7 +82,7 @@ export const bash = (container, script, opts) => exec(container, ["bash", "-c", 
 // ─── Registry and publishing ─────────────────────────────────────────────────────────────────────
 
 /** Workspace packages the CLI install needs, in dependency order (cli last, as in `publish.sh`). */
-export const PUBLISH_ORDER = ["protocol", "relay", "client", "server", "web-client", "cli"];
+export const PUBLISH_ORDER = ["protocol", "relay", "client", "server", "cli"];
 
 /** Refuses anything that is not a loopback registry: the check never publishes anywhere else. */
 export function assertLocalRegistry(url) {

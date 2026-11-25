@@ -10,8 +10,7 @@ import { atomicWriteJson } from "../persistence/atomic-store.js";
  * § Env precedence, § Behavior; MAIN-SCOPE.md §6.
  *
  * Every field is optional with a sensible default, so a missing or `{}` config yields a fully
- * populated object. Legacy shapes (`allowedHosts`, provider `command:{mode,…}`) are normalized
- * inline on load (no migration framework). Environment variables overlay the parsed config (env
+ * populated object. Environment variables overlay the parsed config (env
  * wins) for the keys enumerated in config.md.
  */
 
@@ -19,53 +18,31 @@ import { atomicWriteJson } from "../persistence/atomic-store.js";
 // Provider overrides (agents.providers.{id})
 // ---------------------------------------------------------------------------
 
-/** Provider ids: `/^[a-z][a-z0-9-]*$/`. */
-export const providerIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/, "invalid provider id");
-
-/** A custom Pi-compatible provider profile, or an override of the built-in `pi` provider. */
+/** The built-in `pi` provider's launch settings. */
 export const providerOverrideSchema = z.object({
-  extends: z.literal("pi").optional(),
-  label: z.string().optional(),
-  description: z.string().optional(),
   command: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  params: z.record(z.string(), z.unknown()).optional(),
-  models: z.array(z.unknown()).optional(),
-  additionalModels: z.array(z.unknown()).optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  enabled: z.boolean().optional(),
-  order: z.number().optional(),
 });
 export type ProviderOverride = z.infer<typeof providerOverrideSchema>;
 
-/** The only built-in provider id; everything else under `agents.providers` is a custom profile. */
-const BUILTIN_PROVIDER_IDS = new Set(["pi"]);
-
 /**
- * `agents.providers` map. Keys must match the provider-id pattern. A *custom* profile (any id other
- * than a built-in) must declare `extends:"pi"` and a `label`; overriding the built-in `pi` does not.
+ * `agents.providers` map: only the built-in `pi` entry. Any other key is a config error, because
+ * agent records point at a provider id and ignoring the entry would only move the failure to the
+ * agent's next start.
  */
 export const providersRecordSchema = z
-  .record(providerIdSchema, providerOverrideSchema)
+  .record(z.string(), z.unknown())
   .superRefine((record, ctx) => {
-    for (const [id, override] of Object.entries(record)) {
-      if (BUILTIN_PROVIDER_IDS.has(id)) continue;
-      if (override.extends !== "pi") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `custom provider "${id}" must set extends:"pi"`,
-          path: [id, "extends"],
-        });
-      }
-      if (!override.label) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `custom provider "${id}" must set a label`,
-          path: [id, "label"],
-        });
-      }
+    for (const id of Object.keys(record)) {
+      if (id === "pi") continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'only "pi" is supported',
+        path: [id],
+      });
     }
-  });
+  })
+  .pipe(z.object({ pi: providerOverrideSchema.optional() }));
 
 export const metadataGenerationProviderSchema = z.object({
   provider: z.string(),
@@ -87,14 +64,8 @@ export const persistedConfigSchema = z
       .object({
         listen: z.string().default("127.0.0.1:6767"),
         hostnames: hostnamesSchema.default(["localhost", "*.localhost"]),
-        mcp: z
-          .object({
-            enabled: z.boolean().default(true),
-            injectIntoAgents: z.boolean().default(true),
-          })
-          .default({}),
-        appendSystemPrompt: z.string().default(""),
-        cors: z.object({ allowedOrigins: z.array(z.string()).default([]) }).default({}),
+        /** Developer switch: browser `Origin`s the direct WS port accepts (exact match). Default: none. */
+        devAllowedOrigins: z.array(z.string()).default([]),
         relay: z
           .object({
             enabled: z.boolean().default(false),
@@ -107,13 +78,6 @@ export const persistedConfigSchema = z
         /** Overrides the bundled Pi CLI's own config dir (PI_CODING_AGENT_DIR/…SESSION_DIR). */
         piHome: z.string().optional(),
         auth: z.object({ password: z.string().optional() }).default({}),
-        serviceProxy: z
-          .object({
-            listen: z.string().optional(),
-            publicBaseUrl: z.string().optional(),
-            enabled: z.boolean().optional(),
-          })
-          .default({}),
         /** Preinstalled-extensions sync (features/preinstalled-extensions.md § Daemon config). */
         extensions: z
           .object({
@@ -127,10 +91,6 @@ export const persistedConfigSchema = z
       })
       .default({}),
     app: z.object({ baseUrl: z.string().optional() }).default({}),
-    worktrees: z.object({ root: z.string().optional() }).default({}),
-    providers: z
-      .object({ local: z.object({ modelsDir: z.string().optional() }).default({}) })
-      .default({}),
     agents: z
       .object({
         providers: providersRecordSchema.default({}),
@@ -139,84 +99,10 @@ export const persistedConfigSchema = z
           .default({}),
       })
       .default({}),
-    log: z
-      .object({
-        level: z.string().default("info"),
-        format: z.string().default("json"),
-        console: z.record(z.string(), z.unknown()).default({}),
-        file: z
-          .object({
-            level: z.string().optional(),
-            path: z.string().optional(),
-            rotate: z
-              .object({ maxSize: z.string().optional(), maxFiles: z.number().optional() })
-              .default({}),
-          })
-          .default({}),
-      })
-      .default({}),
   })
   .default({});
 
 export type PersistedConfig = z.infer<typeof persistedConfigSchema>;
-
-// ---------------------------------------------------------------------------
-// Legacy normalization (inline; no migration framework)
-// ---------------------------------------------------------------------------
-
-/**
- * Migrate a legacy provider override. The old `command` was an object `{ mode, command?, args? }`;
- * the current shape is a `string[]`. The `mode` wrapper is dropped (rpc is implicit).
- *
- * COMPAT(legacy-provider-command): inline; remove when no config.json carries the object form.
- */
-function migrateProviderSettings(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const override = { ...(value as Record<string, unknown>) };
-  const command = override.command;
-  if (command && !Array.isArray(command) && typeof command === "object") {
-    const legacy = command as Record<string, unknown>;
-    const base =
-      typeof legacy.command === "string"
-        ? [legacy.command]
-        : Array.isArray(legacy.command)
-          ? legacy.command
-          : [];
-    const args = Array.isArray(legacy.args) ? legacy.args : [];
-    const merged = [...base, ...args].filter((part): part is string => typeof part === "string");
-    if (merged.length > 0) override.command = merged;
-    else delete override.command;
-  }
-  return override;
-}
-
-/** Normalize a raw config object before schema validation. */
-export function migrateConfig(raw: unknown): unknown {
-  const root = { ...(raw as Record<string, unknown>) };
-  const daemon = { ...(root.daemon as Record<string, unknown>) };
-
-  // COMPAT(legacy-allowed-hosts): `allowedHosts` → `hostnames` (daemon-level or top-level).
-  if (daemon.hostnames === undefined) {
-    if (daemon.allowedHosts !== undefined) daemon.hostnames = daemon.allowedHosts;
-    else if (root.allowedHosts !== undefined) daemon.hostnames = root.allowedHosts;
-  }
-  delete daemon.allowedHosts;
-  delete root.allowedHosts;
-  root.daemon = daemon;
-
-  const agents = { ...(root.agents as Record<string, unknown>) };
-  const providers = agents.providers;
-  if (providers && typeof providers === "object" && !Array.isArray(providers)) {
-    const migrated: Record<string, unknown> = {};
-    for (const [id, override] of Object.entries(providers)) {
-      migrated[id] = migrateProviderSettings(override);
-    }
-    agents.providers = migrated;
-  }
-  if (Object.keys(agents).length > 0) root.agents = agents;
-
-  return root;
-}
 
 // ---------------------------------------------------------------------------
 // Environment overlay (env wins)
@@ -251,6 +137,12 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
             .filter((h) => h.length > 0);
   }
 
+  if (env.PI_STUDIO_DEV_ALLOWED_ORIGINS !== undefined) {
+    next.daemon.devAllowedOrigins = env.PI_STUDIO_DEV_ALLOWED_ORIGINS.split(",")
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0);
+  }
+
   if (env.PI_STUDIO_RELAY_ENABLED !== undefined) {
     next.daemon.relay.enabled = envBool(env.PI_STUDIO_RELAY_ENABLED);
   }
@@ -266,16 +158,6 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
   }
 
   if (env.PI_STUDIO_APP_BASE_URL) next.app.baseUrl = env.PI_STUDIO_APP_BASE_URL;
-
-  if (env.PI_STUDIO_SERVICE_PROXY_LISTEN) {
-    next.daemon.serviceProxy.listen = env.PI_STUDIO_SERVICE_PROXY_LISTEN;
-  }
-  if (env.PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL) {
-    next.daemon.serviceProxy.publicBaseUrl = env.PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL;
-  }
-  if (env.PI_STUDIO_SERVICE_PROXY_ENABLED !== undefined) {
-    next.daemon.serviceProxy.enabled = envBool(env.PI_STUDIO_SERVICE_PROXY_ENABLED);
-  }
 
   if (env.PI_STUDIO_EXTENSIONS_AUTOSYNC !== undefined) {
     const v = env.PI_STUDIO_EXTENSIONS_AUTOSYNC.trim().toLowerCase();
@@ -299,9 +181,9 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * Load and normalize `config.json`: read JSON (or `{}` when missing/corrupt), migrate legacy
- * shapes, validate with {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
- * config is structurally invalid (e.g. a bad provider id or a custom provider missing extends/label).
+ * Load `config.json`: read JSON (or `{}` when missing/corrupt), validate with
+ * {@link persistedConfigSchema}, then overlay env vars. Throws if the parsed
+ * config is structurally invalid (e.g. an `agents.providers` key other than `pi`).
  */
 export function loadConfig(path: string, env: Env = process.env): PersistedConfig {
   let raw: unknown = {};
@@ -312,7 +194,13 @@ export function loadConfig(path: string, env: Env = process.env): PersistedConfi
       raw = {};
     }
   }
-  const parsed = persistedConfigSchema.parse(migrateConfig(raw));
+  const result = persistedConfigSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(
+      result.error.issues.map((i) => `${i.path.join(".") || "config"}: ${i.message}`).join("; "),
+    );
+  }
+  const parsed = result.data;
   return overlayEnv(parsed, env);
 }
 

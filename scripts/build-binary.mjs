@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 // Builds the single binary of one target: `npm run build:binary -- --target linux-x64`
 // (swe/architecture/single-binary-daemon.md § The build). Needs `npm run build` first (the CLI's
-// compiled `dist/` and the web UI); uses the Bun pinned in the root package.json.
+// compiled `dist/`); uses the Bun pinned in the root package.json.
 //
 //   dist-binary/pi-studio-<version>-<target>/       the version folder (S4 of the feature spec)
 //     pi-studio                                       the executable: CLI, daemon, relay, Pi, skills
 //     bun                                             `#!/bin/sh` script: the same executable as Bun
 //     package.json README.md CHANGELOG.md docs/ theme/ assets/ export-html/ photon_rs_bg.wasm
 //                                                     what Pi reads from the executable's folder
-//     web/                                            packages/web-client/dist/web, for `pi-studio ui`
 //   dist-binary/pi-studio-<version>-<target>.tar.gz
 //
 // Two flags exist for the live checks (scripts/binary-update-check/), never for a release:
@@ -171,12 +170,8 @@ const mib = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 function build({ target, version: override, outDir: outBase }) {
   const cli = JSON.parse(readFileSync(join(ROOT, "packages/cli/package.json"), "utf8"));
   const entry = join(ROOT, "packages/cli/dist/binary-main.js");
-  const webDist = join(ROOT, "packages/web-client/dist/web");
   const piDir = join(ROOT, "node_modules/@earendil-works/pi-coding-agent");
   if (!existsSync(entry)) throw new Error(`${entry} is missing: run \`npm run build\` first`);
-  if (!existsSync(join(webDist, "index.html"))) {
-    throw new Error(`${webDist} has no built UI: run \`npm run build\` first`);
-  }
   const photonWasm = firstExisting([
     join(piDir, "node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"),
     join(ROOT, "node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"),
@@ -225,7 +220,6 @@ function build({ target, version: override, outDir: outBase }) {
     mkdirSync(dirname(join(outDir, to)), { recursive: true });
     cpSync(from, join(outDir, to), { recursive: true });
   }
-  cpSync(webDist, join(outDir, "web"), { recursive: true });
   writeFileSync(join(outDir, "bun"), BUN_SCRIPT);
   chmodSync(join(outDir, "bun"), 0o755);
   chmodSync(join(outDir, "pi-studio"), 0o755);

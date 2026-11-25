@@ -42,8 +42,7 @@ describe("projectKey derivation", () => {
 });
 
 describe("workspace kind normalization", () => {
-  it("maps legacy checkout → local_checkout and keeps valid kinds", () => {
-    expect(normalizeWorkspaceKind("checkout")).toBe("local_checkout");
+  it("keeps valid kinds and maps unknown to directory", () => {
     expect(normalizeWorkspaceKind("worktree")).toBe("worktree");
     expect(normalizeWorkspaceKind("directory")).toBe("directory");
     expect(normalizeWorkspaceKind("unknown")).toBe("directory");

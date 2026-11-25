@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CLIENT_CAPS } from "@av-pi-studio/protocol";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { INLINE_IMAGE_INSTRUCTIONS } from "./inline-image-instructions.js";
 import { FILE_LINK_INSTRUCTIONS } from "./file-link-instructions.js";
 import { MERMAID_DIAGRAM_INSTRUCTIONS } from "./mermaid-diagram-instructions.js";
@@ -66,7 +66,7 @@ describe("create_agent_request", () => {
   });
 
   it("emits exactly one user_message row per prompt (canonical rule)", async () => {
-    const { service } = makeService();
+    const { service, manager } = makeService();
     const result = (await service.handleCreate(
       {
         requestId: "r2",
@@ -78,7 +78,7 @@ describe("create_agent_request", () => {
     )) as Record<string, unknown>;
 
     const agentId = (result.payload as Record<string, unknown>).agentId as string;
-    const timeline = getTimeline(agentId);
+    const timeline = manager.timelines.get(agentId);
     expect(timeline).toBeDefined();
     const userRows = timeline!.allRows().filter((r) => r.event.kind === "user_message");
     expect(userRows).toHaveLength(1);

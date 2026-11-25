@@ -86,7 +86,7 @@ handling; P16 extensions that do not load.
 | S1 | Each version's binaries are a GitHub Release tagged `daemon-v<version>`, never "latest", never a draft. One fixed release, `daemon-updates`, holds `latest.json`: the newest version whose four binaries all passed | The same pattern as `desktop-updates`: a fixed address to read, no API, no rate limit (P15) |
 | S2 | Asset names `pi-studio-<version>-<target>.tar.gz`, targets `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`; plus `SHA256SUMS` and `latest.json` | Plain names a user can download by hand |
 | S3 | Each binary is built and smoke-tested on a runner of its own system: `ubuntu-24.04` (x64), `ubuntu-24.04-arm` (arm64), `macos-15` (arm64), an Intel macOS runner. macOS binaries get an ad-hoc signature (`codesign -s -`) | An Apple Silicon Mac kills an unsigned binary; a cross-built one cannot be started where it was built |
-| S4 | The archive holds one folder `pi-studio-<version>-<target>/` with `pi-studio`, `bun` (a two-line shell script, see the architecture), Pi's runtime assets, and `web/` (the web UI for `pi-studio ui`) | One unpack gives a complete, movable version folder |
+| S4 | The archive holds one folder `pi-studio-<version>-<target>/` with `pi-studio`, `bun` (a two-line shell script, see the architecture), and Pi's runtime assets | One unpack gives a complete, movable version folder |
 | S5 | The pin is `desktop/daemon-pin.json` (`{version, assets: {target: {url, sha256, size}}}`), compiled into the app. The release workflow overwrites the runner's copy from `daemon-updates/latest.json`; the committed copy is refreshed by the same script when a developer runs it | P2 without a manual step in releases; a local build still has a valid pin |
 | S6 | The desktop release waits up to 30 minutes for `daemon-updates/latest.json` to reach `minDaemonVersion`, then fails (P14) | A merge that raises the minimum and changes the daemon starts the npm release and the desktop release at the same time; the binaries come later |
 | S7 | The app makes sure the binary is installed before it does anything with the local entry, a status probe included. A running npm daemon is then found by the binary's `daemon status` (same folder, same PID file) and used as it is | The app has one way to talk to the local daemon. Cost: a user with a running npm daemon also downloads the binary on first use (refines D9: "no download for a user of remote daemons only" still holds) |
@@ -168,7 +168,6 @@ CliToolState =
 | `installKind` | new value `binary` ([self-update.md](self-update.md)) |
 | Baseline pack | `pi-background-tasks` is no longer in `core`; on a binary daemon the sources in `BINARY_EXCLUDED_PACKAGES` (the same package) are still neither loaded nor installed, for users who installed it themselves (D2) |
 | Pi's package manager | on a binary daemon, the `bun` script beside the binary, set inside each process (P8) |
-| `pi-studio ui` | serves `web/` beside the binary |
 
 ## Behavior & algorithms
 

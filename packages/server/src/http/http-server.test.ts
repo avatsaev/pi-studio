@@ -80,8 +80,8 @@ describe("createHostChecker", () => {
 });
 
 describe("HTTP server pipeline", () => {
-  it("GET /api/health succeeds without host validation or auth", async () => {
-    const port = await start({ hostnames: [], authenticate: () => false });
+  it("GET /api/health succeeds without host validation", async () => {
+    const port = await start({ hostnames: [] });
     const res = await call(port, { path: "/api/health", headers: { Host: "evil.example.com" } });
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ status: "ok", version: SERVER_VERSION });
@@ -100,21 +100,23 @@ describe("HTTP server pipeline", () => {
     expect(res.status).toBe(404); // passes host check, no route → 404
   });
 
-  it("allows OPTIONS preflight with CORS headers", async () => {
-    const port = await start({ allowedOrigins: ["https://app.test"], hostnames: [] });
-    const res = await call(port, {
-      method: "OPTIONS",
-      path: "/",
-      headers: { Host: "evil.example.com", Origin: "https://app.test" },
-    });
-    expect(res.status).toBe(204);
-    expect(res.headers["access-control-allow-origin"]).toBe("https://app.test");
-    expect(res.headers["access-control-allow-methods"]).toContain("OPTIONS");
+  it("answers 404 without CORS headers for other paths and methods", async () => {
+    const port = await start({ hostnames: true });
+    for (const method of ["GET", "POST", "OPTIONS"]) {
+      const res = await call(port, {
+        method,
+        path: "/other",
+        headers: { Origin: "https://app.test" },
+      });
+      expect(res.status).toBe(404);
+      expect(Object.keys(res.headers).filter((h) => h.startsWith("access-control-"))).toEqual([]);
+    }
   });
 
-  it("does not reflect a disallowed CORS origin", async () => {
-    const port = await start({ allowedOrigins: ["https://app.test"], hostnames: true });
-    const res = await call(port, { path: "/", headers: { Origin: "https://evil.test" } });
+  it("serves /api/health without CORS headers", async () => {
+    const port = await start({ hostnames: [] });
+    const res = await call(port, { path: "/api/health", headers: { Origin: "https://app.test" } });
+    expect(res.status).toBe(200);
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@
 
 > Part of: [MAIN-SCOPE.md](../MAIN-SCOPE.md)
 > Related scopes: [features/agent-providers.md](../features/agent-providers.md),
-> [features/service-proxy.md](../features/service-proxy.md), [persistence.md](persistence.md),
+> [persistence.md](persistence.md),
 > [auth-security.md](auth-security.md)
 
 ## Purpose
@@ -20,23 +20,17 @@ normalization on load.
   version: 1,
   daemon: {
     listen: "127.0.0.1:6767",
-    hostnames: true | string[],           # legacy alias `allowedHosts` migrated on load
-    mcp: { enabled, injectIntoAgents },
-    appendSystemPrompt: string,            # appended to supported providers' system/developer prompts
-    cors: { allowedOrigins: string[] },
+    hostnames: true | string[],
+    devAllowedOrigins: string[],           # browser Origins allowed on WS upgrades (dev switch; default none)
     relay: { enabled, endpoint, publicEndpoint, useTls, publicUseTls },
     piHome?: string,                       # redirects the bundled Pi CLI's own .pi config dir
-    auth: { password: string },            # bcrypt hash, optional
-    serviceProxy: { listen?, publicBaseUrl?, enabled? }   # see service-proxy
+    auth: { password: string }             # bcrypt hash, optional
   },
   app: { baseUrl },
-  worktrees?: { root? },                   # default $PI_STUDIO_HOME/worktrees
-  providers: { local: { modelsDir } },
   agents: {
-    providers: Record<providerId, ProviderOverride>,   # custom Pi-compatible profiles
+    providers: { pi?: ProviderOverride },   # only `pi`; other keys are a config error
     metadataGeneration: { providers: [{ provider, model?, thinkingOptionId? }] }
-  },
-  log: { level, format, console: {...}, file: { level, path, rotate: { maxSize, maxFiles } } }
+  }
 }
 ```
 - All fields optional with sensible defaults.
@@ -44,11 +38,10 @@ normalization on load.
   generation (commit messages, PR text, branch names, titles); tried in order, then dynamic defaults,
   then current selection.
 
-### Provider override (`agents.providers.{id}`)
-Provider ids: `/^[a-z][a-z0-9-]*$/`. Fields: `extends` (`"pi"`; required for custom),
-`label` (required for custom), `description?`, `command?` (string[]; custom Pi binary/fork), `env?`,
-`params?`, `models?`, `additionalModels?`, `disallowedTools?`, `enabled?`, `order?`. Full semantics
-in [features/agent-providers.md](../features/agent-providers.md).
+### Provider override (`agents.providers.pi`)
+Only the `pi` key is accepted; any other key fails load (`agents.providers.foo: only "pi" is
+supported`). Fields: `command?` (string[]), `env?`. See
+[features/agent-providers.md](../features/agent-providers.md).
 
 ### Per-project config — `pi-studio.json`
 ```
@@ -60,8 +53,6 @@ in [features/agent-providers.md](../features/agent-providers.md).
 ```
 - `setup`/`teardown` are normalized: a string becomes a single-element array; blanks dropped; default
   `{ setup: [], teardown: [] }`.
-- `scripts` entries with `type: "service"` are proxied (see
-  [features/service-proxy.md](../features/service-proxy.md)).
 - A revision/stale-write model exists (`Pi-StudioConfigRevisionSchema`): writes can fail with
   `project_not_found`, `invalid_project_config`, `stale_project_config` (config changed on disk),
   or `write_failed`.
@@ -70,14 +61,13 @@ in [features/agent-providers.md](../features/agent-providers.md).
 Env overrides config.json for: `PI_STUDIO_HOME`, `PI_STUDIO_LISTEN`, `PI_STUDIO_SERVER_ID`, `PI_STUDIO_PASSWORD`,
 `PI_STUDIO_HOSTNAMES`, `PI_STUDIO_PI_HOME` (`daemon.piHome`), `PI_STUDIO_RELAY_ENDPOINT`, `PI_STUDIO_RELAY_PUBLIC_ENDPOINT`,
 `PI_STUDIO_RELAY_USE_TLS`, `PI_STUDIO_RELAY_PUBLIC_USE_TLS`, `PI_STUDIO_APP_BASE_URL` (pairing link origin, `app.baseUrl`),
-`PI_STUDIO_SERVICE_PROXY_LISTEN`, `PI_STUDIO_SERVICE_PROXY_PUBLIC_BASE_URL`,
-`PI_STUDIO_SERVICE_PROXY_ENABLED` (compat shim).
+`PI_STUDIO_DEV_ALLOWED_ORIGINS` (`daemon.devAllowedOrigins`).
 
 ## Behavior & Algorithms
 ```
 function loadConfig(path):
     raw = readJson(path) or {}
-    migrate legacy: allowedHosts→hostnames, provider command:{mode,...}→current shape
+    migrate legacy: provider command:{mode,...}→current shape
     parsed = PersistedConfigSchema.parse(migrated)
     overlay env vars (env wins) for the keys listed above
     return parsed
@@ -90,19 +80,19 @@ function loadConfig(path):
 | Condition | Expected behavior |
 |-----------|-------------------|
 | Missing config.json | Use all defaults |
-| Legacy `allowedHosts` / provider `command.mode` | Migrate inline on load |
+| Legacy provider `command.mode` | Migrate inline on load |
 | `pi-studio.json` changed on disk during edit | Reject with `stale_project_config` |
 | Invalid provider id | Reject the entry |
-| `serviceProxy.enabled:false` | Suppress optional listen/publicBaseUrl only; localhost proxy stays on |
+| WS upgrade with an `Origin` not in `daemon.devAllowedOrigins` | Refused (`403 Origin not allowed`) |
 
 ## Dependencies
-- Internal: bootstrap, provider registry, service proxy, worktree service.
+- Internal: bootstrap, provider registry, worktree service.
 - External: Zod, bcrypt (password hash).
 
 ## Acceptance Criteria
 - [ ] Env vars override the matching config.json keys.
-- [ ] Legacy `allowedHosts` and provider `command.mode` shapes load without error.
-- [ ] A custom Pi profile missing `extends`+`label` is rejected.
+- [ ] A legacy provider `command.mode` shape loads without error.
+- [ ] An `agents.providers` key other than `pi` is rejected, naming the key.
 - [ ] `pi-studio.json` `setup: "cmd"` normalizes to `["cmd"]`.
 - [ ] Editing `pi-studio.json` against a stale revision returns `stale_project_config`.
 

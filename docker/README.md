@@ -6,7 +6,7 @@ Three images, all built from local monorepo source:
 |---|---|---|---|
 | `pi-studio-daemon` | `@av-pi-studio/server` | `node:22-bookworm-slim` | daemon + compiled `node-pty` + `git` + bundled `pi` runtime |
 | `pi-studio-relay` | `@av-pi-studio/relay` | `node:22-bookworm-slim` | standalone E2EE relay (pure JS, no native, stateless) |
-| `pi-studio-web-client` | `@av-pi-studio/web-client` | `nginx:1.27-alpine` | static React/Vite SPA + optional same-origin `/daemon-ws` proxy |
+| `pi-studio-web-client` | `@av-pi-studio/web-client` | `nginx:1.27-alpine` | static React/Vite SPA (relay-only "Lite" client: it connects with a pairing link) |
 
 All three build from local monorepo source. The daemon and relay bind `0.0.0.0`, are driven by
 environment variables, and shut down cleanly on `SIGTERM`; the web UI is a static bundle served by
@@ -16,26 +16,38 @@ nginx. No source changes are needed to containerize them.
 
 ```bash
 cd docker
-docker compose up --build
+PI_STUDIO_PASSWORD=choose-a-password docker compose up --build   # the password is required
 ```
 
 This starts the relay (`:7000`), the daemon (`:6767`), and the web UI (`:8080`), with the daemon
-dialing **outbound** to the relay so the full `client → relay → daemon` topology runs locally. Then:
+dialing **outbound** to the relay so the full `client → relay → daemon` topology runs locally. The
+daemon listens on `0.0.0.0` inside the container, so it **refuses to start without
+`PI_STUDIO_PASSWORD`** (compose fails with "set PI_STUDIO_PASSWORD" if it is unset). Then:
 
 ```bash
-# open the web UI, then type the daemon URL (http://localhost:6767) in the toolbar and Connect
-open http://localhost:8080
-# ...or drive it from the CLI, direct to the daemon
-pi-studio --host http://localhost:6767 ls
+# drive it from the CLI, direct to the daemon port, with the password
+pi-studio --host http://localhost:6767 --password "$PI_STUDIO_PASSWORD" ls
 # health probes
 curl http://localhost:6767/api/health   # → {"status":"ok","version":"<daemon version>"}
 curl http://localhost:7000/health        # → ok
 curl http://localhost:8080/ -I           # → 200 (SPA)
 ```
 
-> The web UI reads the daemon URL at **runtime** from the toolbar (or `?host=&connect=1` query
-> params) — it is never baked into the image. In compose you can instead point the toolbar host at
-> `ws://localhost:8080/daemon-ws`, the same-origin proxy nginx forwards to the daemon service.
+> **The web UI connects through the relay only, with a pairing link.** It never dials the daemon
+> port, and the daemon refuses any browser WebSocket (an upgrade that carries an `Origin`). The
+> daemon image does not ship the CLI, so generate the link on the host from a copy of the daemon's
+> public key (delete the copy afterwards — the file also holds the private key):
+>
+> ```bash
+> mkdir -p /tmp/pi-home && docker compose cp daemon:/data/daemon-keypair.json /tmp/pi-home/
+> PI_STUDIO_HOME=/tmp/pi-home PI_STUDIO_APP_BASE_URL=http://localhost:8080 \
+>   PI_STUDIO_RELAY_ENABLED=true PI_STUDIO_RELAY_PUBLIC_ENDPOINT=localhost:7000 \
+>   PI_STUDIO_RELAY_PUBLIC_USE_TLS=false pi-studio daemon pair
+> rm -r /tmp/pi-home
+> ```
+>
+> Open the printed link in the browser. The desktop app and the CLI connect to the daemon port
+> directly, with the password.
 
 Compose knobs (env vars, all optional):
 
@@ -44,7 +56,7 @@ Compose knobs (env vars, all optional):
 | `PI_STUDIO_DAEMON_PORT` | `6767` | Host port mapped to the daemon |
 | `PI_STUDIO_RELAY_PORT` | `7000` | Host port mapped to the relay |
 | `PI_STUDIO_WEB_PORT` | `8080` | Host port mapped to the web UI |
-| `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
+| `PI_STUDIO_PASSWORD` | **required** | Connection password (bcrypt-checked); the daemon refuses a network bind without it |
 | `PI_STUDIO_INSTALL_GH` | `false` | Bundle the GitHub CLI (`gh`) into the daemon image |
 | `ANTHROPIC_API_KEY` | _(unset)_ | pi provider credential (see [pi auth](#pi-provider-auth)) |
 
@@ -192,10 +204,10 @@ docker run -d --name pi-studio-daemon \
 
 | Env | Default | Purpose |
 |---|---|---|
-| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Bind address (the container sets it explicitly — the daemon's own default is loopback, which is unreachable from outside the container). Set `PI_STUDIO_PASSWORD` or the daemon logs a warning |
+| `PI_STUDIO_LISTEN` | `0.0.0.0:6767` | Bind address (the container sets it explicitly — the daemon's own default is loopback, which is unreachable from outside the container). A non-loopback bind **requires** `PI_STUDIO_PASSWORD`: the daemon refuses to start without it |
 | `PI_STUDIO_INSTALL_KIND` | `docker` | Set by the image: the daemon never updates itself in a container; replace the image instead |
 | `PI_STUDIO_HOME` | `/data` | State dir (mount a volume here) |
-| `PI_STUDIO_PASSWORD` | _(unset)_ | Connection password |
+| `PI_STUDIO_PASSWORD` | **required** | Connection password |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino level; `debug` adds per-RPC request lines |
 | `PI_STUDIO_RELAY_ENABLED` / `_ENDPOINT` / `_USE_TLS` | `false` / — / `false` | Dial out to a relay |
 | `PI_STUDIO_APP_BASE_URL` | `https://app.molagent.ai` | Pairing link origin (`daemon pair`) — the compose stack sets this to `http://localhost:${PI_STUDIO_WEB_PORT:-8080}` |
@@ -211,15 +223,11 @@ create/turn lifecycle, terminal open/exit, `pi` process spawn/exit, relay dial e
 ### Web UI
 
 ```bash
-docker run -d --name pi-studio-web-client -p 8080:8080 \
-  -e PI_STUDIO_DAEMON_UPSTREAM=daemon-host:6767 \
-  pi-studio-web-client
+docker run -d --name pi-studio-web-client -p 8080:8080 pi-studio-web-client
 ```
 
-Static SPA on `:8080`, no volumes. The daemon URL is entered at runtime in the toolbar (or via
-`?host=…&connect=1`). `PI_STUDIO_DAEMON_UPSTREAM` (default `daemon:6767`) is only the target of the
-optional same-origin `/daemon-ws` proxy — set it if you want the browser to reach the daemon
-through the web server's origin (`ws://<web-host>:8080/daemon-ws`) instead of the daemon port.
+Static SPA on `:8080`, no volumes, no daemon address: the page is opened from a pairing link
+(`pi-studio daemon pair`) and reaches the daemon through the relay. nginx proxies nothing.
 
 ## Volumes
 
@@ -254,8 +262,9 @@ works with no credentials for smoke tests.
 ## Security notes
 
 - The relay is **zero-knowledge** — it forwards ciphertext verbatim and never sees message contents.
-  The **daemon** port, however, is a plain WebSocket endpoint: set `PI_STUDIO_PASSWORD` and/or keep
-  it off untrusted networks. TLS (`wss`/`https`) is expected to be terminated by a reverse proxy in
+  The **daemon** port, however, is a plain WebSocket endpoint: it requires `PI_STUDIO_PASSWORD` on a
+  network bind, refuses browser upgrades, and should still be kept off untrusted networks. TLS
+  (`wss`/`https`) is expected to be terminated by a reverse proxy in
   front of the daemon; the container itself speaks plaintext HTTP.
 - Both images run as the non-root `node` user.
 - `GET /api/health` (daemon) and `GET /health` (relay) are exempt from auth/host checks for probes.

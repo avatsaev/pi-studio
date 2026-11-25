@@ -12,6 +12,7 @@ import {
   PARENT_AGENT_ID_LABEL,
 } from "./agent-manager.js";
 import type { AgentSession } from "./provider-contract.js";
+import { PI_KILL_GRACE_MS } from "./providers/pi/rpc-transport.js";
 
 const NOW = "2026-06-11T12:00:00.000Z";
 
@@ -24,7 +25,6 @@ function record(overrides: Partial<AgentRecord> = {}): AgentRecord {
     updatedAt: NOW,
     labels: {},
     lastStatus: "initializing",
-    timeline: [],
     ...overrides,
   };
 }
@@ -130,12 +130,10 @@ describe("literal status", () => {
 });
 
 describe("recover", () => {
-  it("reloads persisted agents without auto-resuming runtimes and runs the loop hook", async () => {
+  it("reloads persisted agents without auto-resuming runtimes", async () => {
     const persisted = [record({ lastStatus: "idle" }), record({ lastStatus: "closed" })];
-    const onRecoverLoops = vi.fn();
     const { mgr } = makeManager({
       loadAllAgents: () => Promise.resolve(persisted),
-      onRecoverLoops,
     });
 
     const count = await mgr.recover();
@@ -145,7 +143,6 @@ describe("recover", () => {
       expect(managed?.session).toBeNull(); // runtime not resumed
       expect(managed?.record.lastStatus).toBe(r.lastStatus); // already-resting status preserved as-is
     }
-    expect(onRecoverLoops).toHaveBeenCalledOnce();
   });
 
   it("normalizes a 'running'/'initializing' record left by a mid-turn crash back to 'idle', and persists it", async () => {
@@ -317,7 +314,7 @@ describe("closeAll (daemon shutdown)", () => {
       vi.useRealTimers();
     });
 
-    it("holds closeAll for the default 5 s limit and no longer", async () => {
+    it("holds closeAll for the default limit and no longer", async () => {
       vi.useFakeTimers();
       const warn = vi.fn<CloseWarn>();
       const { mgr } = makeManager({ logger: { warn } as never });
@@ -341,10 +338,66 @@ describe("closeAll (daemon shutdown)", () => {
       await vi.advanceTimersByTimeAsync(1);
       await done;
       expect(settled).toBe(true);
-      expect(AGENT_CLOSE_TIMEOUT_MS).toBe(5000);
+      // Longer than the transport's SIGKILL grace: a Pi that ignores SIGTERM is killed first.
+      expect(AGENT_CLOSE_TIMEOUT_MS).toBeGreaterThan(PI_KILL_GRACE_MS);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]![0].err).toContain("timed out after 5000 ms");
+      expect(warn.mock.calls[0]![0].err).toContain(`timed out after ${AGENT_CLOSE_TIMEOUT_MS} ms`);
       expect(vi.getTimerCount()).toBe(0);
     });
+  });
+});
+
+describe("runExclusive (one turn, compaction or session operation at a time)", () => {
+  it("refuses a second claim with the reason of the first, and starts nothing for it", async () => {
+    const { mgr } = makeManager();
+    const agent = await mgr.add(record());
+    const id = agent.record.id;
+    const gate = Promise.withResolvers<void>();
+    const second = vi.fn(() => Promise.resolve());
+
+    const first = mgr.runExclusive(id, "turn", () => gate.promise);
+    await expect(mgr.runExclusive(id, "turn", second)).rejects.toThrow(
+      `busy: agent ${id} is running`,
+    );
+    await expect(mgr.runExclusive(id, "compaction", second)).rejects.toThrow(/busy.*is running/);
+    expect(second).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await first;
+    await mgr.runExclusive(id, "compaction", () => Promise.resolve());
+  });
+
+  it.each([
+    ["compaction", /busy.*is compacting/],
+    ["session", /busy.*is changing its session/],
+  ] as const)("names a held %s", async (kind, message) => {
+    const { mgr } = makeManager();
+    const id = (await mgr.add(record())).record.id;
+    const gate = Promise.withResolvers<void>();
+    const first = mgr.runExclusive(id, kind, () => gate.promise);
+    await expect(mgr.runExclusive(id, "turn", () => Promise.resolve())).rejects.toThrow(message);
+    gate.resolve();
+    await first;
+  });
+
+  it("releases the claim when the work fails, and claims per agent", async () => {
+    const { mgr } = makeManager();
+    const a = (await mgr.add(record())).record.id;
+    const b = (await mgr.add(record())).record.id;
+
+    await expect(
+      mgr.runExclusive(a, "turn", () => Promise.reject(new Error("boom"))),
+    ).rejects.toThrow("boom");
+    await expect(mgr.runExclusive(a, "turn", () => Promise.resolve("again"))).resolves.toBe(
+      "again",
+    );
+
+    const gate = Promise.withResolvers<void>();
+    const held = mgr.runExclusive(a, "turn", () => gate.promise);
+    await expect(mgr.runExclusive(b, "turn", () => Promise.resolve("other"))).resolves.toBe(
+      "other",
+    );
+    gate.resolve();
+    await held;
   });
 });

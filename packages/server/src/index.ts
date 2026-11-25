@@ -15,7 +15,7 @@ export * from "./config/index.js";
 // Daemon identity + bootstrap.
 export * from "./daemon/index.js";
 
-// HTTP server (host allowlist, CORS, health, auth pipeline).
+// HTTP server (host allowlist, health).
 export * from "./http/index.js";
 
 // Optional password auth (bcrypt + bearer / WS subprotocol).
@@ -27,20 +27,14 @@ export * from "./ws/index.js";
 // Agent providers, registry, snapshot, and lifecycle manager.
 export * from "./agent/index.js";
 
-// Project + workspace registries, key derivation, reconciliation.
+// Project + workspace registries, key derivation.
 export * from "./projects/index.js";
 
 // PTY terminal manager + binary stream.
 export * from "./terminal/index.js";
 
-// HTTP service proxy (generated hostnames + routing).
-export * from "./proxy/index.js";
-
 // File explorer + binary file transfer.
 export * from "./files/index.js";
-
-// Orchestration: chat rooms, schedules/heartbeats, loops.
-export * from "./orchestration/index.js";
 
 // Operational logging (pino + rotating file).
 export * from "./logging/index.js";

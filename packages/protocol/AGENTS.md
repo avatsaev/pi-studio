@@ -20,7 +20,7 @@ src/
   index.ts                                Public barrel — re-exports everything below.
   messages.ts                             All JSON wire schemas (Zod) + top-level envelope union.
   client-capabilities.ts                  CLIENT_CAPS / SERVER_FEATURES flags + supports() helper.
-  provider-manifest.ts                    Provider / mode manifest types (UI scaffolding).
+  provider-manifest.ts                    Provider manifest types (UI scaffolding).
   endpoint.ts                             Daemon endpoint / host string parser.
   validation.ts                           Shared base primitives: uuidSchema, isoTimestampSchema, COMPAT().
   source-detect.ts                        Pure skill-install-source classifier (`detectSkillSource`), shared client/daemon.
@@ -83,7 +83,6 @@ fixtures/external-clients/                Published external-client wire fixture
 | `agentPermissionResolvedSchema` | schema | Broadcast: a permission request was resolved (by any client) |
 | `respondToPermissionRequestSchema` | schema | Client→Daemon permission response (dotted name `agent.permission.respond.request`) |
 | `respondToPermissionResponseSchema` | schema | Response to the above |
-| `legacyRespondToPermissionSchema` | schema | Accepted legacy flat name for the above |
 | `rewindModeSchema` / `RewindMode` | schema + type | `"conversation" \| "files" \| "both"` |
 | `agentRewindRequestSchema` / `AgentRewindRequest` | schema + type | `agent.rewind.request` — conversation/file time-travel |
 | `agentRewindResponseSchema` / `AgentRewindResponse` | schema + type | Response, includes `truncatedAt` |
@@ -272,12 +271,11 @@ Parses a daemon target string into an `EndpointDescriptor`:
 ### `provider-manifest.ts`
 
 UI-only scaffolding types:
-- `ProviderDefinition`, `ProviderMode`, `AgentCapabilityFlags` — includes `supportsTodos?: boolean` (sprint-079: the provider implements `onTodos`/`readTodos`; the daemon uses it to skip providers without the members) and `supportsExtensionUi?:
+- `ProviderDefinition`, `AgentCapabilityFlags` — includes `supportsTodos?: boolean` (sprint-079: the provider implements `onTodos`/`readTodos`; the daemon uses it to skip providers without the members) and `supportsExtensionUi?:
   boolean` (sprint-066): UI-presentation metadata only, like every other flag in this file (see its
   own header comment) — it does **not** gate whether the daemon forwards extension UI traffic (the
   Pi adapter and the mock provider both do so unconditionally); both `pi` and `mock`
   (`PI_CAPABILITIES`/`MOCK_CAPABILITIES`, `packages/server/AGENTS.md`) set it `true`
-- `colorTierSchema` — `safe | moderate | dangerous | planning` (drives UI color)
 - `providerIdSchema` — must match `/^[a-z][a-z0-9-]*$/`
 
 ### `source-detect.ts`

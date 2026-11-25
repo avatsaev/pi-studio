@@ -44,7 +44,7 @@ tests; the estimate was 4–6 months to parity. The owner chose the single binar
 | A4 | Under Bun the terminal backend is `Bun.spawn(…, { terminal })`; under Node it stays `node-pty`, imported lazily | `node-pty` does not load under Bun; importing it at module load stops the daemon |
 | A5 | The five `createRequire` calls become static imports or build-time constants (`SERVER_VERSION` from a generated module) | Bun's bundler does not follow `createRequire` |
 | A6 | `packages/server/src/runtime/pi-overrides.ts` replaces `SettingsManager.prototype.getNpmCommand` and filters the package list (`BINARY_EXCLUDED_PACKAGES`) when running as the binary; the daemon applies it at start, the `__pi` entry before Pi's own entry | P8: the user's Pi settings are never written; D2 |
-| A7 | Pi's runtime assets, the `bun` script and the web UI's `dist/web` ship beside the executable; `self.ts` finds them from `process.execPath` | Pi reads its assets from the executable's folder; `pi-studio ui` needs the files |
+| A7 | Pi's runtime assets and the `bun` script ship beside the executable; `self.ts` finds them from `process.execPath` | Pi reads its assets from the executable's folder |
 | A8 | `installKind` is `binary` when a build-time constant says so; whether it can update depends on the executable being under `$PI_STUDIO_HOME/bin/versions/` | [../features/self-update.md](../features/self-update.md) |
 | A9 | Server and CLI tests keep running on Node. The binary is checked by the smoke test of each release job and by `npm run test:binary` (the same smoke test, local) | The suite was never run under Bun; making it run there is not a goal |
 | A10 | macOS binaries are built and ad-hoc signed on macOS runners | An Apple Silicon Mac kills an unsigned binary |
@@ -63,7 +63,6 @@ npm run build:binary -- --target linux-x64      # scripts/build-binary.mjs
         pi-studio
         bun                       # #!/bin/sh  BUN_BE_BUN=1 exec "$(dirname "$0")/pi-studio" "$@"
         Pi's package.json, theme/, export-html/, photon_rs_bg.wasm
-        web/                      # packages/web-client/dist/web
     macOS: codesign -s - pi-studio  (on a macOS runner, A10)
     tar.gz
 ```

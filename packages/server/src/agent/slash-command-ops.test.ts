@@ -7,7 +7,7 @@ import type { AgentRecord } from "../persistence/entity-schemas.js";
 import type { AgentClient, AgentSession, AgentTodoList } from "./provider-contract.js";
 import { AgentTodosService } from "./agent-todos/agent-todos-service.js";
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline, seedTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import {
   type ListProviderModelsResult,
@@ -83,11 +83,7 @@ function sessionStub(overrides: Record<string, unknown> = {}) {
     run: () => Promise.resolve(),
     startTurn: () => Promise.resolve({ turnId: "t1" }),
     subscribe: () => () => {},
-    streamHistory: async function* () {},
     getRuntimeInfo: () => ({ provider: "mock" }),
-    getAvailableModes: () => [],
-    getCurrentMode: () => null,
-    setMode: () => Promise.resolve(),
     describePersistence: () => null,
     interrupt: () => Promise.resolve(),
     close: () => Promise.resolve(),
@@ -786,7 +782,6 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
       labels: {},
       lastStatus: "idle",
       config: {},
-      timeline: [],
     });
     manager.attachSession(agentId, session);
     await manager.persistSessionHandle(agentId); // establish the PRE-fork handle
@@ -813,7 +808,13 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
 
   it("a fork that changes the handle resets the timeline and broadcasts agent_timeline_reset", async () => {
     const rows: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ];
     const { manager, ops, broadcasts } = makeResyncSetup(() => rows);
     const agentId = "fork-changed";
@@ -821,7 +822,7 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
 
     await ops.handleFork({ agentId, entryId: "e1" }, () => []);
 
-    expect(getTimeline(agentId)?.allRows()).toEqual(rows);
+    expect(manager.timelines.get(agentId)?.allRows()).toEqual(rows);
     expect(broadcasts).toContainEqual({
       type: "agent_timeline_reset",
       agentId,
@@ -832,14 +833,20 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
   it("a fork whose hydration yields zero rows still resets and still broadcasts", async () => {
     const { manager, ops, broadcasts } = makeResyncSetup(() => []);
     const agentId = "fork-empty";
-    seedTimeline(agentId, [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+    manager.timelines.seed(agentId, [
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ]);
     await seedAgent(manager, agentId, forkingSession([]));
 
     await ops.handleFork({ agentId, entryId: "e1" }, () => []);
 
-    expect(getTimeline(agentId)?.rowCount()).toBe(0);
+    expect(manager.timelines.get(agentId)?.rowCount()).toBe(0);
     expect(broadcasts).toContainEqual({
       type: "agent_timeline_reset",
       agentId,
@@ -849,13 +856,25 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
 
   it("an extension-cancelled fork performs no reset and no broadcast", async () => {
     const { manager, ops, broadcasts } = makeResyncSetup(() => [
-      { epoch: 9, seq: 9, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+      {
+        epoch: 9,
+        seq: 9,
+        seqEnd: 9,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ]);
     const agentId = "fork-cancelled";
     const seedRows: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ];
-    seedTimeline(agentId, seedRows);
+    manager.timelines.seed(agentId, seedRows);
     await seedAgent(
       manager,
       agentId,
@@ -868,7 +887,7 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
     >;
 
     expect(result).toEqual({ type: "agent_fork_response", payload: { text: "", cancelled: true } });
-    expect(getTimeline(agentId)?.allRows()).toEqual(seedRows);
+    expect(manager.timelines.get(agentId)?.allRows()).toEqual(seedRows);
     expect(broadcasts).toHaveLength(0);
   });
 
@@ -876,9 +895,15 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
     const { manager, ops, broadcasts } = makeResyncSetup();
     const agentId = "fork-mock-stub";
     const seedRows: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ];
-    seedTimeline(agentId, seedRows);
+    manager.timelines.seed(agentId, seedRows);
     // `describePersistence()` returns the SAME handle before and after `fork()` — exactly the
     // mock provider's inert stub (its nativeHandle is derived from the session id, which fork
     // never touches).
@@ -894,13 +919,19 @@ describe("agent_fork_request — post-fork resync (sprint-071/task-003)", () => 
 
     await ops.handleFork({ agentId, entryId: "e1" }, () => []);
 
-    expect(getTimeline(agentId)?.allRows()).toEqual(seedRows);
+    expect(manager.timelines.get(agentId)?.allRows()).toEqual(seedRows);
     expect(broadcasts).toHaveLength(0);
   });
 
   it("the success response is observably emitted after the reset + broadcast", async () => {
     const rows: TimelineRow[] = [
-      { epoch: 1, seq: 0, timestamp: NOW, event: { kind: "turn_started" } as AgentStreamEvent },
+      {
+        epoch: 1,
+        seq: 0,
+        seqEnd: 0,
+        timestamp: NOW,
+        event: { kind: "turn_started" } as AgentStreamEvent,
+      },
     ];
     const order: string[] = [];
     const { manager } = makeResyncSetup();
@@ -987,7 +1018,6 @@ describe("agent_fork_request — agent todos reconcile (sprint-079/task-007)", (
       labels: {},
       lastStatus: "idle",
       config: {},
-      timeline: [],
     });
     manager.attachSession("a1", session);
     await manager.persistSessionHandle("a1");

@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   loadConfig,
-  migrateConfig,
   overlayEnv,
   persistedConfigSchema,
   persistExtensionPacks,
@@ -32,11 +31,20 @@ describe("defaults", () => {
     expect(cfg.version).toBe(1);
     expect(cfg.daemon.listen).toBe("127.0.0.1:6767");
     expect(cfg.daemon.hostnames).toEqual(["localhost", "*.localhost"]);
-    expect(cfg.daemon.mcp).toEqual({ enabled: true, injectIntoAgents: true });
     expect(cfg.daemon.relay.enabled).toBe(false);
-    expect(cfg.log.level).toBe("info");
     expect(cfg.agents.providers).toEqual({});
     expect(cfg.daemon.extensions).toEqual({ autoSync: true, packs: [] });
+  });
+
+  it("a config containing removed keys still loads", async () => {
+    const path = await tempConfig({
+      log: { level: "debug" },
+      worktrees: { root: "/wt" },
+      daemon: { appendSystemPrompt: "x", listen: "127.0.0.1:7000" },
+      providers: { local: { modelsDir: "/models" } },
+    });
+    const cfg = loadConfig(path, {});
+    expect(cfg.daemon.listen).toBe("127.0.0.1:7000");
   });
 
   it("an empty object parses to defaults", () => {
@@ -44,37 +52,21 @@ describe("defaults", () => {
   });
 });
 
-describe("legacy migration", () => {
-  it("migrates daemon.allowedHosts → hostnames", async () => {
-    const path = await tempConfig({ daemon: { allowedHosts: ["a.local", "b.local"] } });
-    const cfg = loadConfig(path, {});
-    expect(cfg.daemon.hostnames).toEqual(["a.local", "b.local"]);
-  });
-
-  it("migrates top-level allowedHosts → hostnames", () => {
-    const migrated = migrateConfig({ allowedHosts: true }) as { daemon: { hostnames: unknown } };
-    expect(migrated.daemon.hostnames).toBe(true);
-  });
-
-  it("loads a legacy provider command:{mode,…} without error", async () => {
-    const path = await tempConfig({
-      agents: {
-        providers: {
-          "my-fork": {
-            extends: "pi",
-            label: "My Fork",
-            command: { mode: "rpc", command: "pi-fork", args: ["--flag"] },
-          },
-        },
-      },
-    });
-    const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers["my-fork"]?.command).toEqual(["pi-fork", "--flag"]);
-  });
-});
-
 describe("env overlay (env wins)", () => {
-  it("overrides listen, password, relay, app.baseUrl, service-proxy and piHome keys", () => {
+  it("devAllowedOrigins defaults empty; PI_STUDIO_DEV_ALLOWED_ORIGINS wins over config", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(base.daemon.devAllowedOrigins).toEqual([]);
+    const fromFile = persistedConfigSchema.parse({
+      daemon: { devAllowedOrigins: ["http://a.test"] },
+    });
+    expect(overlayEnv(fromFile, {}).daemon.devAllowedOrigins).toEqual(["http://a.test"]);
+    expect(
+      overlayEnv(fromFile, { PI_STUDIO_DEV_ALLOWED_ORIGINS: "http://b.test, http://c.test" }).daemon
+        .devAllowedOrigins,
+    ).toEqual(["http://b.test", "http://c.test"]);
+  });
+
+  it("overrides listen, password, relay, app.baseUrl and piHome keys", () => {
     const base = persistedConfigSchema.parse({});
     const cfg = overlayEnv(base, {
       PI_STUDIO_LISTEN: "0.0.0.0:7000",
@@ -83,8 +75,6 @@ describe("env overlay (env wins)", () => {
       PI_STUDIO_RELAY_ENDPOINT: "relay.internal:9000",
       PI_STUDIO_RELAY_USE_TLS: "true",
       PI_STUDIO_APP_BASE_URL: "http://localhost:8080",
-      PI_STUDIO_SERVICE_PROXY_LISTEN: "127.0.0.1:8080",
-      PI_STUDIO_SERVICE_PROXY_ENABLED: "1",
       PI_STUDIO_PI_HOME: "/custom/.pi",
     });
     expect(cfg.daemon.listen).toBe("0.0.0.0:7000");
@@ -93,8 +83,6 @@ describe("env overlay (env wins)", () => {
     expect(cfg.daemon.relay.endpoint).toBe("relay.internal:9000");
     expect(cfg.daemon.relay.useTls).toBe(true);
     expect(cfg.app.baseUrl).toBe("http://localhost:8080");
-    expect(cfg.daemon.serviceProxy.listen).toBe("127.0.0.1:8080");
-    expect(cfg.daemon.serviceProxy.enabled).toBe(true);
     expect(cfg.daemon.piHome).toBe("/custom/.pi");
   });
 
@@ -152,32 +140,19 @@ describe("env overlay (env wins)", () => {
 });
 
 describe("provider validation", () => {
-  it("rejects a custom provider missing extends + label", async () => {
-    const path = await tempConfig({ agents: { providers: { "my-fork": { description: "x" } } } });
-    expect(() => loadConfig(path, {})).toThrow();
-  });
-
-  it("rejects a bad provider id", async () => {
+  it("rejects any agents.providers key other than pi, naming the key", async () => {
     const path = await tempConfig({
-      agents: { providers: { "Bad-Id": { extends: "pi", label: "X" } } },
+      agents: { providers: { foo: { extends: "pi", label: "Foo" } } },
     });
-    expect(() => loadConfig(path, {})).toThrow();
+    expect(() => loadConfig(path, {})).toThrow('agents.providers.foo: only "pi" is supported');
   });
 
-  it("allows overriding the built-in pi provider without extends/label", async () => {
+  it("keeps pi command and env", async () => {
     const path = await tempConfig({
-      agents: { providers: { pi: { disallowedTools: ["shell"] } } },
+      agents: { providers: { pi: { command: ["pi", "--x"], env: { A: "1" } } } },
     });
     const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers.pi?.disallowedTools).toEqual(["shell"]);
-  });
-
-  it("accepts a valid custom profile", async () => {
-    const path = await tempConfig({
-      agents: { providers: { "my-fork": { extends: "pi", label: "My Fork", order: 2 } } },
-    });
-    const cfg = loadConfig(path, {});
-    expect(cfg.agents.providers["my-fork"]?.label).toBe("My Fork");
+    expect(cfg.agents.providers.pi).toEqual({ command: ["pi", "--x"], env: { A: "1" } });
   });
 });
 

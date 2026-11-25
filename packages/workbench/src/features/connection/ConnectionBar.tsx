@@ -1,6 +1,6 @@
 /**
- * ConnectionBar — the app's top row: brand + version, the connection status pill, the url/password
- * fields, the single primary connect/disconnect action, and the two panel toggles (design spec
+ * ConnectionBar — the app's top row: brand + version, the connection status pill, the pairing-link
+ * field, the single primary connect/disconnect action, and the two panel toggles (design spec
  * § 08; replaces the POC-era `Toolbar`/`ConnectionStatus` pair, POC_TO_APP_PLAN_UI.md §4.1).
  *
  * All state shape lives in `connection-presentation.ts` — this component only binds it to the
@@ -8,14 +8,13 @@
  * trailing action; disconnected/connecting/error show the editable fields, with the pill and action
  * communicating which of those three sub-states is active.
  *
- * The url field ALSO accepts a full pairing link (`pi-studio daemon pair`'s QR/link,
- * architecture/relay-e2ee.md § Pairing) pasted verbatim — `connect()` detects it via
- * `parsePairingUrl` and routes through the relay transport automatically; the password field is
- * ignored in that case (the pairing link's key is itself the credential). The 220px field can't
- * show that as placeholder text, so it lives in the field's `title` tooltip.
+ * Without a registry (the browser, "Pi Studio Lite") the one field takes a pairing link
+ * (`pi-studio daemon pair`'s link, architecture/relay-e2ee.md § Pairing) pasted verbatim —
+ * `connect()` routes it through the relay transport; the browser host refuses any other address.
+ * There is no password field: the pairing link's key is itself the credential.
  *
  * When the host has a daemon registry (`host.daemons`, the desktop app) the pill becomes the daemon
- * switcher (`DaemonSwitcher.tsx`) and the url/password fields and the Connect button are not drawn;
+ * switcher (`DaemonSwitcher.tsx`) and the pairing-link field and the Connect button are not drawn;
  * Disconnect and Retry stay. State shape: `daemon-switcher-presentation.ts`.
  */
 
@@ -71,7 +70,7 @@ const CONTROL_FONT_SIZE = "var(--pi-font-size-2xs)";
 /** § 08: the connecting spinner is 9px, a touch smaller than the 8px dot's optical weight. */
 const SPINNER_SIZE = 9;
 
-const URL_HINT = "host:port, ws://…/http://…, or a pasted pairing link";
+const URL_HINT = "A pairing link from `pi-studio daemon pair`";
 
 export function ConnectionBar() {
   const status = useConnectionStore((s) => s.status);
@@ -82,8 +81,6 @@ export function ConnectionBar() {
 
   const host = useUiStore((s) => s.host);
   const setHost = useUiStore((s) => s.setHost);
-  const password = useUiStore((s) => s.password);
-  const setPassword = useUiStore((s) => s.setPassword);
   const leftSidebarCollapsed = useUiStore((s) => s.leftSidebarCollapsed);
   const toggleLeftSidebar = useUiStore((s) => s.toggleLeftSidebar);
   const rightSidebarCollapsed = useUiStore((s) => s.rightSidebarCollapsed);
@@ -111,7 +108,7 @@ export function ConnectionBar() {
 
   const view = connectionBarView({ status, error, url: host });
   const dot = connectionDot(view.kind);
-  // A host with a registry replaces the address/password fields and the Connect button by the
+  // A host with a registry replaces the pairing-link field and the Connect button by the
   // daemon switcher; without one the bar is exactly the fields-and-pill bar.
   const daemons = useDaemons();
   const invalidLinks = useDaemonsStore((s) => s.invalidLinks);
@@ -122,15 +119,15 @@ export function ConnectionBar() {
 
   // Esc reverts a field to its last committed value — the pair last handed to `connect()`, seeded
   // with what was restored into the store so Esc before any attempt still has something to go to.
-  const committed = useRef({ host, password });
+  const committed = useRef({ host });
   // Invalid-scheme feedback is blur-gated (§ 08) so it can't fire on every keystroke mid-typing.
   const [urlBlurred, setUrlBlurred] = useState(false);
   const urlInvalid = urlBlurred && host.trim() !== "" && !isDialableTarget(host);
 
   function submit() {
     if (view.action.disabled) return;
-    committed.current = { host, password };
-    void connect({ url: host, password: password || undefined });
+    committed.current = { host };
+    void connect({ url: host });
   }
 
   function onAction() {
@@ -146,7 +143,7 @@ export function ConnectionBar() {
     submit();
   }
 
-  function onFieldKeyDown(event: React.KeyboardEvent<HTMLInputElement>, field: "url" | "password") {
+  function onFieldKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -154,12 +151,8 @@ export function ConnectionBar() {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      if (field === "url") {
-        setHost(committed.current.host);
-        setUrlBlurred(false);
-      } else {
-        setPassword(committed.current.password);
-      }
+      setHost(committed.current.host);
+      setUrlBlurred(false);
       event.currentTarget.blur();
     }
   }
@@ -213,25 +206,13 @@ export function ConnectionBar() {
             onChange={(e) => setHost(e.target.value)}
             onFocus={() => setUrlBlurred(false)}
             onBlur={() => setUrlBlurred(true)}
-            onKeyDown={(e) => onFieldKeyDown(e, "url")}
+            onKeyDown={(e) => onFieldKeyDown(e)}
             readOnly={view.fieldsFrozen}
-            placeholder="ws://127.0.0.1:6767"
+            placeholder="Paste a pairing link"
             title={urlInvalid ? `Not a dialable daemon address — ${URL_HINT}` : URL_HINT}
-            aria-label="Daemon address"
+            aria-label="Pairing link"
             aria-invalid={urlInvalid || undefined}
             spellCheck={false}
-            autoComplete="off"
-          />
-          <TextInput
-            className={clsx(styles.field, styles.fieldPassword)}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => onFieldKeyDown(e, "password")}
-            readOnly={view.fieldsFrozen}
-            placeholder="password"
-            title="Daemon password — ignored when the address is a pairing link"
-            aria-label="Daemon password"
             autoComplete="off"
           />
         </>

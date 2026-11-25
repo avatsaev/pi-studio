@@ -9,7 +9,7 @@
 
 Pi-Studio is a **self-hosted, local-first system** for running and controlling the **Pi** AI coding
 agent. A long-lived **daemon** process runs on a developer's machine, manages agent processes,
-PTY terminals, git worktrees, projects, chat rooms, schedules, and loops, and exposes a
+PTY terminals, git worktrees, and projects, and exposes a
 **WebSocket JSON+binary API**. Clients — a CLI and web browser UI today, native mobile/desktop
 apps in later sprints — connect to the daemon to observe and drive agents.
 
@@ -23,14 +23,14 @@ Your code never leaves your machine.
 packages/
   protocol/    Wire schemas (Zod), binary frame codecs, capability flags — zero runtime deps except zod.
   client/      Low-level WS driver (DaemonClient) + PiStudioClient SDK facade.
-  server/      The daemon: agents, terminals, git, projects, orchestration, WS/HTTP, persistence.
+  server/      The daemon: agents, terminals, git, projects, WS/HTTP, persistence.
   cli/         pi-studio terminal client + local daemon lifecycle control (commander).
                It is also released as one compiled binary (`pi-studio`: CLI, daemon, Pi and the `skills` CLI, no Node
                needed; `npm run build:binary`, `npm run test:binary`; `swe/architecture/single-binary-daemon.md`).
   relay/       Relay protocol 2: standalone relay server (control/data/client sockets, pairing, limits) + E2EE channel (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  The browser shell: a thin Vite SPA rendering `@av-pi-studio/workbench` with a browser host (`main.tsx`,
                build-time brand title/favicon override, pdf.js worker, `vite.config.ts`). Ships only the prebuilt
-               static SPA (`dist/web`) that `pi-studio ui` and the Docker image serve. See packages/web-client/AGENTS.md.
+               static SPA (`dist/web`) that the Docker image serves. See packages/web-client/AGENTS.md.
   ui-library/  `@av-pi-studio/ui-library` — publishable React design system extracted from web-client: primitives,
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
@@ -90,17 +90,16 @@ protocol    ──────────────────────�
 relay       ─────────────────────────────────────────► (no workspace deps)
 client      ──────► protocol, relay
 server      ──────► protocol, relay
-cli         ──────► protocol, client, relay, server, web-client
+cli         ──────► protocol, client, relay, server
 web-client  ──────► protocol, client, ui-library, workbench   (devDependencies, bundled into the SPA)
 ui-library  ──────► (no workspace deps)
 workbench   ──────► protocol, client, ui-library
 ui-gallery  ──────► ui-library
 ```
 
-`cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
+`cli` depends on `server` primarily NOT to import its runtime code, but to
 (a) resolve `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
-`import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
-`web-client`'s prebuilt static SPA assets for the `pi-studio ui` command. One narrow, deliberate
+`import.meta.resolve` for spawning a detached daemon/relay subprocess. One narrow, deliberate
 exception: `pi-studio extensions list --local` (sprint-057/task-005) imports `server`'s pure
 extension-planning modules (`extensions/index.ts`'s `curated-packs`/`sync-planner`/
 `extensions-state`, plus `daemon-config.ts`'s `loadConfig`) in-process, to run the same read-only
@@ -110,7 +109,7 @@ auth-engine exception).
 
 `protocol` is the single shared contract; nothing below it imports from above. `ui-library` is the
 shared UI contract (no workspace deps); web-client resolves it, and `workbench`, from source through
-Vite aliases (the workbench's published `dist` is proven by `packages/workbench/scripts/pack-smoke.sh`).
+Vite aliases; `ui-library`, `workbench` and `web-client` are private (never published to npm).
 
 The daemon's self-update is proven end to end by `scripts/daemon-update-check/` (a real `npm i -g` in
 containers against a local verdaccio registry, never the real one; recipe in its README, dated
@@ -305,13 +304,15 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 
 ```bash
 # 1. Publish npm packages — bumps every workspace package to one aligned patch version,
-#    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies — e.g.
-#    web-client's @av-pi-studio/client/protocol/ui-library/workbench, which are devDependencies since web-client ships
-#    no runtime deps, only its prebuilt dist), builds+typechecks+tests, then publishes
-#    protocol/relay/client/ui-library/workbench/web-client/server/cli (8 packages) to npm in that dependency
-#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ui-gallery` is private and never published).
-#    The single version line lives in packages/*/package.json (all 8 kept identical; the script
-#    reads packages/protocol/package.json as the reference). The root package.json intentionally
+#    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies,
+#    only for the published packages — private workspace packages (ui-library, workbench, web-client) keep "*" ranges and just get
+#    the version bumped), builds+typechecks+tests, then publishes
+#    protocol/relay/client/server/cli (5 packages) to npm in that dependency
+#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ALL_PACKAGES` there is the lockstep-bump list and also
+#    holds the three private packages; `ui-gallery` is private and neither bumped nor published). Published
+#    packages must never depend on a private one.
+#    The single version line lives in packages/*/package.json (the 8 listed in `ALL_PACKAGES` kept identical; the script
+#    reads packages/protocol/package.json as the reference; web-client displays its own). The root package.json intentionally
 #    has NO "version" field — it is a private workspace root that nothing publishes and nothing
 #    reads; do not add one back, or it will silently drift from the real version. Every published
 #    package's "files" excludes "dist/**/*.map" and "dist/.tsbuildinfo" — build caches and source
@@ -331,14 +332,17 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    was 1.9 MB for the same four images.
 #    Requires: npm login locally. In CI (.github/workflows/release.yml) it uses npm trusted
 #    publishing (GitHub OIDC, `id-token: write`, npm >= 11.5.1) — no NPM_TOKEN secret; each of the
-#    eight packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
-#    A brand-new package (e.g. the workbench's first release) cannot be registered as a Trusted
+#    five published packages must list this repo + `release.yml` as a Trusted Publisher on npmjs.com.
+#    A brand-new package cannot be registered as a Trusted
 #    Publisher until it exists on npm: do a one-time placeholder `npm publish` and register
 #    `release.yml` as its Trusted Publisher BEFORE merging the change that first publishes it.
-#    See packages/workbench/RELEASING.md (also covers rollback and the rehearsal rule: run
-#    `npm run publish -- --dry-run` in a throwaway worktree before merging a branch that adds a
-#    package; private workspace packages must depend on workspace packages with "*").
-#    (ui-library's runbook: packages/ui-library/RELEASING.md.)
+#    Rehearsal rule: run `npm run publish -- --dry-run` in a throwaway git worktree (with a temporary
+#    commit) before merging a branch that changes the package set. Any private workspace package must
+#    depend on workspace packages with "*": a pinned range fails the lockfile sync with `ETARGET`
+#    (how the 0.0.117 release first failed). Rollback: revert the merge commit, then `npm deprecate`
+#    the bad versions (published versions cannot be unpublished reliably).
+#    workbench, ui-library and web-client were published through 0.0.13x and are no longer: the
+#    owner deprecates the old versions by hand (`npm deprecate`).
 #    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
@@ -389,17 +393,17 @@ published — hence name-based lookup and no CLI.
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
-| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password (`PI_STUDIO_PASSWORD` / `daemon.auth.password`) is refused: the daemon logs an error, exits 1 and never listens (`unprotected_bind`) |
 | `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`); a compiled binary is detected as `binary` without it. `docker/daemon.Dockerfile` sets `docker` |
 |`PI_STUDIO_DAEMON_UPDATE_URL`|`https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json`|Where a single-binary daemon, and `pi-studio update` of one, reads the newest release (`update/binary-manifest.ts`); for tests and private release channels only (`scripts/binary-update-check/` serves one locally)|
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
+| `PI_STUDIO_DEV_ALLOWED_ORIGINS` | _(empty)_ | Developer switch: comma-separated browser `Origin`s (exact scheme+host+port) the direct WebSocket port accepts; overrides `config.json` `daemon.devAllowedOrigins`. Any other `Origin` gets `403 Origin not allowed`; requests without an `Origin` (CLI, desktop) are unaffected. Logs a `warn` at start when non-empty |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino log level (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) |
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into dialing the outbound relay (env equivalent of `daemon.relay.enabled`) |
 | `PI_STUDIO_RELAY_ENDPOINT` / `PI_STUDIO_RELAY_PUBLIC_ENDPOINT` | _(unset)_ | Override `config.json`'s `daemon.relay.endpoint`/`publicEndpoint` (opt-in outbound relay) |
 | `PI_STUDIO_RELAY_USE_TLS` / `PI_STUDIO_RELAY_PUBLIC_USE_TLS` | _(unset)_ | Override relay TLS flags |
-| `PI_STUDIO_SERVICE_PROXY_LISTEN` / `_PUBLIC_BASE_URL` / `_ENABLED` | _(unset)_ | Override service-proxy config |
 |`PI_STUDIO_APP_BASE_URL`|`https://app.molagent.ai`|Pairing link origin (`pi-studio daemon pair`); self-hosted deployments should point this at their own reachable web-client URL|
 |`PI_STUDIO_EXTENSIONS_AUTOSYNC`|`true`|Master switch for preinstalled-extensions sync (`daemon.extensions.autoSync`). `"false"`/`"0"` disables it — the daemon never touches pi's `settings.json` on boot/selection-change; a manual sync still works|
 |`PI_STUDIO_UPDATE_AUTOCHECK`|`true`|Daemon self-update checks (`daemon.update.autoCheck`): `"false"`/`"0"` means no check at start and no 6 h timer; "Check now" still works. Env wins over `config.json`; the `daemon_update_set_auto_check_request` RPC writes the file only|
@@ -428,11 +432,10 @@ All communication uses a **single WebSocket connection** per client.
 - **Binary frames** carry terminal and file-transfer data with a 2-byte header `[opcode][slot]`.
 - All schemas are **append-only**: new optional fields only, types never narrowed, fields never removed.
 - RPC names are overwhelmingly **flat snake_case** (`create_agent_request`, `list_agents_request`,
-  `chat_create_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
+  `create_terminal_request`, `checkout_commit_request`, …) — this is the actual convention in practice,
   not a "legacy" fallback. A small minority use a dotted `domain.provider.operation.direction` form
   (`agent.rewind.request`,
-  `checkout.github.set_auto_merge.request`); where a dotted name exists, the flat form is usually
-  also registered as an alias (`registry.registerAlias(flatName, dottedName)`) for compatibility.
+  `checkout.github.set_auto_merge.request`).
   Do not assume dotted is canonical when adding a new handler — match the flat convention unless
   there's a specific reason to nest.
 - **Per-path push subscription families** validate via the `sessionMessageBaseSchema` passthrough
@@ -738,7 +741,7 @@ Two providers ship today:
 - **`mock`** — in-process stub that emits synthetic events; needs no credentials; used for smoke
   testing.
 
-Custom Pi-compatible profiles can extend the `pi` provider via `"extends": "pi"` in the manifest.
+`agents.providers` in `config.json` holds only the `pi` entry (`command`, `env`); any other key fails config load.
 `pi` needs a model-provider credential before it can run a turn — `pi-studio auth login` (CLI-local,
 no daemon required; `packages/cli/AGENTS.md`'s `auth` group) is the supported way to provide one
 without hand-editing Pi's `auth.json` or discovering `/login` inside `pi-studio pi`'s pass-through
@@ -752,7 +755,7 @@ WebSocket instead — the `provider_auth_*` RPC family (§ Protocol overview abo
 ## Persistence layout (`$PI_STUDIO_HOME/`)
 
 ```
-config.json           Daemon config (password hash, provider overrides, relay, service proxy, …) — written 0600
+config.json           Daemon config (password hash, provider overrides, relay, …) — written 0600
 pi-studio.pid         PID of the running daemon (written at start; removed on a clean shutdown only when it still names that process)
 update-result.json    Written by the update restart helper once the new daemon answers; the daemon reads and removes it at start and, while it has no result, polls for it for 30 s → `lastResult` of the update status (unreadable → removed and logged)
 update-skip.json      The one version a rollback or failed update names (`{version}`); that version is not offered again until a newer one appears (any install kind; `skippedVersion` on the status; a manual check still offers it; unreadable → removed and logged)
@@ -773,13 +776,7 @@ pending-uploads.json  Temporary files of the uploads in progress (`.pistudio-upl
 logs/                 Rotating NDJSON log files (pino)
 agents/
   <sanitized-cwd>/
-    <agentId>.json    Agent record (status, config, timeline seq, labels, …)
-chat/
-  rooms.json          Chat rooms + messages
-loops/
-  loops.json           All loop records (single queued-write file, NOT one file per loop)
-schedules/
-  <scheduleId>.json   Schedule records
+    <agentId>.json    Agent record (status, config, labels, persistence handle, …); no timeline rows
 projects/
   projects.json       Project registry
   workspaces.json     Workspace registry
@@ -821,7 +818,7 @@ tolerated without a migration framework.
 - `swe/architecture/` — deep dives (websocket-protocol, persistence, agent-lifecycle,
   client-app-runtime, daemon-bootstrap, relay-e2ee, relay-protocol, …)
 - `swe/features/` — feature-level specs (agent-sessions, terminals, cli, projects-
-  workspaces, git-checkout, chat-rooms, loops, schedules, file-explorer-transfer, …)
+  workspaces, git-checkout, file-explorer-transfer, …)
 
 ---
 

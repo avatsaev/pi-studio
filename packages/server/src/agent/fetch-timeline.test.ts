@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AgentManager } from "./agent-manager.js";
-import { AgentService, getTimeline } from "./agent-service.js";
+import { AgentService } from "./agent-service.js";
 import { MockAgentClient } from "./providers/mock/mock-provider.js";
 import { registerTimelineHandler } from "./timeline-rpc.js";
 import { HandlerRegistry } from "../ws/router.js";
@@ -10,7 +10,7 @@ const NOW = "2026-06-11T12:00:00.000Z";
 
 async function setupAgentWithTurns(
   n: number,
-): Promise<{ agentId: string; registry: HandlerRegistry }> {
+): Promise<{ agentId: string; manager: AgentManager; registry: HandlerRegistry }> {
   const manager = new AgentManager({
     home: "/unused",
     saveAgent: () => Promise.resolve(),
@@ -38,7 +38,7 @@ async function setupAgentWithTurns(
   for (let i = 1; i < n; i++) {
     await service.runTurn(agentId, managed.session!, `prompt ${i}`, () => []);
   }
-  return { agentId, registry };
+  return { agentId, manager, registry };
 }
 
 function fakeCtx(
@@ -94,8 +94,8 @@ describe("fetch_agent_timeline_request", () => {
   });
 
   it("deduplication: fetched content matches live timeline rows by sequence", async () => {
-    const { agentId } = await setupAgentWithTurns(1);
-    const timeline = getTimeline(agentId)!;
+    const { agentId, manager } = await setupAgentWithTurns(1);
+    const timeline = manager.timelines.get(agentId)!;
     const page = timeline.page({ direction: "after" });
     const liveSeqs = new Set(timeline.allRows().map((r) => r.seq));
     expect(page.seqEnd).toBeLessThanOrEqual(Math.max(...liveSeqs));

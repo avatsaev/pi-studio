@@ -8,8 +8,8 @@
 ## Purpose
 
 `pi-studio` is a Commander.js terminal client that speaks the same WebSocket protocol as the app and can
-also start/manage a local daemon. It mirrors most daemon capabilities (agents, chat, terminals,
-loops, schedules, providers, worktrees) with Docker-style ergonomics. Common
+also start/manage a local daemon. It mirrors most daemon capabilities (agents, terminals,
+providers, worktrees) with Docker-style ergonomics. Common
 agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio run`, etc.).
 
 ## Public Contract
@@ -21,13 +21,10 @@ agent operations are also exposed at the top level (`pi-studio ls`, `pi-studio r
 ### Command tree
 | Group | Commands |
 |-------|----------|
-| `agent` (also top-level) | `ls`, `run`, `import`, `attach`, `logs`, `stop`, `delete`, `send`, `inspect`, `wait`, `archive`, `reload`, `update`, `mode` |
+| `agent` (also top-level) | `ls`, `run`, `import`, `attach`, `logs`, `stop`, `delete`, `send`, `inspect`, `wait`, `archive`, `reload`, `update` |
 | `auth` | `login [provider] [--type api_key\|oauth] [--api-key <key>]`, `status`, `logout <provider>` — CLI-local, daemon-free (see `provider-auth-cli.md`) |
 | `daemon` | `start`, `stop`, `restart`, `status`, `pair`, `set-password`, `rotate-key` |
-| `chat` | `ls`, `create`, `inspect`, `post`, `read`, `wait`, `delete` |
 | `terminal` | `ls`, `create`, `capture`, `send-keys`, `kill` |
-| `loop` | `run`, `ls`, `inspect`, `logs`, `stop` |
-| `schedule` | `create`, `ls`, `inspect`, `update`, `pause`, `resume`, `run-once`, `logs`, `delete` |
 | `provider` | `ls`, `models` |
 | `worktree` | `create`, `ls`, `archive` |
 | top-level | `pi-studio <path>` (open), `onboard`, `open`, `update [--check]` (self-update via `npm install -g`, then always also runs `pi update --extensions` to update already-installed pi extensions) |
@@ -92,7 +89,7 @@ function main(argv):
 - [ ] `pi-studio attach <id>` streams the live timeline.
 - [ ] `pi-studio --host <host:port> ...` targets a remote daemon over the same protocol.
 - [ ] `pi-studio daemon start` starts a daemon and shows a pairing QR code.
-- [ ] Commands map to the same RPCs as app/MCP equivalents.
+- [ ] Commands map to the same RPCs as the app's equivalents.
 
 ## TODO(verify)
 - [ ] Exact output formats (table vs json) and flags per command.

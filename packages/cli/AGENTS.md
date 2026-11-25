@@ -26,7 +26,7 @@ Or `npm link` inside `packages/cli` to expose `pi-studio` globally on `PATH`.
 `npm run build:binary -- --target <linux-x64|linux-arm64|darwin-arm64|darwin-x64>`
 (`scripts/build-binary.mjs`, after `npm run build`) compiles `dist/binary-main.js` with the root's
 pinned Bun into `dist-binary/pi-studio-<version>-<target>/` and a `.tar.gz`: `pi-studio` (the whole
-CLI plus daemon, relay, Pi and `skills`), the `bun` script, Pi's runtime assets and `web/`.
+CLI plus daemon, relay, Pi and `skills`), the `bun` script and Pi's runtime assets.
 `binary-main.ts` dispatches on the first argument (`binary-dispatch.ts` decides): `__daemon <json>`,
 `__relay <json>`, `__pi …`, `__skills …`, `__update-helper <json>` (the server's `runBinaryHelperMain`,
 then `process.exit`), else the normal CLI (`run`). The sub-command names and JSON are the server's runtime
@@ -84,7 +84,7 @@ src/
   extensions-commands.test.ts
 
   daemon-control.ts      DaemonRuntime — probe/start/stop/waitForDaemon (spawns server process).
-  feature-commands.ts    Feature command group (terminal/chat/schedule/loop/provider/worktree/…).
+  feature-commands.ts    Feature command group (terminal/provider/worktree/…).
   feature-commands.test.ts
 
   relay-commands.ts      `relay` command group (start/stop/status) — self-hosted relay-server lifecycle.
@@ -93,12 +93,6 @@ src/
 
   pi-commands.ts         `pi` pass-through command — proxies argv/exit-code to the embedded Pi CLI.
   pi-commands.test.ts
-
-  ui-commands.ts          `ui` command — serve the prebuilt web-client SPA as a static site.
-  ui-commands.test.ts
-  web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
-  web-server.test.ts
-
   update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
   update-commands.test.ts
   update-control.ts      UpdateRuntime — getLatestVersion/installGlobal seam (+ `binary?: BinaryUpdateRuntime`,
@@ -158,7 +152,7 @@ Default action (no subcommand):
 | `inspect <agentId>`                          | `inspect_agent_request`             | Print agent record                                                                                       |
 | `archive <agentId>`                          | `archive_agent`                     | Soft-delete                                                                                              |
 | `delete <agentId>`                           | `delete_agent`                      | Hard delete                                                                                              |
-| `update <agentId>`                           | `update_agent`                      | Update model/mode/features/title/labels                                                                  |
+| `update <agentId>`                           | `update_agent`                      | Update model/features/title/labels                                                                       |
 | `reload <agentId>`                           | `resume_agent`                      | Resume/reload a closed session                                                                           |
 | `import <sessionRef>`                        | `import_agent_session`              | Import a provider-native session by its handle                                                           |
 | `session <agentId>`                          | `agent_session_stats_request`       | Session stats (tokens/cost/context usage) — `/session`                                                   |
@@ -203,6 +197,12 @@ extensions/skills/keybindings reload.)
 rejects `agent_compact_request` with `busy: …` while the agent is running or already compacting —
 `pi-studio agent compact` on a running agent therefore errors instead of aborting the turn (Pi's
 `compact()` begins with `abort()`).
+
+Since sprint-149 the daemon also refuses `send_agent_prompt`, new session, switch, fork, clone and
+resume with `busy: agent <id> is running` (or `is compacting` / `is changing its session`) while
+the agent has a turn, a compaction or a session operation in flight. `pi-studio agent send` needs no
+code for it: `withDaemon` prints the `RpcError` as `error: busy: … (handler_error)` and exits
+`EXIT_ERROR`; use `agent steer` / `agent follow-up` to reach a running turn.
 
 Provider spec: `--provider pi/<model>` is parsed by `parseProviderModel()`:
 
@@ -344,17 +344,13 @@ subcommand (a root option: `pi-studio --pi-home <dir> extensions list --local`).
 
 ### `feature` group (`feature-commands.ts`)
 
-`registerFeatureCommands` registers `chat`, `terminal`, `loop`, `schedule`, `provider`, and
-`worktree` as sibling top-level command groups (no `feature` wrapper), plus a top-level
-`open <path>` command. Each subcommand maps to a canonical RPC name in `FEATURE_RPC`; several are
-flagged `TODO(verify)` in source for wire names not yet confirmed against the real daemon.
+`registerFeatureCommands` registers `terminal`, `provider`, and `worktree` as sibling top-level
+command groups (no `feature` wrapper), plus a top-level `open <path>` command. Each subcommand
+maps to a canonical RPC name in `FEATURE_RPC`, all of which match registered daemon handlers.
 
 | Group         | Commands                                                                                                                                                    | RPC                                                                                                                                                                                                                                             |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chat`        | `create <name> [--purpose]`, `ls`, `inspect <roomId>`, `post <roomId> <message> [--from]`, `read <roomId> [-n]`, `wait <roomId>`, `delete <roomId>`         | `chat_create_request`, `chat_list_request`, `chat_inspect_request`, `chat_post_request`, `chat_read_request`, `chat_wait_request`, `chat_delete_request`                                                                                        |
 | `terminal`    | `ls`, `create [--workspace] [--cwd]`, `capture <slot>`, `send-keys <slot> <data>`, `kill <slot>`                                                            | `list_terminals_request`, `create_terminal_request`, `capture_terminal_request`, `terminal_input`, `kill_terminal_request`                                                                                                                      |
-| `loop`        | `run <prompt> [--max]`, `ls`, `inspect <loopId>`, `logs <loopId>`, `stop <loopId>`                                                                          | `loop_run_request`, `loop_list_request`, `loop_inspect_request`, `loop_logs_request`, `loop_stop_request`                                                                                                                                       |
-| `schedule`    | `create <cron> <prompt>`, `ls`, `inspect <id>`, `update <id> [--cron] [--prompt]`, `pause <id>`, `resume <id>`, `run-once <id>`, `logs <id>`, `delete <id>` | `schedule_create_request`, `schedule_list_request`, `schedule_inspect_request`, `schedule_update_request`, `schedule_pause_request`, `schedule_resume_request`, `schedule_run_once_request`, `schedule_logs_request`, `schedule_delete_request` |
 | `provider`    | `ls`, `models <providerId>`                                                                                                                                 | `list_providers`, `list_models`                                                                                                                                                                                                                 |
 | `worktree`    | `create <name> [--workspace]`, `ls`, `archive <name>`                                                                                                       | `create_pistudio_worktree_request`, `pistudio_worktree_list_request`, `pistudio_worktree_archive_request`                                                                                                                                       |
 | _(top-level)_ | `open <path>`                                                                                                                                               | `open_project_request` (same path as the bare `pi-studio <path>` default action)                                                                                                                                                                |
@@ -436,27 +432,6 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
   when run standalone), so `pi-studio pi` talks to the same Pi config tree the daemon's agents use.
 - `spawn({ command, env })` — default implementation forwards signals via shared process-group
   membership and maps a signal-killed child's exit to the conventional `128 + signal` status.
-
----
-
-### `ui` command (`ui-commands.ts`)
-
-`pi-studio ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` — serves the
-prebuilt `@av-pi-studio/web-client` SPA (`dist/web`, built by `npm run build:web -w
-packages/web-client`) as a static site via a minimal `node:http` server (`web-server.ts`;
-`resolveWebClientDist()` locates the built UI through the runtime seam's `webDist` — the installed
-package on Node, `<binary folder>/web` in the binary — and `startWebServer()` serves it with SPA
-fallback to `index.html` for client-side routes).
-
-Intentionally decoupled from daemon lifecycle: `ui` never probes or starts a daemon.
-`--daemon-host` (falls back to the global `--host`) only pre-fills the printed URL's
-`?host=<ws-url>&connect=1` query params (`buildServeUrl()`) so the browser tab auto-connects —
-mirroring the POC `chat.html` quick-launch params. The command blocks until `SIGINT`/`SIGTERM`,
-then closes the server and exits `EXIT_OK`.
-
-`@av-pi-studio/web-client` is a runtime dependency of `cli` purely for its built static assets
-(no JS from it is imported) — the CLI ships the SPA build so `pi-studio ui` works from any
-install shape (npm link, global `npm i -g`) without a separate vite/dev toolchain.
 
 ---
 
@@ -634,10 +609,10 @@ branches to `createRelayTransport` when it carries a relay offer).
   after a self-update's shutdown (without it the daemon cannot update itself). Test:
   `packages/server/src/runtime/self.test.ts`.
 - **The runtime seam (sprint-139/task-002) is a further narrow exception.** `daemon-control.ts`,
-  `relay-control.ts`, `pi-commands.ts` and `web-server.ts` import `daemonCommand`, `relayCommand`,
-  `piCommand` and `webDist` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
+  `relay-control.ts` and `pi-commands.ts` import `daemonCommand`, `relayCommand`
+  and `piCommand` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
   that spawn and bind nothing. The CLI passes the Node-only module resolvers
-  (`import.meta.resolve("@av-pi-studio/server")`, `…/relay/server`, `…/web-client/package.json`) in as
+  (`import.meta.resolve("@av-pi-studio/server")` and `…/relay/server`) in as
   functions, so they run in its own module graph and are never called by the compiled binary, whose
   commands are `<binary> __daemon|__relay <json>`, `<binary> __pi|__skills <args>` and
   `<binary> __update-helper <json>` (`binary-main.ts`).
@@ -689,7 +664,7 @@ branches to `createRelayTransport` when it carries a relay offer).
 The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
-- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
 - `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 10 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 

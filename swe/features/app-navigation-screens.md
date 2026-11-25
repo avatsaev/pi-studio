@@ -4,7 +4,7 @@
 > Related scopes: [../architecture/client-app-runtime.md](../architecture/client-app-runtime.md),
 > [../architecture/design-system.md](../architecture/design-system.md),
 > [workspace-ui.md](workspace-ui.md), [../architecture/relay-e2ee.md](../architecture/relay-e2ee.md),
-> [schedules-heartbeats.md](schedules-heartbeats.md), [keyboard-shortcuts.md](keyboard-shortcuts.md),
+> [keyboard-shortcuts.md](keyboard-shortcuts.md),
 > [localization.md](localization.md), [provider-usage.md](provider-usage.md)
 
 > **Render stack:** Pi-Studio implements this UI on a **React 19 + Vite DOM** stack (web + Electron
@@ -45,7 +45,6 @@ screen and the sidebar agree on.
 | `/pair-scan` | `?source=settings\|onboarding` | QR scan (native only) | Device pairing camera |
 | `/open-project` | — | Open-project ("home"), cross-host | Global project picker/landing (sidebar "Home") |
 | `/sessions` | — | Sessions, cross-host | Aggregated agent/session history across all hosts, with a host filter |
-| `/schedules` | — | Schedules, cross-host | Aggregated schedules list + create/edit, across all hosts (see § Schedules screen) |
 | `/new` | `?serverId,dir,name,projectId,draftId` | New-workspace | Create worktree + first prompt (host chosen via query param, not a path segment) |
 | `/h/[serverId]` | `serverId` | redirect → `/h/{id}/open-project` | Host root |
 | `/h/[serverId]/open-project` | `serverId` | Open-project ("home"), single host | Host landing tiles, scoped to one host |
@@ -60,14 +59,12 @@ screen and the sidebar agree on.
 | `/settings/hosts/[serverId]` | `serverId` | redirect | → first host section |
 | `/settings/hosts/[serverId]/[hostSection]` | `serverId`,`hostSection` slug | host settings | Per-host settings section |
 
-> **Cross-host vs per-host tiers.** Three screens exist in **both** a global, cross-host, aggregated
-> form (`/open-project`, `/sessions`, `/schedules` — reached from the left sidebar's footer icons and
+> **Cross-host vs per-host tiers.** Two screens exist in **both** a global, cross-host, aggregated
+> form (`/open-project`, `/sessions` — reached from the left sidebar's footer icons and
 > usable with zero or many hosts connected) and, for open-project only, a **per-host** form
 > (`/h/[serverId]/open-project` — a single host's landing tiles, reached when navigating a specific
 > host's root). The per-host Sessions route is legacy and now simply redirects to the global one;
-> new code should link to `/sessions`, never construct a per-host sessions link. There is no
-> per-host Schedules route at all — schedules are always browsed/created cross-host with an
-> in-screen host filter.
+> new code should link to `/sessions`, never construct a per-host sessions link.
 
 - **App settings section slugs:** `general`, `daemon`, `appearance`, `shortcuts`, `integrations`,
   `permissions`, `diagnostics`, `about`. Unknown → `general`. (`daemon`, `shortcuts`, `integrations`,
@@ -132,27 +129,6 @@ selected host) and sorted by last-activity desc; each row can show its origin ho
 selected. States: loading spinner, "No sessions yet" empty + back (to Open-project), a load-error state
 with Try Again, or a list with pull-to-refresh and a "Load more" footer when more exist (background
 revalidation must not show the spinner). Reached from the sidebar's "Sessions" footer icon.
-
-### Schedules (cross-host)
-Header "Schedules" (+ a "New schedule" action). Aggregates every schedule across all connected hosts into
-one table:
-- **Filters:** a host filter (hidden when only one host is connected) and a status
-  `SegmentedControl` (`Active` / `Ended`) driving which bucket of resolved schedules is shown.
-- **Row resolution:** each schedule is resolved once per render pass into `{ bucket, target, state }` —
-  `bucket` derives from cadence/expiry/max-runs vs now (runnable vs ended); `target` resolves a
-  human label (existing agent's title/provider, or the configured new-agent provider) using the
-  aggregated agent directory and the project registry (so a target agent that hasn't loaded yet on a
-  slow host doesn't falsely read as "gone" — gated per-host on that host's agent-directory readiness,
-  not the aggregate loading flag). Rows sort newest-created-first; the host name column is hidden when
-  only one host is connected.
-- **Create / edit:** a bottom-sheet/modal form (`ScheduleFormSheet`) covering: name, cadence (cron
-  expression / interval / once), target (`new-agent` with a provider config, or an existing `agent` —
-  heartbeat-style), the prompt text, and optional `maxRuns`/`expiresAt`. See
-  [schedules-heartbeats.md](schedules-heartbeats.md) for the daemon-side cadence/target/run semantics
-  this form edits.
-- **States:** loading spinner (initial), a load-error banner when every host failed, otherwise the
-  filtered table (empty per-filter states TODO(verify) exact copy).
-- Reached from the sidebar's "Schedules" footer icon.
 
 ### New-workspace
 Creates a git worktree-based workspace and optionally sends a first prompt. The route takes its host via
@@ -280,13 +256,13 @@ web, bottom sheet on native/compact.
 | Web visiting `/pair-scan` | Unsupported message + back to settings |
 | Host removed while viewing it | Route back to settings root/general |
 | Missing daemon feature flag | "Update the host" affordance, no degraded fallback |
-| A host's agent directory is still loading | Its schedules/sessions rows must not be treated as "target gone" — gate per-host on that host's own readiness |
+| A host's agent directory is still loading | Its sessions rows must not be treated as "target gone" — gate per-host on that host's own readiness |
 | A visited `/h/[serverId]/sessions` link (legacy) | Redirect to `/sessions` (COMPAT; do not generate new links to the per-host form) |
 
 ## Dependencies
 - Pinned library versions: see [../architecture/design-system.md](../architecture/design-system.md) § UI technology stack.
 - Internal: host-runtime store, session context, route grammar module, design system, projects/worktrees
-  config, relay pairing, schedules service (cross-host aggregation), localization, keyboard-shortcut
+  config, relay pairing, localization, keyboard-shortcut
   system, provider-usage, build-time brand config (logo/product name on splash/welcome/open-project;
   see [white-label-branding.md](white-label-branding.md)) — all logo surfaces use `<BrandLogo>` and all
   "Pi-Studio" strings resolve via the `{{productName}}` interpolation.
@@ -302,10 +278,8 @@ web, bottom sheet on native/compact.
       (hidden in focus mode).
 - [ ] Host switching preserves the equivalent route on the new host.
 - [ ] New-workspace creates a worktree (empty or with a first prompt) and navigates into it.
-- [ ] `/sessions` and `/schedules` aggregate correctly across zero, one, and many connected hosts, and
+- [ ] `/sessions` aggregates correctly across zero, one, and many connected hosts, and
       the legacy `/h/[serverId]/sessions` route redirects to `/sessions`.
-- [ ] The Schedules screen creates, edits, and filters (host + active/ended) schedules that match the
-      daemon semantics in [schedules-heartbeats.md](schedules-heartbeats.md).
 - [ ] The command center lists/searches/ranks agents across hosts and static actions, and restores focus
       on close.
 - [ ] The Language setting switches every visible string live; Shortcuts lists/edits/resets bindings;
@@ -318,6 +292,5 @@ web, bottom sheet on native/compact.
 - [ ] Full project-settings toolbar/menu actions (rename/icon edit, save/discard UX).
 - [ ] Host connections page: connection add/remove, latency probe display, remove-host confirmation.
 - [ ] Exact compact give-up timeout value.
-- [ ] Exact empty-state copy per Schedules filter combination (host × active/ended).
 - [ ] Whether `/open-project` (global) and `/h/[serverId]/open-project` (per-host) share literally one
       component parameterized by an optional host, or are two distinct screens.

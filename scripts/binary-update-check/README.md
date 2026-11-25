@@ -16,12 +16,12 @@ tool.
 ## Run
 
 ```bash
-npm run build                                   # the CLI's compiled dist/ and the web UI
+npm run build                                   # the CLI's compiled dist/
 node scripts/binary-update-check/run.mjs [--out results.json]
 ```
 
 Needs Docker (image `debian:bookworm-slim`; the container runs as your uid on the host network) and a
-built checkout (`packages/cli/dist/binary-main.js`, `packages/web-client/dist/web`). It builds four
+built checkout (`packages/cli/dist/binary-main.js`). It builds four
 Linux binaries itself with `build-binary.mjs --version <v> --out-dir <scratch>` (4 s each, 65 MiB
 archives; `--version` relabels the compiled version modules for the compile and restores them, so
 the checkout's `dist/` is unchanged afterwards) and runs in about a minute. Exit code 0: every
@@ -31,10 +31,9 @@ scenario passed.
 |---|---|---|
 | `--repo <dir>` | this checkout | built checkout: its SDK drives the scenarios, its scripts build and publish |
 | `--prefix <name>` | `binupd` | the container's name (`<prefix>-daemon`) and the daemon password |
-| `--daemon-port`, `--other-port`, `--http-port`, `--ui-port` | 16767, 16768, 16800, 16173 | host ports (the container shares the host network; all bind loopback). Use others when the defaults are taken |
+| `--daemon-port`, `--other-port`, `--http-port` | 16767, 16768, 16800 | host ports (the container shares the host network; all bind loopback). Use others when the defaults are taken |
 | `--base <0.0.N>` | `0.0.9001` | N; N+1, N+2, N+3 follow |
 | `--image <image>` | `debian:bookworm-slim` | the daemon host |
-| `--pause <keys>` | none | stop at `offer` (a daemon with an update offered, before Update) and/or `skipped` (after a rollback, "Check now" offered the skipped version): the web UI is served from the container, its address is printed, and the run goes on when the printed `continue` file exists |
 | `--out <file>` | none | the evidence of every scenario and every request of the release channel as JSON |
 | `--keep` | off | leave the container and the scratch folder for inspection |
 

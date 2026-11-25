@@ -14,7 +14,7 @@
 ## Purpose
 
 Defines the message composer surface: its layout/regions, the submit/queue decision logic and optimistic
-UI, the slash-command & file-mention autocomplete, the provider/model/mode/feature controls, attachments
+UI, the slash-command & file-mention autocomplete, the provider/model/feature controls, attachments
 (images + GitHub + workspace), dictation (speech-to-text), the realtime voice agent, and the composer
 keyboard shortcuts. The composer is embedded inside the agent/draft panel (see
 [workspace-ui.md](workspace-ui.md) § Composer integration) and is also used by the new-workspace screen
@@ -32,7 +32,7 @@ keyboard shortcuts. The composer is embedded inside the agent/draft panel (see
 The bordered input surface (`surface1`, soft accent border, large radius) is a column:
 1. **Attachment tray** (pills, inside the border, above the text).
 2. **Text input** (auto-resizing multiline) + web scrollbar overlay + a web focus hint.
-3. **Button row**: left group = attach (`+`) button + agent controls (provider/model/mode/thinking/
+3. **Button row**: left group = attach (`+`) button + agent controls (provider/model/thinking/
    features); right group = context-window meter slot (desktop) → voice/dictation button → realtime-voice
    toggle + cancel/stop → send button.
 4. **Overlay layer** (absolute, fades in over the faded input): the dictation overlay or the realtime-voice
@@ -112,9 +112,9 @@ A single popover with two modes:
   while the agent runs, is compacting, or does not exist yet. While compacting, Send is disabled for
   every draft and Stop cancels the compaction.
 
-### Provider / model / mode / feature controls
+### Provider / model / feature controls
 Two variants share one inner control: **live-agent** controls (read state from the session store + provider
-snapshot; persist changes to preferences AND the daemon — set model / thinking / feature / mode; daemon
+snapshot; persist changes to preferences AND the daemon — set model / thinking / feature; daemon
 failures toast) and **draft** controls (fully prop-controlled).
 | Control | Desktop | Compact |
 |---------|---------|---------|
@@ -122,20 +122,17 @@ failures toast) and **draft** controls (fully prop-controlled).
 | Model | combined model selector (favorites, per-provider rows, retry, loading) | selector with provider-icon + short model label |
 | Thinking | brain-icon badge → levels combobox | brain-icon button → "Thinking" sheet |
 | Features | inline per-feature toggle/select | single button → "Features" sheet |
-| Mode | mode chip in the **toolbar** | mode control in the **footer** |
-Feature icons map known ids to icons; active toggles tint by color. The mode chip shows the mode icon (from
-the provider manifest) + label + chevron, opens a searchable combobox, and hides when no modes exist. See
+Feature icons map known ids to icons; active toggles tint by color. See
 [agent-providers.md](agent-providers.md).
 
 ### Create-agent preferences
 Per-project, remembered defaults for **creating** a new agent (new-workspace screen and any fresh draft),
-so a returning user doesn't have to re-pick provider/model/mode every time:
+so a returning user doesn't have to re-pick provider/model every time:
 ```ts
 interface FormPreferences {
   provider?: string;
   providerPreferences?: Record<string, {
     model?: string;
-    mode?: string;
     thinkingByModel?: Record<string, string>;   // remembers thinking level per model
     featureValues?: Record<string, unknown>;
   }>;
@@ -147,8 +144,8 @@ interface FormPreferences {
   explicit per-request override (e.g. a pinned quick-launch profile — see
   [workspace-ui.md](workspace-ui.md) § Pinned quick-launch targets).
 - `favoriteModels` surface as starred/pinned rows at the top of the combined model selector (see
-  § Provider / model / mode / feature controls) regardless of provider grouping.
-- Selecting a different provider/model/mode/thinking/feature value while creating an agent updates the
+  § Provider / model / feature controls) regardless of provider grouping.
+- Selecting a different provider/model/thinking/feature value while creating an agent updates the
   matching `providerPreferences[provider]` entry so the next new agent for that project remembers it.
 
 ### Attachments
@@ -240,14 +237,14 @@ among panes). No message-history (up/down recall) shortcut. `TODO(verify)`.
       or sent-now (re-inserted at front on failure).
 - [ ] The autocomplete popover lists `/commands` (client + provider) and `@files`, inserts the selection,
       and consumes arrow/enter/escape.
-- [ ] Provider/model/mode/feature changes persist to preferences and the daemon (toast on daemon failure).
+- [ ] Provider/model/feature changes persist to preferences and the daemon (toast on daemon failure).
 - [ ] Images attach via pick / paste / drop and round-trip through the platform attachment store; GitHub and
       workspace attachments attach and send.
 - [ ] Dictation transcribes (with reconnect replay) and inserts/sends; realtime voice runs its phase machine
       with barge-in.
 - [ ] Composer keyboard shortcuts behave per platform (Enter submits on desktop web; newline on compact/
       native).
-- [ ] Creating a new agent for a project prefills provider/model/mode/thinking/features from that
+- [ ] Creating a new agent for a project prefills provider/model/thinking/features from that
       project's remembered create-agent preferences, and updates them when the user picks differently.
 - [ ] Favorite models render pinned at the top of the model selector regardless of provider grouping.
 

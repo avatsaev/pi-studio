@@ -5,13 +5,21 @@
  * Key concepts:
  *  - **Epoch** — each run (`startTurn`) increments the epoch; rows within one epoch are ordered by
  *    monotonically-increasing `seq`.
- *  - **Source row** — one `AgentStreamEvent` mapped to one raw storage row (epoch + seq + timestamp
- *    owned by the daemon, never the provider).
+ *  - **Sequence number** — every appended event takes the next `seq`, chunks included; it is what
+ *    live `agent_stream` frames carry and what cursors encode.
+ *  - **Source row** — what the store holds (epoch + `seq` range + timestamp owned by the daemon,
+ *    never the provider). One event is one row, except that CONSECUTIVE `assistant_message` /
+ *    `reasoning` chunks of one kind, one epoch and one message merge on append into the last row:
+ *    its text grows in place and `seqEnd` follows the last chunk. A `final` chunk seals the row.
  *  - **Projected item** — what a client renders. Multi-source events collapse: a tool-call lifecycle
  *    (status updates, result) is ONE projected item regardless of how many source rows it spans;
- *    adjacent assistant/reasoning chunks merge into one per run before counting toward the page limit.
+ *    adjacent assistant/reasoning rows (a reasoning block then its answer) form one item before
+ *    counting toward the page limit.
  *  - **Page** — bounded at `DEFAULT_PAGE_SIZE` projected items; supports `direction:"before"|"after"`
- *    from an opaque cursor (encoded as base-10 `seq` string), with all paging fields.
+ *    from an opaque cursor (encoded as base-10 `seq` string), with all paging fields. `after c`
+ *    returns the rows whose `seqEnd > c`, `before c` the rows whose `seq < c`; a row straddling `c`
+ *    comes back whole. A page's `seqStart`/`seqEnd` are the lowest `seq` and highest `seqEnd` of its
+ *    rows, so a client that keeps live frames with `seq > seqEnd` loses and repeats nothing.
  */
 
 import type { AgentStreamEvent } from "@av-pi-studio/protocol";
@@ -24,10 +32,20 @@ export const DEFAULT_PAGE_SIZE = 200;
 
 export interface TimelineRow {
   epoch: number;
+  /** Sequence number of the row's first event. */
   seq: number;
-  /** Daemon-owned canonical timestamp (ISO-8601). */
+  /** Sequence number of the row's last event: `seq` for a single event, higher for merged chunks. */
+  seqEnd: number;
+  /** Daemon-owned canonical timestamp of the first event (ISO-8601). */
   timestamp: string;
   event: AgentStreamEvent;
+}
+
+/** What `append` reports about the event it took: its own identity, not that of the row it joined. */
+export interface AppendedEvent {
+  epoch: number;
+  seq: number;
+  timestamp: string;
 }
 
 /** Kind used for projection collapsing. */
@@ -93,13 +111,13 @@ export function projectRows(rows: TimelineRow[]): ProjectedItem[] {
         kind: "tool_call",
         callId,
         sourceSeqStart: row.seq,
-        sourceSeqEnd: (rows[j - 1] as TimelineRow).seq,
+        sourceSeqEnd: (rows[j - 1] as TimelineRow).seqEnd,
         timestamp: row.timestamp,
         events: group,
       });
       i = j;
     } else if (kind === "assistant") {
-      // Merge adjacent assistant/reasoning chunks.
+      // Group adjacent assistant/reasoning rows.
       const group: AgentStreamEvent[] = [row.event];
       let j = i + 1;
       while (j < rows.length && rowKind((rows[j] as TimelineRow).event) === "assistant") {
@@ -109,7 +127,7 @@ export function projectRows(rows: TimelineRow[]): ProjectedItem[] {
       items.push({
         kind: "assistant",
         sourceSeqStart: row.seq,
-        sourceSeqEnd: (rows[j - 1] as TimelineRow).seq,
+        sourceSeqEnd: (rows[j - 1] as TimelineRow).seqEnd,
         timestamp: row.timestamp,
         events: group,
       });
@@ -174,7 +192,7 @@ export class AgentTimelineStore {
       this.rows = [...opts.initialRows];
       const last = this.rows[this.rows.length - 1] as TimelineRow;
       this.epoch = last.epoch;
-      this.nextSeq = last.seq + 1;
+      this.nextSeq = last.seqEnd + 1;
     }
   }
 
@@ -184,16 +202,23 @@ export class AgentTimelineStore {
     return this.epoch;
   }
 
-  /** Append one event, assigning the daemon-owned timestamp + monotonic seq. */
-  append(event: AgentStreamEvent): TimelineRow {
-    const row: TimelineRow = {
-      epoch: this.epoch,
-      seq: this.nextSeq++,
-      timestamp: this.now(),
-      event,
-    };
-    this.rows.push(row);
-    return row;
+  /**
+   * Append one event, assigning the daemon-owned timestamp + monotonic seq. A chunk that directly
+   * continues the last row (same epoch, see `mergeChunk`) grows that row instead of adding one; the
+   * returned identity is always the new event's own, which is what its live frame carries.
+   */
+  append(event: AgentStreamEvent): AppendedEvent {
+    const seq = this.nextSeq++;
+    const timestamp = this.now();
+    const last = this.rows[this.rows.length - 1];
+    const merged = last?.epoch === this.epoch ? mergeChunk(last.event, event) : undefined;
+    if (last && merged) {
+      last.event = merged;
+      last.seqEnd = seq;
+    } else {
+      this.rows.push({ epoch: this.epoch, seq, seqEnd: seq, timestamp, event });
+    }
+    return { epoch: this.epoch, seq, timestamp };
   }
 
   currentEpoch(): number {
@@ -220,7 +245,7 @@ export class AgentTimelineStore {
     this.rows = [...rows];
     const last = this.rows[this.rows.length - 1];
     this.epoch = last?.epoch ?? 0;
-    this.nextSeq = last ? last.seq + 1 : 0;
+    this.nextSeq = last ? last.seqEnd + 1 : 0;
   }
 
   /**
@@ -239,39 +264,22 @@ export class AgentTimelineStore {
     const cursorSeq = decodeCursor(opts.cursor);
     const { direction } = opts;
 
-    // Select the source-row window.
+    // Select the source-row window: rows `after` the cursor (by their last seq), or rows `before`
+    // it (by their first seq), so a row straddling the cursor is returned whole.
     let window: TimelineRow[];
     if (direction === "after") {
-      const start = cursorSeq !== undefined ? this.rows.findIndex((r) => r.seq > cursorSeq) : 0;
+      const start = cursorSeq !== undefined ? this.rows.findIndex((r) => r.seqEnd > cursorSeq) : 0;
       window = start === -1 ? [] : this.rows.slice(start);
     } else {
-      // "before": rows strictly before cursorSeq, reversed then sliced by projected count.
       const end =
         cursorSeq !== undefined ? this.rows.findIndex((r) => r.seq >= cursorSeq) : this.rows.length;
-      window = end === -1 ? [...this.rows] : this.rows.slice(0, end);
-      // For "before" we project from the tail end.
-      window = window.toReversed();
+      window = end === -1 ? this.rows : this.rows.slice(0, end);
     }
 
-    // Project and take at most `limit` items, tracking which source rows we consumed.
-    const projected: ProjectedItem[] = [];
-    const usedSeqs: number[] = [];
-
-    // For "before" we reversed, so project then re-reverse at the end.
-    const allProjected = projectRows(direction === "after" ? window : window.toReversed());
-    const pageSlice =
+    // Project, then keep the first `limit` items going forward or the last `limit` going back.
+    const allProjected = projectRows(window);
+    const projected =
       direction === "after" ? allProjected.slice(0, limit) : allProjected.slice(-limit);
-
-    for (const item of pageSlice) {
-      projected.push(item);
-      if (item.kind === "tool_call") {
-        usedSeqs.push(item.sourceSeqStart, item.sourceSeqEnd);
-      } else if (item.kind === "assistant") {
-        usedSeqs.push(item.sourceSeqStart, item.sourceSeqEnd);
-      } else {
-        usedSeqs.push(item.sourceSeq);
-      }
-    }
 
     if (projected.length === 0) {
       return {
@@ -286,23 +294,22 @@ export class AgentTimelineStore {
       };
     }
 
-    const minSeq = Math.min(...usedSeqs);
-    const maxSeq = Math.max(...usedSeqs);
+    // Items are in seq order, so the page spans the first item's start to the last item's end.
+    const first = projected[0] as ProjectedItem;
+    const last = projected[projected.length - 1] as ProjectedItem;
+    const minSeq = first.kind === "other" ? first.sourceSeq : first.sourceSeqStart;
+    const maxSeq = last.kind === "other" ? last.sourceSeq : last.sourceSeqEnd;
 
-    // hasNewer: true when there are rows in the store with seq > maxSeq.
-    const hasNewer = this.rows.some((r) => r.seq > maxSeq);
+    // hasNewer: true when the store holds events past the page's last one.
+    const hasNewer = (this.rows[this.rows.length - 1] as TimelineRow).seqEnd > maxSeq;
 
     // sourceSeqRanges: contiguous runs of source seqs covered by this page.
-    const pageRows = this.rows.filter((r) => r.seq >= minSeq && r.seq <= maxSeq);
-    const sourceSeqRanges = buildSeqRanges(pageRows.map((r) => r.seq));
+    const pageRows = this.rows.filter((r) => r.seq >= minSeq && r.seqEnd <= maxSeq);
+    const sourceSeqRanges = buildSeqRanges(pageRows);
 
-    // collapsed: any projected item spans >1 source row.
+    // collapsed: any projected item spans >1 source event.
     const collapsed = projected.some((item) =>
-      item.kind === "tool_call"
-        ? item.sourceSeqStart !== item.sourceSeqEnd
-        : item.kind === "assistant"
-          ? item.sourceSeqStart !== item.sourceSeqEnd
-          : false,
+      item.kind === "other" ? false : item.sourceSeqStart !== item.sourceSeqEnd,
     );
 
     return {
@@ -318,21 +325,42 @@ export class AgentTimelineStore {
   }
 }
 
-function buildSeqRanges(sorted: number[]): SourceSeqRange[] {
-  if (sorted.length === 0) return [];
+/** Contiguous runs of sequence numbers covered by `rows` (sorted by `seq`). */
+function buildSeqRanges(rows: TimelineRow[]): SourceSeqRange[] {
   const ranges: SourceSeqRange[] = [];
-  let start = sorted[0] as number;
-  let end = start;
-  for (let i = 1; i < sorted.length; i++) {
-    const n = sorted[i] as number;
-    if (n === end + 1) {
-      end = n;
+  for (const row of rows) {
+    const last = ranges.at(-1);
+    if (last && row.seq === last.end + 1) {
+      last.end = row.seqEnd;
     } else {
-      ranges.push({ start, end });
-      start = n;
-      end = n;
+      ranges.push({ start: row.seq, end: row.seqEnd });
     }
   }
-  ranges.push({ start, end });
   return ranges;
+}
+
+function joinText(a: string | undefined, b: string | undefined): string | undefined {
+  return a === undefined && b === undefined ? undefined : (a ?? "") + (b ?? "");
+}
+
+/**
+ * The event `prev` becomes when `next` follows it directly, or `undefined` when `next` starts a new
+ * row: only a chunk of the same kind (same message id for `assistant_message`) continues `prev`,
+ * and a `final` chunk closes the block, so nothing continues it. Returns a new object: `prev` may
+ * be the very object that was already broadcast.
+ */
+function mergeChunk(prev: AgentStreamEvent, next: AgentStreamEvent): AgentStreamEvent | undefined {
+  if (prev.kind === "assistant_message" && next.kind === "assistant_message") {
+    if (prev.final === true || prev.messageId !== next.messageId) return undefined;
+    const merged: typeof prev = { ...prev, text: joinText(prev.text, next.text) };
+    if (next.final !== undefined) merged.final = next.final;
+    return merged;
+  }
+  if (prev.kind === "reasoning" && next.kind === "reasoning") {
+    if (prev.final === true) return undefined;
+    const merged: typeof prev = { ...prev, text: joinText(prev.text, next.text) };
+    if (next.final !== undefined) merged.final = next.final;
+    return merged;
+  }
+  return undefined;
 }

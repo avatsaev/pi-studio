@@ -77,7 +77,7 @@ with it, and what to check first.
 | What Lite keeps | **Approved:** chat, sessions, dialogs, todos, model and thinking pickers, read-only files, diffs and git status |
 | Can Lite start new agents | **Approved: yes, with two limits** (existing folders only, and a cap per device) |
 | Serving the desktop viewers' bytes from Rust | **Parked.** The analysis below is kept for when it is picked up |
-| Milestones | **Proposed, not yet approved.** See [Milestones](#milestones-proposed) |
+| Milestones M1 to M9 | **Approved**, with the small fixes folded in. M1–M3 planned as sprints 146–150. See [Milestones](#milestones) |
 
 Not yet put to the owner: the rest of section 9 (the unreferenced project, workspace and terminal
 RPCs, the unused contract members other than the mode ones, the upload journal, the top-level
@@ -93,7 +93,7 @@ changes for the user, which is the middle column. Nothing is implemented yet.
 |---|---|---|---|---|
 | 1 | Block websites from reaching the daemon; require a password when it is open to the network | Websites are turned away, except the hosted app. A daemon opened to the network without a password refuses to start and says why. | S1, S2 | The owner starts the daemon on `0.0.0.0` without a password, so a password has to be set first. The allowlist must include the hosted app, the local dev server and the desktop webview; requests with no `Origin` (CLI, the desktop app's Rust side) pass. |
 | 2 | Recover when the agent process crashes | A crashed turn shows as failed, and the next message starts Pi again. A second message while one is running is refused cleanly. | A1, A2, A3, A4 | Refusing a send while running is a behaviour change for any client that queues by sending twice. |
-| 3 | Keep conversation history safe | History is saved to disk as it happens and is there after a restart, whatever the user does first. | A5, A6 | Do the small part first (seed the timeline in `runTurn`). The file format is new persisted state under `$PI_STUDIO_HOME/agents/`. A little more disk per conversation. |
+| 3 | Keep conversation history intact | History is there after a restart, whatever the user does first, and the daemon holds it in less memory. | A5, A6 | **Changed 2026-11-25:** the first version (save history to a daemon-owned file) was designed and not adopted, because Pi's own session file already restores the conversation and the file would add a second copy that can drift (`swe/architecture/agent-timeline-persistence.md`). Done instead: seed the timeline before the first turn; one row per message in memory; evict on archive and delete. Known and accepted: after a restart a turn killed by a Pi crash shows as completed. |
 | 4 | Answer immediately on create and send | A new conversation appears at once; long turns no longer show a false error; a brief disconnect no longer confuses the app. | A7 | A wire change. The workbench, the SDK and the CLI's `run` and `send` must change in the same release as the daemon. Fixture and changelog procedure applies. |
 | 5 | Stop the daemon cleanly, every time | Stop, restart and update always finish in a bounded time and leave no stray processes. | T1 | The update pipeline ends in this shutdown; re-run `scripts/daemon-update-check/` after the change. |
 | 6 | Notice dead connections and protect against slow ones | The connected-clients list is accurate, memory stays steady, and one bad connection cannot slow the others. | T2, T3 | A user on a very poor connection sees a reconnect where today they see a long freeze. |
@@ -401,17 +401,24 @@ protocol is spoken by Rust only, and `FileTransferClient` (about 27 KB and 40 KB
 **Value.** A better experience with large media, and a control connection that carries no bulk data.
 Lower priority than the two-doors work. Effort: medium, most of it the three-platform checking.
 
-### Milestones (proposed)
+### Milestones
 
-Proposed 2026-11-24, not yet approved by the owner. Everything approved above is placed in exactly
-one milestone. No sprint or task files exist yet; those are derived (`av-swe plan`) once the
-milestones are agreed.
+Approved by the owner on 2026-11-24, with the small fixes folded in. M1 to M3 are planned as sprints
+146 to 150 in `swe/sprints/` (index in `swe/sprints/PLAN.md`); M4 to M9 are planned when each comes
+up, and M8 needs a written design first.
+
+| Milestone | Sprints |
+|---|---|
+| M1 Close the door | 146 — **done 2026-11-24** (on branch `feat/daemon-audit-m1-m3`, not merged) |
+| M2 Clear the ground | 147, 148 — **done 2026-11-25** (on branch `feat/daemon-audit-m1-m3`, not merged) |
+| M3 Agents that recover | 149, 150 — **done 2026-11-25** (branch `feat/daemon-audit-m1-m3`, not merged). The timeline file design was not adopted (improvement 3); 150 shipped history loaded before the first turn, one row per message in memory, and eviction on archive and delete |
+| M4 to M9 | not planned yet |
 
 | # | Milestone | Contains | What the user gets | Size | Needs |
 |---|---|---|---|---|---|
 | M1 | Close the door | Improvement 1 in its Lite form: the direct port refuses any request with an `Origin`, with a developer switch for local web development. Refuse a network bind without a password. Web client connects by pairing link only (address and password form removed; no password in the URL or browser storage). Remove `pi-studio ui`. | No website can reach the daemon. | Small | Nothing |
 | M2 | Clear the ground | The approved drops: orchestration, service proxy with CORS and the HTTP password check, `mcp-server.ts`, mode support, dead config keys, the four uncalled pieces, `extends: "pi"` profiles, the six shims. Also the packaging that follows from M1: the CLI and the binary stop carrying the web app; `workbench`, `ui-library` and `web-client` stop being published. | Nothing visible. A smaller install, and less code for every later milestone to touch. | Medium, mostly deletions | Nothing; packaging part needs M1 |
-| M3 | Agents that recover | Improvement 2 (crash path, turn lock, spawn lock, close during a turn) and improvement 3 (seed the timeline, then save it to disk). | No stuck conversations, no duplicated replies, no lost history. | Medium to large | Nothing |
+| M3 | Agents that recover | Improvement 2 (crash path, turn lock, spawn lock, close during a turn) and improvement 3 (history loaded before the first turn; a leaner in-memory timeline; the file design was not adopted). | No stuck conversations, no duplicated replies, no lost history. | Medium | Nothing |
 | M4 | Instant replies | Improvement 4: create and send answer at once; the daemon, SDK, workbench and CLI change together. | New conversations appear at once; long turns show no false error. | Medium | M3 |
 | M5 | A daemon that holds up | Improvement 5 (ordered, bounded shutdown), improvement 6 (liveness, limits, slow clients), improvement 8 (set damaged files aside). | Stop and update always finish; steady memory; no silent loss of settings. | Medium, three independent parts | Nothing |
 | M6 | One wiring | Improvement 9 (one start-up path), the mock provider and dev daemon out of the published package, improvement 7 (every request checked, with the schema declared where the handler is registered). | Nothing visible. Tested code matches shipped code; clear errors for malformed requests. | Medium to large | M2; best after M4 |
@@ -422,7 +429,9 @@ milestones are agreed.
 **Order and what can run side by side.**
 
 - M1 first, alone: it is small and it closes the most serious finding.
-- Then M2, M3 and M5 can run side by side; they touch different parts of the daemon.
+- Then M2, M3 and M5. Correction made while planning: M2 and M3 both edit the agent files
+  (`pi/agent.ts`, `agent-service.ts`, `session-operations.ts`), so in one working tree sprint 149
+  starts after sprint 147; sprint 148 and 149 then run side by side. M5 is still independent.
 - M4 follows M3. M6 follows M2 and is easier after M4, because M4 changes two of the handlers M6
   rewires.
 - M7, M8 and M9 are the Lite plan, in that order. They come after M6 so that sockets, roles and
@@ -450,10 +459,11 @@ than today, where the relay already works that way, but it is the reason M8 shou
   desktop client first calls them.
 - Never put to the owner: the unreferenced project, workspace and terminal requests, the unused
   provider-contract members, the upload journal, the top-level `version` config key.
-- Small fixes never put to the owner, with the milestone each would fit: deleting a symlink deletes
-  its target (F1, M5), `file_read_request` on endless files (F3, M5), terminal subscriptions leaking
-  on disconnect (F4, M5), the unwired skip store (T6, M5), credentials in extension error text
-  (section 7, M5), requests to Pi with no timeout (A8, M3).
+- Small fixes, folded in by the owner on 2026-11-24: requests to Pi with no timeout (A8) is
+  sprint-149/task-002; deleting a symlink deletes its target (F1), `file_read_request` on endless files
+  (F3), terminal subscriptions leaking on disconnect (F4) and credentials in extension error text
+  (section 7) go into M5 when it is planned. The unwired skip store (T6) needs nothing: it was fixed by
+  sprint-142/task-002 (`createFileSkipStore` is wired in `bootstrap.ts` on `main`).
 
 ---
 
@@ -606,6 +616,11 @@ RPC surface (**Checked**, by searching every registered name in `packages/client
 ## 4. Agent subsystem findings
 
 ### A1. A Pi crash during a turn leaves the agent stuck (**Checked**)
+
+**Update 2026-11-24 (on `main`, after the audit):** partly fixed in `601a91e6`. A non-zero exit now fails
+the transport and a waiting turn ends with an `error` row. Still open, and planned as
+sprint-149/task-001: an exit by signal or an unrequested exit 0 still hangs the turn, the turn ends with
+a non-terminal `error` rather than `turn_failed`, and the dead session is never replaced.
 
 - The `exit` handler in `agent/providers/pi/rpc-transport.ts:178` fails pending requests only when
   there are some. A prompt is sent with `notify`, so during a turn nothing is pending.
@@ -761,10 +776,9 @@ RPC surface (**Checked**, by searching every registered name in `packages/client
 
 ### T6. Update subsystem (**Checked** for the first item, **Read** for the rest)
 
-- `bootstrap.ts` passes no `skipStore` to `UpdateService`, so `createFileSkipStore`
-  (`update/update-service.ts:581`) is used only by tests. A version that was rolled back is forgotten
-  on the restart the update caused, and is offered again. This contradicts the decision that a
-  rolled-back version is not offered again. It may be unfinished work on this branch.
+- **Fixed after the audit** (sprint-142/task-002, on `main`): `bootstrap.ts` now passes
+  `createFileSkipStore(...)`, so a rolled-back version is not offered again by automatic checks. At the
+  audit's commit it was not wired.
 - The restart helper (`update/helper.ts`) is about 300 lines of JavaScript in a string, and the
   daemon it starts has `stdio: "ignore"`, so crash output is lost.
 
@@ -1210,8 +1224,16 @@ So that a later reader knows what was covered and need not be re-read first.
   2026-11-24: no, drop it.
 - **Still open from the decisions round:** only the relay parking of old daemons, which is deferred
   on recommendation and not yet confirmed by the owner.
-- **Does a Pi process exit when its stdin closes?** If not, a daemon killed with SIGKILL orphans
-  every agent. Not tested.
+- **Does a Pi process exit when its stdin closes?** Answered 2026-11-25, seen live (sprint-149/task-005,
+  bundled Pi 1.4.0): yes. After `kill -9` of the daemon in the middle of a turn, both of its Pi
+  processes were gone within a second. The tool subprocess a running turn had started (`sleep 40`)
+  was not: it was orphaned (the same happens when Pi itself is killed with SIGKILL). A `close()` kills
+  the whole tree, so only abrupt deaths leave such children.
+- **Seen live while checking M3, not fixed:** with the bundled Pi 1.4.0 and an Anthropic credential,
+  a turn on `claude-haiku-4-5` never produced an assistant message, both through the daemon and when
+  `pi --mode rpc` was driven by hand. The same prompt answered on Pi 1.6 with that model, and on
+  Pi 1.4.0 with `claude-sonnet-4-5`. The daemon shows such a turn as running until it is
+  interrupted; there is no turn timeout, by design.
 - **Do newer browsers block a public page from reaching `ws://127.0.0.1`?** Not tested; relevant only
   to how urgent S1 is, not to whether to fix it.
 

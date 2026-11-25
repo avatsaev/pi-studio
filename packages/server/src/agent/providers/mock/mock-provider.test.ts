@@ -57,7 +57,6 @@ describe("mock provider", () => {
     const client = new MockAgentClient();
     expect(client.capabilities).toEqual(MOCK_CAPABILITIES);
     expect(client.capabilities.supportsStreaming).toBe(true);
-    expect(client.capabilities.supportsMcpServers).toBe(false);
     const session = await client.createSession({ provider: "mock", cwd: "/tmp" });
     expect(session.capabilities).toEqual(MOCK_CAPABILITIES);
   });
@@ -76,7 +75,7 @@ describe("mock provider", () => {
     expect(kinds).not.toContain("turn_completed");
   });
 
-  it("reports availability, models, modes, runtime info and a persistence handle", async () => {
+  it("reports availability, models, runtime info and a persistence handle", async () => {
     const client = new MockAgentClient();
     expect(client.isAvailable()).toBe(true);
     expect(await client.listModels()).toEqual([
@@ -89,7 +88,6 @@ describe("mock provider", () => {
     ]);
     const session = await client.createSession({ provider: "mock", cwd: "/tmp", model: "m1" });
     expect(session.getRuntimeInfo().model).toBe("m1");
-    expect(session.getAvailableModes().length).toBeGreaterThan(0);
     expect(session.describePersistence()?.provider).toBe("mock");
   });
 
@@ -511,9 +509,7 @@ describe("#tool scenario (sprint-058, task-004)", () => {
     const session = await makeMockSession();
     const { events } = collect(session);
     await session.run(prompt);
-    const replayed: AgentStreamEvent[] = [];
-    for await (const e of session.streamHistory()) replayed.push(e);
-    return { events, replayed };
+    return { events };
   }
 
   it("#tool shell emits start, 3 growing partials, end, then the echo", async () => {
@@ -559,13 +555,6 @@ describe("#tool scenario (sprint-058, task-004)", () => {
     const end = tools.at(-1)!;
     expect(end.status).toBe("completed");
     expect(end.tool).toMatchObject({ kind: "shell", output: "" });
-  });
-
-  it("streamHistory yields start and end events but no partials", async () => {
-    const { replayed } = await toolEvents("#tool shell");
-    const tools = replayed.filter((e) => e.kind === "tool_call");
-    expect(tools.some((e) => e.partial === true)).toBe(false);
-    expect(tools.map((e) => e.status)).toEqual(["running", "completed"]);
   });
 
   it("#tool help lists the recipes and emits no tool events", async () => {
@@ -623,5 +612,35 @@ describe("mock provider — #stream recipes and fork rebind (sprint-083/task-002
     expect(session.describePersistence()?.nativeHandle).toBe(before);
     await session.fork(MOCK_REBIND_ENTRY_ID);
     expect(session.describePersistence()?.nativeHandle).not.toBe(before);
+  });
+});
+
+describe("MockAgentSession exit", () => {
+  it("crash() ends a running turn as turn_failed, then reports the reason to onExit", async () => {
+    const session = await makeMockSession();
+    const order: string[] = [];
+    session.subscribe((e) => order.push(e.kind === "turn_failed" ? `failed:${e.error}` : e.kind));
+    session.onExit((reason) => order.push(`exit:${reason}`));
+
+    await session.startTurn("hello");
+    session.crash("killed");
+
+    expect(order.slice(-2)).toEqual(["failed:killed", "exit:killed"]);
+  });
+
+  it("crash() between turns only reports to onExit, and close() reports nothing", async () => {
+    const idle = await makeMockSession();
+    const events = collect(idle).events;
+    const reasons: string[] = [];
+    idle.onExit((reason) => reasons.push(reason));
+    idle.crash("killed");
+    expect(reasons).toEqual(["killed"]);
+    expect(events).toEqual([]);
+
+    const closed = await makeMockSession();
+    closed.onExit((reason) => reasons.push(reason));
+    await closed.close();
+    closed.crash("late");
+    expect(reasons).toEqual(["killed"]);
   });
 });

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  isServiceScript,
   normalizeProjectConfig,
   readProjectConfig,
   scriptEntrySchema,
@@ -34,18 +33,11 @@ describe("setup/teardown normalization", () => {
 });
 
 describe("scripts", () => {
-  it("parses a service script and flags it for proxying", () => {
+  it("keeps the script type and tolerates extra fields", () => {
     const cfg = normalizeProjectConfig({
-      scripts: { dev: { type: "service", command: "npm run dev" } },
+      scripts: { dev: { type: "service", command: "npm run dev", extra: 1 } },
     });
-    const dev = cfg.scripts.dev;
-    expect(dev).toBeDefined();
-    expect(isServiceScript(dev!)).toBe(true);
-  });
-
-  it("treats a non-service script as not proxied", () => {
-    const entry = scriptEntrySchema.parse({ command: "echo hi" });
-    expect(isServiceScript(entry)).toBe(false);
+    expect(cfg.scripts.dev).toMatchObject({ type: "service", command: "npm run dev" });
   });
 
   it("rejects a script entry missing command", () => {

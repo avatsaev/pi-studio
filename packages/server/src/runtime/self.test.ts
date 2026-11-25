@@ -16,7 +16,6 @@ import {
   relayCommand,
   relayStartScript,
   skillsCommand,
-  webDist,
   type SelfRuntime,
 } from "./self.js";
 
@@ -110,10 +109,6 @@ describe("on Node (isBinary false) every command is the one built before the sea
     ]);
   });
 
-  it("webDist: whatever the Node resolver finds", () => {
-    expect(webDist(() => "/srv/web-client/dist/web", NODE)).toBe("/srv/web-client/dist/web");
-  });
-
   it("assetsDir is only defined for the binary", () => {
     expect(() => assetsDir(NODE)).toThrow(/binary/);
   });
@@ -166,9 +161,8 @@ describe("in the binary (isBinary true) every command is [execPath, __<name>, â€
     ]);
   });
 
-  it("assetsDir is the binary's folder and webDist is its web/ folder", () => {
+  it("assetsDir is the binary's folder", () => {
     expect(assetsDir(BINARY)).toBe("/opt/pi-studio");
-    expect(webDist(unused, BINARY)).toBe("/opt/pi-studio/web");
   });
 });
 

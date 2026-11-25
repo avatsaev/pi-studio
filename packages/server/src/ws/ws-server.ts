@@ -36,6 +36,9 @@ export interface WebSocketServerDeps {
   /** Advertised server features (`server_info.features`). Defaults to all SERVER_FEATURES enabled. */
   features?: Record<string, unknown>;
   auth?: PasswordAuth;
+  /** Browser `Origin`s allowed on the direct port (exact match). Any other `Origin` is refused
+   *  with 403; requests without an `Origin` (CLI, desktop) are unaffected. Default: none. */
+  allowedOrigins?: readonly string[];
   hostCheck?: (hostHeader: string | undefined) => boolean;
   capabilityStore?: CapabilityStore;
   /** Called once a session completes its handshake. */
@@ -86,6 +89,16 @@ export function createWebSocketServer(
         "ws upgrade rejected: host not allowed",
       );
       socket.write("HTTP/1.1 403 Host not allowed\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const origin = req.headers.origin;
+    if (origin !== undefined && !(deps.allowedOrigins ?? []).includes(origin)) {
+      deps.logger?.warn(
+        { origin, remoteAddress: req.socket.remoteAddress },
+        "ws upgrade rejected: origin not allowed",
+      );
+      socket.write("HTTP/1.1 403 Origin not allowed\r\n\r\n");
       socket.destroy();
       return;
     }

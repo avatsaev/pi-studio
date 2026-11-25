@@ -24,8 +24,9 @@ builds from workspace sources with no package build in between. Must **not** imp
 `@av-pi-studio/server` or `@av-pi-studio/cli`, and must not gain Node-only runtime code.
 
 **Packaging: every entry in `package.json` is a `devDependency`.** This package has no `main`, no
-`exports`, no `bin` — it ships only the prebuilt static assets (`files: ["dist", ...]`), which the
-CLI (`pi-studio ui`) and `docker/web-client.Dockerfile` serve. Keeping build tools as
+`exports`, no `bin` — it is `"private": true` (never published to npm) and ships only the prebuilt static assets
+(`files: ["dist", ...]`), which `docker/web-client.Dockerfile` serves. Its version still follows the
+monorepo's lockstep (`publish.sh` bumps it; the UI shows it), and its `@av-pi-studio/*` ranges are `*`. Keeping build tools as
 `dependencies` once made every `npm install @av-pi-studio/cli` pull a 627 MB build-only tree.
 
 ---
@@ -39,6 +40,7 @@ vite.config.ts             the web build (dist/web): React plugin, brandHtmlPlug
                            pdfjsAssetsPlugin (imported by relative source path,
                            ../workbench/vite/index.ts), `define`s for __APP_VERSION__/__BRAND_TITLE__,
                            worker format es, source aliases, manualChunks, /daemon-ws dev proxy
+                           (origin not rewritten: the daemon sees the page's real origin)
 tsconfig.json              app config (DOM libs, react-jsx, noEmit), references ui-library + workbench
 tsconfig.node.json         config for vite.config.ts
 src/
@@ -75,8 +77,10 @@ the build).
 
 Docker: `docker/web-client.Dockerfile` builds the `build:web` output into an `nginx:alpine` static
 image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_DAEMON_UPSTREAM`);
-`docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
-entered at runtime, never baked into the image.
+`docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The browser build is "Pi Studio
+Lite": it connects only by relay pairing link (`?pair=`, `#offer=`, or pasted into the one field),
+with no address or password field. `npm run dev` passes `devDirect: import.meta.env.DEV` to
+`createBrowserHost`, so the dev page also connects to the same-origin `/daemon-ws` proxy.
 
 Production builds (`build:web`) set `sourcemap: false` in `vite.config.ts` and run
 `vite build` under `NODE_OPTIONS=--max-old-space-size=6144` — the largest vendor chunks (`vendor`,
@@ -96,8 +100,8 @@ unaffected (Vite's dev transform is separate from this `build.sourcemap` option)
   `@av-pi-studio/ui-library/reset.css`, then `./global.css`, so app rules win the cascade.
 - **Resolved from source, not `dist/`.** The workbench, ui-library, protocol and client are
   aliased to their `src` in `vite.config.ts` (and the root `vitest.config.ts`), so HMR works across
-  packages and no package build is needed for dev. Consequently web-client does not exercise the
-  workbench's published `dist`; `packages/workbench/scripts/pack-smoke.sh` does.
+  packages and no package build is needed for dev. Consequently web-client does not use the
+  workbench's built `dist`.
 - **One `pdfjs-dist` range.** The pdf.js worker is built here (`?worker` import in `main.tsx`) and
   the API runs in the workbench; `packages/workbench/src/host/pdf.test.ts` fails if the two
   packages' `pdfjs-dist` ranges differ.

@@ -2,12 +2,7 @@ import type { Session } from "../ws/session.js";
 import type { HandlerRegistry } from "../ws/router.js";
 import type { Logger } from "../logging/logger.js";
 import type { AgentManager } from "./agent-manager.js";
-import {
-  appendStreamEvent,
-  ensureTimelineSeeded,
-  resetTimeline,
-  spawnOrResumeSession,
-} from "./agent-service.js";
+import { appendStreamEvent, ensureSession, timelineFor } from "./agent-service.js";
 import type {
   AgentClient,
   AgentCompactResult,
@@ -65,10 +60,6 @@ function requireSession(manager: AgentManager, agentId: string) {
 function unsupported(agentId: string, op: string): Error {
   return new Error(`agent ${agentId}'s provider does not support '${op}'`);
 }
-
-/** Agent ids with a `compact` call in flight (a daemon restart kills the Pi child and any
- *  compaction with it, so in-memory is enough). */
-const compactionsInFlight = new Set<string>();
 
 export class SlashCommandOperationsService {
   constructor(private readonly deps: SlashCommandOpsDeps) {}
@@ -151,8 +142,10 @@ export class SlashCommandOperationsService {
    *
    * Pi's `compact()` starts with `abort()`, so compacting mid-turn would kill the run and a second
    * concurrent compact would cancel the first: both are refused with `busy` BEFORE anything is
-   * resumed or subscribed. A record with no live process (every record after a daemon restart) is
-   * resumed first — compacting an old, oversized session before continuing it is a primary use.
+   * resumed or subscribed (`AgentManager.runExclusive`, which also refuses a send, new session,
+   * switch, fork, clone or resume while the compaction runs). A record with no live process (every
+   * record after a daemon restart) is resumed first — compacting an old, oversized session before
+   * continuing it is a primary use.
    *
    * Compaction runs outside any turn, so `runTurn`'s subscription is not there to record its
    * `compaction` events: this handler holds its own subscription window for the duration of the
@@ -163,63 +156,59 @@ export class SlashCommandOperationsService {
     getSessions: () => Iterable<Session>,
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
-    const managed = this.deps.manager.get(agentId);
-    if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    if (managed.record.lastStatus === "running") {
-      throw new Error(
-        `busy: agent ${agentId} is running; wait for the turn to finish before compacting`,
-      );
-    }
-    if (compactionsInFlight.has(agentId)) {
-      throw new Error(`busy: agent ${agentId} is already compacting`);
-    }
-    compactionsInFlight.add(agentId);
+    if (!this.deps.manager.get(agentId)) throw new Error(`unknown agent: ${agentId}`);
+    // The claim covers the resume, the subscription window and the compaction itself.
+    return this.deps.manager.runExclusive(agentId, "compaction", () =>
+      this.compact(agentId, msg, getSessions),
+    );
+  }
+
+  private async compact(
+    agentId: string,
+    msg: Record<string, unknown>,
+    getSessions: () => Iterable<Session>,
+  ): Promise<unknown> {
+    const session = await ensureSession(this.deps, agentId);
+    if (!session.compact) throw unsupported(agentId, "compact");
+    const customInstructions =
+      typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
+
+    const timeline = timelineFor(this.deps, agentId);
+
+    let openId: string | undefined;
+    let terminalSeen = false;
+    const unsubscribe = session.subscribe((event) => {
+      if (event.kind !== "compaction") return;
+      if (event.phase === "started") openId = event.compactionId;
+      else terminalSeen = true;
+      appendStreamEvent(agentId, timeline, event, this.deps.broadcast, getSessions());
+    });
+    let payload: AgentCompactResult;
     try {
-      const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
-      if (!session.compact) throw unsupported(agentId, "compact");
-      const customInstructions =
-        typeof msg.customInstructions === "string" ? msg.customInstructions : undefined;
-
-      // Before the first append: otherwise the compaction row would create an empty store that
-      // `seedTimeline` (never overwrites) could no longer hydrate history into.
-      ensureTimelineSeeded(agentId, this.deps.manager, this.deps.resolveClient);
-
-      let openId: string | undefined;
-      let terminalSeen = false;
-      const unsubscribe = session.subscribe((event) => {
-        if (event.kind !== "compaction") return;
-        if (event.phase === "started") openId = event.compactionId;
-        else terminalSeen = true;
-        appendStreamEvent(agentId, event, this.deps.broadcast, getSessions());
-      });
-      let payload: AgentCompactResult;
-      try {
-        payload = await session.compact(customInstructions);
-      } catch (err) {
-        // A started row must never be left without its terminal row (process crash, transport
-        // failure). Pi's own failures emit `failed` before throwing, so `terminalSeen` is set then.
-        if (openId !== undefined && !terminalSeen) {
-          appendStreamEvent(
-            agentId,
-            {
-              kind: "compaction",
-              compactionId: openId,
-              phase: "failed",
-              error: err instanceof Error ? err.message : String(err),
-            },
-            this.deps.broadcast,
-            getSessions(),
-          );
-        }
-        throw err;
-      } finally {
-        unsubscribe();
+      payload = await session.compact(customInstructions);
+    } catch (err) {
+      // A started row must never be left without its terminal row (process crash, transport
+      // failure). Pi's own failures emit `failed` before throwing, so `terminalSeen` is set then.
+      if (openId !== undefined && !terminalSeen) {
+        appendStreamEvent(
+          agentId,
+          timeline,
+          {
+            kind: "compaction",
+            compactionId: openId,
+            phase: "failed",
+            error: err instanceof Error ? err.message : String(err),
+          },
+          this.deps.broadcast,
+          getSessions(),
+        );
       }
-      this.broadcastAgentUpdate(getSessions, agentId, { compacted: true });
-      return { type: "agent_compact_response", payload };
+      throw err;
     } finally {
-      compactionsInFlight.delete(agentId);
+      unsubscribe();
     }
+    this.broadcastAgentUpdate(getSessions, agentId, { compacted: true });
+    return { type: "agent_compact_response", payload };
   }
 
   /**
@@ -237,13 +226,16 @@ export class SlashCommandOperationsService {
   ): Promise<unknown> {
     const agentId = msg.agentId as string;
     const session = requireSession(this.deps.manager, agentId);
-    if (!session.newSession) throw unsupported(agentId, "new_session");
-    const payload = await session.newSession();
-    if (!payload.cancelled) {
-      await this.deps.manager.persistSessionHandle(agentId);
-      this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
-    }
-    return { type: "agent_new_session_response", payload };
+    const newSession = session.newSession?.bind(session);
+    if (!newSession) throw unsupported(agentId, "new_session");
+    return this.deps.manager.runExclusive(agentId, "session", async () => {
+      const payload = await newSession();
+      if (!payload.cancelled) {
+        await this.deps.manager.persistSessionHandle(agentId);
+        this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+      }
+      return { type: "agent_new_session_response", payload };
+    });
   }
 
   /** `/resume` — loads a different session file in place; broadcast. */
@@ -255,13 +247,16 @@ export class SlashCommandOperationsService {
     const sessionPath = msg.sessionPath as string;
     if (!sessionPath) throw new Error("sessionPath is required");
     const session = requireSession(this.deps.manager, agentId);
-    if (!session.switchSession) throw unsupported(agentId, "switch_session");
-    const payload = await session.switchSession(sessionPath);
-    if (!payload.cancelled) {
-      await this.deps.manager.persistSessionHandle(agentId);
-      this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
-    }
-    return { type: "agent_switch_session_response", payload };
+    const switchSession = session.switchSession?.bind(session);
+    if (!switchSession) throw unsupported(agentId, "switch_session");
+    return this.deps.manager.runExclusive(agentId, "session", async () => {
+      const payload = await switchSession(sessionPath);
+      if (!payload.cancelled) {
+        await this.deps.manager.persistSessionHandle(agentId);
+        this.broadcastAgentUpdate(getSessions, agentId, { status: "idle" });
+      }
+      return { type: "agent_switch_session_response", payload };
+    });
   }
 
   /**
@@ -294,28 +289,30 @@ export class SlashCommandOperationsService {
     if (!entryId) throw new Error("entryId is required");
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
-    if (!session.fork) throw unsupported(agentId, "fork");
-    const payload = await session.fork(entryId);
-    if (!payload.cancelled) {
-      const handleBefore = this.deps.manager.get(agentId)?.record.persistence?.nativeHandle;
-      await this.deps.manager.persistSessionHandle(agentId);
-      const record = this.deps.manager.get(agentId)?.record;
-      const handleAfter = record?.persistence?.nativeHandle;
-      if (record && handleAfter != null && handleAfter !== handleBefore) {
-        const client = this.deps.resolveClient(record.provider);
-        const handle = record.persistence as PersistenceHandle | undefined;
-        const rows = handle ? (client.hydrateTimeline?.(handle) ?? []) : [];
-        resetTimeline(agentId, rows);
-        this.deps.broadcast(getSessions(), {
-          type: "agent_timeline_reset",
-          agentId,
-          reason: "fork",
-        });
-        this.deps.onTimelineReset?.(agentId);
+    return this.deps.manager.runExclusive(agentId, "session", async () => {
+      const session = await ensureSession(this.deps, agentId);
+      if (!session.fork) throw unsupported(agentId, "fork");
+      const payload = await session.fork(entryId);
+      if (!payload.cancelled) {
+        const handleBefore = this.deps.manager.get(agentId)?.record.persistence?.nativeHandle;
+        await this.deps.manager.persistSessionHandle(agentId);
+        const record = this.deps.manager.get(agentId)?.record;
+        const handleAfter = record?.persistence?.nativeHandle;
+        if (record && !record.archivedAt && handleAfter != null && handleAfter !== handleBefore) {
+          const client = this.deps.resolveClient(record.provider);
+          const handle = record.persistence as PersistenceHandle | undefined;
+          const rows = handle ? (client.hydrateTimeline?.(handle) ?? []) : [];
+          this.deps.manager.timelines.reset(agentId, rows);
+          this.deps.broadcast(getSessions(), {
+            type: "agent_timeline_reset",
+            agentId,
+            reason: "fork",
+          });
+          this.deps.onTimelineReset?.(agentId);
+        }
       }
-    }
-    return { type: "agent_fork_response", payload };
+      return { type: "agent_fork_response", payload };
+    });
   }
 
   /** Fork picker — read-only. Same "must work without a live session" requirement as
@@ -327,7 +324,7 @@ export class SlashCommandOperationsService {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    const session = await ensureSession(this.deps, agentId);
     if (!session.getForkMessages) throw unsupported(agentId, "get_fork_messages");
     const messages = await session.getForkMessages();
     return { type: "agent_fork_messages_response", payload: { messages } };
@@ -343,14 +340,16 @@ export class SlashCommandOperationsService {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
-    if (!session.clone) throw unsupported(agentId, "clone");
-    const payload = await session.clone();
-    if (!payload.cancelled) {
-      await this.deps.manager.persistSessionHandle(agentId);
-      this.broadcastAgentUpdate(getSessions, agentId);
-    }
-    return { type: "agent_clone_response", payload };
+    return this.deps.manager.runExclusive(agentId, "session", async () => {
+      const session = await ensureSession(this.deps, agentId);
+      if (!session.clone) throw unsupported(agentId, "clone");
+      const payload = await session.clone();
+      if (!payload.cancelled) {
+        await this.deps.manager.persistSessionHandle(agentId);
+        this.broadcastAgentUpdate(getSessions, agentId);
+      }
+      return { type: "agent_clone_response", payload };
+    });
   }
 
   /** `/name` — sets the session display name; persist it to the record (single source of truth:
@@ -562,7 +561,7 @@ export class SlashCommandOperationsService {
     const agentId = msg.agentId as string;
     const managed = this.deps.manager.get(agentId);
     if (!managed) throw new Error(`unknown agent: ${agentId}`);
-    const session = managed.session ?? (await spawnOrResumeSession(this.deps, agentId));
+    const session = await ensureSession(this.deps, agentId);
     if (!session.listCommands) throw unsupported(agentId, "get_commands");
     const commands = await session.listCommands();
     return { type: "agent_list_commands_response", payload: { commands } };

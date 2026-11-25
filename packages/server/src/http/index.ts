@@ -1,3 +1,3 @@
-// HTTP server: host allowlist, CORS, health route, auth pipeline.
+// HTTP server: host allowlist, health route.
 export * from "./host-allowlist.js";
 export * from "./http-server.js";
