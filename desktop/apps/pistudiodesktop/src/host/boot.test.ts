@@ -21,9 +21,29 @@ const good = {
   preview: "origin",
   transfers: "engine",
   daemons,
+  usage: { enabled: true, sending: false, blocked: "ci" },
 };
 
 describe("parseBootSnapshot", () => {
+  it("parses usage; a missing or malformed part fails the boot", () => {
+    expect(parseBootSnapshot(good)?.usage).toEqual({ enabled: true, sending: false, blocked: "ci" });
+    expect(parseBootSnapshot({ ...good, usage: { enabled: false, sending: false, id: "abc" } })?.usage).toEqual({
+      enabled: false,
+      sending: false,
+      id: "abc",
+    });
+    for (const usage of [
+      undefined,
+      null,
+      {},
+      { enabled: "yes", sending: false },
+      { enabled: true, sending: 1 },
+      { enabled: true, sending: false, blocked: "other" },
+      { enabled: true, sending: false, id: 3 },
+    ]) {
+      expect(parseBootSnapshot({ ...good, usage })).toBeNull();
+    }
+  });
   it("accepts the expected shape", () => {
     expect(parseBootSnapshot(good)?.storage).toEqual({ k: "v" });
   });

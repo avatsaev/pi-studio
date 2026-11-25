@@ -238,4 +238,7 @@ pub struct Services {
     /// The command-line tool behind `cli_tool.state` and `cli_tool.install`: the app fills it with the local
     /// supervisor. Missing in the headless CLI and in tests: the state is then `unavailable` and the install is refused.
     pub cli_tool: Option<Arc<dyn pistudiodesktop_engine::CliToolHost>>,
+    /// Sends one usage event ([`crate::usage::UsageHook`]); the app fills it only in a build that has a token. Missing
+    /// in the browser build, the headless CLI and tests: every run is then `blocked: "build"` and nothing is sent.
+    pub usage: Option<crate::usage::UsageHook>,
 }

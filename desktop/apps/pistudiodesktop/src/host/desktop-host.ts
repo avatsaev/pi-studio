@@ -9,6 +9,7 @@ import { createDesktopPreview } from "./preview.js";
 import { createDesktopStorage } from "./storage.js";
 import { countTransfers, createEngineFiles, createSaveTarget, engineServes } from "./transfers.js";
 import { createDesktopUpdates } from "./updates.js";
+import { createDesktopUsageData } from "./usage-data.js";
 
 /** A launch with no connect intent and no deep-link source. */
 const NO_LAUNCH: WorkbenchHost["launch"] = {
@@ -16,7 +17,7 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves), `daemons`, `updates` and `zoom` replaced or added by the desktop's. */
+/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves), `daemons`, `updates`, `usageData` and `zoom` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
@@ -45,6 +46,7 @@ export function createDesktopHost(
     launch: NO_LAUNCH,
     daemons,
     updates: createDesktopUpdates(snapshot.update, ipc, log),
+    usageData: createDesktopUsageData(snapshot.usage, ipc),
     zoom: createNativeZoom(ipc, log),
   };
 }

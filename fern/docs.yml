@@ -17,6 +17,9 @@ navigation:
   - page: Quickstart
     path: pages/quickstart.mdx
     slug: quickstart
+  - page: Usage data
+    path: pages/usage-data.mdx
+    slug: usage-data
   - section: CLI Reference
     slug: cli-reference
     contents:

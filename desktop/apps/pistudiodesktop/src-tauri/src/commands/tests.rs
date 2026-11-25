@@ -206,7 +206,7 @@ fn the_page_can_boot_and_store_a_key_and_that_is_all() {
     assert_eq!((&first["storage"], &first["notices"], &first["preview"]), (&json!({}), &json!([]), &json!(preview::kind().as_str())));
     assert_eq!(first["transfers"], "engine");
     assert_eq!(first["daemons"]["entries"].as_array().map(Vec::len), Some(1), "the local entry");
-    assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
+    assert_eq!(first["daemons"]["settings"], json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "shareUsageData": true}));
     assert_eq!(first["daemons"]["secretStore"], "memory");
 
     assert_eq!(invoke(&window, "storage_set", json!({"key": "pi-studio-pane-layout", "value": "{\"a\":1}"})).unwrap(), Value::Null);
@@ -921,7 +921,10 @@ fn telling(sent: &Arc<Mutex<Vec<Value>>>) -> Launch {
 fn the_page_runs_the_listed_engine_commands_and_is_refused_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, window) = app_on(dir.path());
-    assert_eq!(invoke(&window, "engine_command", json!({"id": "settings.get"})).unwrap(), json!({"autoStartLocalDaemon": true, "checkForUpdates": true}));
+    assert_eq!(
+        invoke(&window, "engine_command", json!({"id": "settings.get"})).unwrap(),
+        json!({"autoStartLocalDaemon": true, "checkForUpdates": true, "shareUsageData": true})
+    );
     let added = invoke(&window, "engine_command", json!({"id": "daemon.add", "params": {"kind": "direct", "name": "B", "address": "h:1"}})).unwrap();
     assert_eq!(added["name"], "B");
     let list = invoke(&window, "engine_command", json!({"id": "daemon.list"})).unwrap();

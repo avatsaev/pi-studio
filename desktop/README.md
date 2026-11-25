@@ -25,6 +25,13 @@ Behind the window, the Rust crates hold an engine with the registry, the setting
 workbench state, a command registry (every action is a command), generated menus and a control
 channel; the page, the CLI and the control socket reach it.
 
+Usage data: a published build sends anonymous usage events (a random ID, system, CPU, version, installer kind,
+language, daemon entry counts; country only, no IP) to PostHog Cloud EU, on by default. Settings → Privacy or
+`DO_NOT_TRACK=1` turns it off; builds without the project token (source builds, pull requests, forks), `CI` and
+scripted runs (`--control`, `--config-dir`) send nothing. Full list:
+[the public Usage data page](https://pi-studio.docs.buildwithfern.com/usage-data) and
+`swe/features/desktop-usage-data.md`.
+
 ## Build and run
 
 Prerequisites are listed in [docs/development.md](docs/development.md).

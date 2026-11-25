@@ -33,6 +33,9 @@ other machines. A CLI and a browser client talk to the same daemon.
 3. **Log in to a model provider.** Settings (the gear) → Model Providers. The credential is written on the
    daemon's machine, where the agents read it.
 4. **Open a workspace**, a project folder on the daemon's machine, and start a session.
+5. **Usage data.** The published app sends a few anonymous usage events (a random ID, system, version,
+   language; country only, no IP address). Turn it off in Settings → Privacy or with `DO_NOT_TRACK=1`;
+   see [Usage data](https://pi-studio.docs.buildwithfern.com/usage-data).
 
 What the app does that a browser tab cannot:
 

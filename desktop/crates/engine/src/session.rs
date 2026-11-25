@@ -323,6 +323,14 @@ impl Session {
         Ok(())
     }
 
+    /// Store the usage ID and write `settings.json` before returning; on a failed write the
+    /// previous ID is back. No command sets the ID.
+    pub fn store_usage_id(&mut self, id: &str) -> Result<()> {
+        self.storage.set_usage_id(id)?;
+        self.changed = true;
+        Ok(())
+    }
+
     /// The workbench's stored keys: the global ones and the current entry's.
     pub fn storage_snapshot(&self) -> BTreeMap<String, String> {
         self.storage.snapshot()

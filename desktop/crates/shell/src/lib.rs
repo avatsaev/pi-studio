@@ -44,6 +44,10 @@
 //! The app's self-update ([`update`]) is the same kind of thing: the state and its transitions
 //! and the schedule of checks are plain data and decisions here, and the plug-in is behind
 //! [`Services::updater`]. The shared [`update::Updater`] is [`AppShell::update`].
+//!
+//! The anonymous usage data ([`usage`]) is the same kind of thing again: why a run sends nothing, when an
+//! event is due, the event's body and the usage ID are decided here, and the HTTP request is the app's, behind
+//! [`Services::usage`]. The run's state is [`AppShell::usage`]; `usage` is a part of `boot` and of `ui.inspect`.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -87,6 +91,7 @@ pub mod transfer_mode;
 pub mod transfers_view;
 pub mod transports;
 pub mod update;
+pub mod usage;
 
 use pistudiodesktop_engine::{Notice, Session, UPDATE_UNAVAILABLE, UpdateGate};
 use serde_json::Value;
@@ -118,6 +123,9 @@ pub struct AppShell {
     /// default manifest. The app replaces it with one that reads `--update-manifest` and tells the
     /// page of every change ([`update::Updater::set_notify`]).
     pub update: Arc<update::Updater>,
+    /// This run's usage-data state ([`usage::UsageRun`]): only the thread that owns the shell reads or
+    /// changes it. Until [`usage::on_launch`] it is a run that sends nothing.
+    pub usage: usage::UsageRun,
     /// `daemon.add/update/remove` whose store step is running on a worker thread (`deferred`).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) deferred: deferred::Deferred,
@@ -137,6 +145,7 @@ impl AppShell {
             resume: Arc::default(),
             transfers: transfer_mode::TransfersMode::default(),
             update,
+            usage: usage::UsageRun::default(),
             #[cfg(not(target_arch = "wasm32"))]
             deferred: deferred::Deferred::default(),
         }
@@ -181,6 +190,7 @@ impl AppShell {
             }
             Request::Engine { id, params } => control::reply(daemons::page_command(self, id, params.clone())),
             Request::Local(op) => daemons::local_op(self, op),
+            Request::Usage(op) => usage::answer(self, op),
         }
     }
 }

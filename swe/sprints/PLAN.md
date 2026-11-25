@@ -182,8 +182,10 @@ Each sprint ends in a buildable, testable state. Tests run per-file with Vitest
 | 154 | `sprint-154-socket-limits` | server: **Daemon audit M5, part 2 — connections.** A time limit for `hello`, a frame size limit, a cap on requests in flight; dead connections noticed; slow clients cut off; terminal subscriptions end with their session; live check. | 5 |
 | 155 | `sprint-155-damaged-files` | server + cli + desktop: **Daemon audit M5, part 3 — damaged files.** Set a damaged file aside and serialise writes; stores keep what is valid; a damaged `config.json` stops the daemon; identity files; the desktop app shows why a daemon did not start. | 5 |
 | 156 | `sprint-156-small-fixes-and-close-m5` | server: **Daemon audit M5, part 4.** Symlink delete; `file_read_request` on regular files only; no credentials in extension error text; an update check when a client connects (owner addition); live check and close of M5. | 5 |
+| 157 | `sprint-157-desktop-usage-data` | desktop + workbench + CI: **Desktop usage data, part 1.** `shareUsageData`/`usageId` settings; the shell's usage state, event and view; Settings → Privacy; the PostHog sender and its moments; the desktop host member; the token in published builds only. | 6 |
+| 158 | `sprint-158-usage-data-close` | desktop + docs: **Desktop usage data, part 2 — close.** Live check against a local endpoint; the public "Usage data" page and corrected statements; the first release's check in PostHog. | 3 |
 
-Total: **150 sprints, 759 tasks** (bumped by 151–156, +6/+30, 2026-11-25), recomputed from the table above when sprints 082–087 were added
+Total: **152 sprints, 768 tasks** (bumped by 157–158, +2/+9, 2026-11-25; by 151–156, +6/+30, 2026-11-25), recomputed from the table above when sprints 082–087 were added
 (2026-11-13), bumped by 088–090 (+3/+15, 2026-11-14), by 091–096 (+6/+30, 2026-11-14), by 097–098 (+2/+11, 2026-11-15), by 099–101 (+3/+15, 2026-11-15), by 102–106 (+5/+25, 2026-11-20), by 107–111 (+5/+26, 2026-11-20), by two CI tasks in 106 and 111 (+0/+2, 2026-11-20), by 112–117 (+6/+32, 2026-11-21), by the design task 112/t008 (+0/+1, 2026-11-22), by 118–123 (+6/+27, 2026-11-22), by dropping 123/t002–t003 (+0/−2, 2026-11-22), by adding 123/t005 (+0/+1, 2026-11-22), by 124–130 (+7/+27, 2026-11-22), by 131–134 (+4/+14, 2026-11-23), by 135–138 (+4/+19, 2026-11-23), by 139–145 (+7/+29, 2026-11-24) and by 146–150 (+5/+27, 2026-11-24), less 140/t002 (dropped: pi-background-tasks left the baseline, +0/−1, 2026-11-24; the table sums to 144/729). The previous hand-maintained figure (79/420) had drifted. Numbers 028, 031, 033 and
 034 were never used (no folder exists), and 048/049 exist on disk but have no rows (gap below).
 Recompute from the table rather than trusting a hand-maintained figure.
@@ -3981,6 +3983,34 @@ t001, t002 and t003 in parallel; t004 after t002 (both edit `daemon/bootstrap.ts
 
 **Done 2026-11-25** (all five tasks). Live-checked on throwaway daemons and a worktree of the committed code: a truncated `config.json` refuses start, restart and set-password (`--json`: one `config_unreadable` line); a registry with one bad record keeps the rest; a damaged key pair is replaced at 0600; symlink delete, `/` and `~` refusal, FIFO and `/dev/zero` reads, and token redaction behave as designed; the update check on connect made a request 90 ms after a connect that came more than 10 minutes after the last attempt, through a TCP relay standing in for SSH; the compiled binary's terminal kill and stop leave nothing behind. See the task-005 summary.
 
+### sprint-157-desktop-usage-data
+> **Desktop usage data** (`features/desktop-usage-data.md`, grill `grills/desktop-usage-telemetry.md`, D1–D17,
+> P1–P11, U1–U12). **What it ships.** A published desktop build sends `app_started`, a daily event and
+> `app_closed` to PostHog Cloud EU with an anonymous ID; Settings → Privacy turns it off; every other build sends nothing.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Settings: `shareUsageData` and `usageId` | feature | none | § 3, U4, U5 |
+| task-002 | Shell: the usage state, the event, the view, `boot` and `ui.inspect` | feature | task-001 | § 2, § 4, § 5, § Behavior, U5–U10, P4, P7–P11 |
+| task-003 | Workbench: the `usageData` host member and Settings → Privacy | feature | none | § 6, § 7, U12, D11, P5 |
+| task-004 | App binary: the PostHog sender and its moments | feature | task-002 | § 1, § 2, U1–U3, U10, U11, D14, D15, P1, P9, P10 |
+| task-005 | Desktop host: `usageData` over `boot` and `settings.set` | feature | task-002, task-003 | § 5, § 6 |
+| task-006 | Release workflow: the token in published builds only | chore | none | § 1, U1, U2, D12 |
+
+t001, t003 and t006 in parallel; t002 after t001; then t004 beside t005 (t005 also waits for t003).
+
+### sprint-158-usage-data-close
+> **What it ships.** The feature proven on a real window, documented publicly (D17), and checked in PostHog after its first release.
+
+| Task | Title | Type | Depends on | Covers |
+|------|-------|------|------------|--------|
+| task-001 | Live check of usage data against a local endpoint | test | sprint-157/task-004, sprint-157/task-005 | § Acceptance (Live), U2, U3 |
+| task-002 | Documents: the public "Usage data" page and the corrected statements | docs | sprint-157/task-004, sprint-157/task-005, sprint-157/task-006 | D17 |
+| task-003 | After the first release: the PostHog project, country only, no CI users | test | task-001, task-002 | § 1, D3, D13, § Acceptance (Once) |
+
+t001 beside t002; t003 after the owner's merge and the first publishing run. The repository variable
+`POSTHOG_PROJECT_TOKEN` was set by the owner on 2026-11-25; the PostHog project's IP and location filter are the owner's step 1 of t003.
+
 ## Coverage check
 
 Every feature and architecture scope is covered by at least one task, with **two deliberate
@@ -4163,6 +4193,7 @@ and is planned by sprints 107–111; see its row at the end of the table.
 | features/self-update.md (milestone 6 amendments) | s142/t001-005 (protocol; skipped version; workbench; binary path; live run), s143/t003 and s144/t002 (desktop Update installs the pin) |
 | features/desktop-app.md (addendum) | **superseded 2026-11-14** — no further Electron work is planned; desktop is a Tauri app in a separate repository (`docs/desktop-client-handoff.md`). The row above keeps the historical task mapping |
 | `docs/daemon-audit-handoff.md` (daemon audit and owner decisions, 2026-11-24) | M1: s146/t001-006; M2: s147/t001-006, s148/t001-005; M3: s149/t001-005, s150/t001-005; `architecture/agent-timeline-persistence.md` written by s150/t002 and **not adopted** (owner, 2026-11-25). M4: s151/t001-004, s152/t001-005; M5: s153/t001-006, s154/t001-005, s155/t001-005, s156/t001-005 (**planned 2026-11-25**; s156/t004, an update check on connect, is an owner addition of the same day, not an audit finding; scope in the handoff's "M4 and M5: what was fixed while planning"; folded fixes F1 → s156/t001, F3 → s156/t002, F4 → s154/t004 and s153/t004, extension error text → s156/t003). Not turned into tasks yet, by decision: M6–M9 (planned when each comes up; M8 needs a design first); the parked desktop viewer bytes; the git, stash and GitHub hardening (before the desktop client first uses them); the rest of T5 (the PID file as a lock, `server_info.hostname`), T7 and T8; the rest of F4 (binary terminal output), F5 and F6; the rest of § 7 (install queue waits, the skills watcher window). T6 was fixed by sprint-142/task-002 |
+| features/desktop-usage-data.md (grill `grills/desktop-usage-telemetry.md`) | s157/t001-006 (settings; shell state and view; Privacy panel; sender and wiring; desktop host; release token), s158/t001-003 (live check; documents; first-release check in PostHog). **Planned 2026-11-25.** Not turned into tasks, by decision: the grill's Deferred list (feature usage, system version, theme and zoom, a first-launch message, retries, a pass-through domain, self-hosting) |
 
 ## Open questions — TODO(verify)
 Carried from the scope; resolve against the live source while implementing the owning task.

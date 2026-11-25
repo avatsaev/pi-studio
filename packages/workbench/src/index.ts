@@ -56,6 +56,7 @@ export type {
   HostPreview,
   HostTimers,
   HostUpdates,
+  HostUsageData,
   HostZoom,
   LocalDaemonState,
   NewDaemon,
@@ -67,6 +68,8 @@ export type {
   TransferOptions,
   TransferState,
   UploadSource,
+  UsageBlockedReason,
+  UsageDataView,
   ViewableFile,
   WorkbenchHost,
 } from "./host/types.js";

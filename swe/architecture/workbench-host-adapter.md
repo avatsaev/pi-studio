@@ -203,6 +203,7 @@ Supporting types:
 | `preview` | Optional. Where the HTML viewer's document is loaded from. `origin`: the viewer hands the assembled document to `mount` and loads its frame from the returned `url` (same sandbox tokens, never `allow-same-origin`) instead of `srcdoc`; it calls `release` once a newer document replaces it and on unmount; a `mount` that rejects shows the viewer's error state. `inert`: scripts cannot run on this host; the viewer keeps `srcdoc` and says so. Absent: `srcdoc`, unchanged |
 | `daemons` | Optional. A daemon registry with a local daemon. When present, the connection bar becomes a switcher, a Daemons screen exists, and connection boot calls `daemons.resolveCurrent()` instead of reading `launch.initialConnect()`. `snapshot()` is synchronous and never holds a password or a pairing link; its optional `secretStore` (`"keychain" \| "file"`) says where the host keeps them: with `file` the Daemons screen shows one line (kept in a file only this user can read, because no keychain is available), with `keychain` or when absent it shows nothing; `snapshot().remote` is the state of the current SSH entry's daemon (`RemoteDaemonState`) or `null`; `subscribe` fires after any change to the registry, the settings, the local daemon's state or the remote one's; a rejected call carries a `DaemonError` code; `local.*` and `remote.*` resolve once the action is accepted and the outcome arrives as a state change; `sshHosts()` lists the `Host` names of `~/.ssh/config` for the SSH form; `switchTo` reloads the page. Shape and rules: [../features/desktop-daemon-registry.md](../features/desktop-daemon-registry.md) § Public contract and [../features/desktop-relay-ssh.md](../features/desktop-relay-ssh.md) § 9. Absent: the address and password fields, unchanged |
 | `updates` | Optional ([../features/desktop-self-update.md](../features/desktop-self-update.md) § 5; built, milestone 5). The app's own update: `current()` gives the state (`idle`, `checking`, `up_to_date`, `available`, `downloading`, `restart_needed`, `cannot_install`, `failed`), `subscribe` fires on every change, `check`/`install`/`restart` run the app's `update.*` commands. When present the connection bar shows a pill at its far right; the browser host has none |
+| `usageData` | Optional ([../features/desktop-usage-data.md](../features/desktop-usage-data.md) § 6; built 2026-11-25). `current()` gives `{enabled, sending, blocked?, id?}` (`blocked`: `build`, `do_not_track`, `ci`, `scripted`), `setEnabled(enabled)` runs `settings.set shareUsageData`. When present, Settings shows a Privacy category; the browser host has none |
 
 ### Browser host
 
@@ -221,7 +222,7 @@ Supporting types:
 | `files` | Today's in-memory paths over `FileTransferClient`; with the `saveTarget` option, `saveToDisk` streams into it. `upload` passes `onProgress` and `signal` to the SDK; `saveToDisk` reports progress and honours `signal` on both of its paths. Never calls `onStateChange` |
 | `pdf` | Not provided by default; `web-client` passes it in `overrides` because only an application can import a `?worker` |
 | `app` | Required override (`title`, `version`) |
-| `preview`, `daemons`, `updates` | Not provided |
+| `preview`, `daemons`, `updates`, `usageData` | Not provided |
 
 ### The desktop host
 
