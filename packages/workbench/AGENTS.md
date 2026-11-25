@@ -34,7 +34,7 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   session rename is the workbench's own `RenameSessionDialog`),
   `links.openExternal?`, `launch` (`initialConnect()` → `ConnectIntent | null`, read once at
   boot; `agentDeepLink.{current, subscribe, consume}`), `connection`
-  (`createTransport(target, {password})` → `Transport | undefined`, called once per `connect()`;
+  (`createTransport(target, options)` → `Transport | undefined`, called once per `connect()`;
   `timers` for `ReconnectionManager`; `onResume(listener)`) and `files` (`upload(dir, source, options?)`,
   `saveToDisk(path, options?)` — `options` is a `TransferOptions {onProgress?(done, total?), onStateChange?(state),
   signal?}` with `TransferState` = `"queued" | "running" | "waiting"`, both exported from the root; a host
@@ -92,17 +92,20 @@ Spec: `swe/architecture/workbench-host-adapter.md`. `src/host/`:
   The browser host never calls `onStateChange`. `src/test/test-host.ts` records every upload and save in
   `transfers` (kind, target, options, plus `progress`, `state`, `finish`, `fail` to drive a call;
   `holdTransfers: true` keeps calls pending; a signal that aborts rejects the call with an `AbortError`).
-- `browser-connection.ts` — the browser `connection`: relay transport for a relay pairing link,
-  `pi-studio.bearer.<pw>` subprotocol socket with a password, else `undefined`; `timers` from
+- `browser-connection.ts` — the browser `connection`: relay transport for a relay pairing link;
+  every other target throws `LITE_REFUSAL` ("Pi Studio Lite connects with a pairing link. …"), so a
+  host-hint pairing link is refused too and the bearer subprotocol is never offered. Developer
+  switch: `createBrowserHost({ devDirect })` (the shell passes `import.meta.env.DEV`) also lets the
+  page's same-origin `/daemon-ws` URL through (default socket, `undefined`); `timers` from
   `browser-worker-timers.ts` (worker-backed, `setTimeout` fallback); `onResume` = `visibilitychange`
   (to visible) + `online`. `WorkbenchBoot` subscribes once with
   `lib/connection/resume-handler.ts`'s `createResumeHandler()` (probe/reconnect decision unchanged).
   A throwing `createTransport` fails that `connect()` and sets the store's `error`.
-- `browser-launch.ts` — the browser `launch`: `parseBrowserConnectIntent` (pure; `?host=&password=
-  &cwd=&connect=1`, `?pair=` and an own-URL `#offer=` always connect) and `#agent=<id>` via
+- `browser-launch.ts` — the browser `launch`: `parseBrowserConnectIntent` (pure; `?pair=` and an own-URL
+  `#offer=` always connect; the `?host=&password=&cwd=&connect=1` grammar is gone; under `devDirect`
+  with no link it connects to the same-origin `/daemon-ws`) and `#agent=<id>` via
   `hashchange`, consumed with `history.replaceState`. `hooks/use-connection.ts`'s
-  `applyConnectIntent` pre-fills the bar and connects to its fields (no password with a pairing
-  link); `hooks/use-agent-deep-link-boot.ts`'s `startAgentDeepLinkBoot` feeds the pending-target store.
+  `applyConnectIntent` pre-fills the bar and connects to its host field (no password anywhere); `hooks/use-agent-deep-link-boot.ts`'s `startAgentDeepLinkBoot` feeds the pending-target store.
 - `install.ts` — `installHost` (first install wins; the same host again is silent, a different one
   is ignored with one dev-only warning), `getHost()` (the installed host, else a lazily created
   browser host), `onHostInstalled` (for module-level stores that read storage at module load),
@@ -1158,9 +1161,8 @@ src/
 
 - **Agent deep link (`#agent=<urlencoded agentId>`, sprint-082).** `hooks/use-agent-deep-link-boot.ts`
   (mounted in `Boot` after `useConnectionBoot`) parses the fragment on mount and on `hashchange`
-  into `stores/deep-link-store.ts` (memory only). It NEVER connects: `connect=1`, `?pair=`,
-  `#offer=` or manual Connect decide that (no auto-connect from a bare link; senders append
-  `?host=<ws url>&connect=1`). The apply runs once, after `runSessionRestore` settles
+  into `stores/deep-link-store.ts` (memory only). It NEVER connects: `?pair=`, `#offer=` or manual
+  Connect decide that (no auto-connect from a bare link). The apply runs once, after `runSessionRestore` settles
   (`useSessionRestore`), via `features/sessions/apply-agent-deep-link.ts`: activate + setCwd +
   `openChatTab` exactly as a sidebar click, or one warning toast `Agent not found: <id>` (archived
   and unknown are indistinguishable; English literal, no i18n). A consumed target is never
@@ -1186,17 +1188,20 @@ not a function` (real regression: pane-id minting, chat's optimistic-echo `clien
 - **`accentForeground`, never a hardcoded white, for content on an accent fill.** The `zinc`
   variant's accent is near-white, so white text/icons on it are invisible.
 - **Protocol append-only** — ignore unknown session-message `type`s gracefully.
-- **Connection input is toolbar/URL-param, either a direct address or a pairing link** — the same
-  `ui-store.ts` host field (seeded from `?host=&password=&cwd=&connect=1`, `?pair=<url>`, or a
-  `#offer=...` fragment already on the page's own URL, all in `use-connection.ts`) accepts either:
+- **Connection input is the toolbar field or a URL param; the browser accepts only a relay pairing
+  link** — the `ui-store.ts` host field (empty by default; seeded from `?pair=<url>` or a
+  `#offer=...` fragment already on the page's own URL, all in `use-connection.ts`; there is no
+  password field or store value) is parsed as either (a host with a registry, the desktop app, dials
+  through its own transport):
   a direct daemon address (`ws://`/`wss://`, `http://`/`https://` mapped to `ws`/`wss`, or a bare
   `host:port`, normalized by `lib/connection/normalize-url.ts`), or a full pairing link from
   `pi-studio daemon pair` (architecture/relay-e2ee.md § Pairing) pasted verbatim. `connection-
 store.ts#connect()` routes between the two via `resolveConnectTarget()`
   (`lib/connection/resolve-connect-target.ts`), which detects a pairing link via `@av-pi-studio/
 client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link carries a relay
-  offer — the daemon password field is ignored for a relay connection; the pairing link's public
-  key is itself the credential.
+  offer; the pairing link's public key is itself the credential. The browser host then refuses a
+  direct address (and a host-hint link) with `LITE_REFUSAL`, except the dev-only same-origin
+  `/daemon-ws`.
 - **Connection resume triggers (sprint-050; host-routed since sprint-093).** The resume signal comes
   from the host's `connection.onResume` (browser host: `visibilitychange` `hidden → visible` only,
   and `online`; `host/browser-connection.ts`), subscribed once by `WorkbenchBoot`'s effect with
@@ -1229,8 +1234,8 @@ client`'s `parsePairingUrl` and switches to `createRelayTransport` when the link
   `connection-store.ts`'s single `new ReconnectionManager(daemon, …)` call site) keep the backoff
   ladder's scheduled retries accurate in a hidden/throttled tab; the resume handler is the
   complementary path for the moment the user actually returns. The socket itself comes from the
-  host's `connection.createTransport(target, {password})` (browser host: relay transport for a relay
-  pairing link, bearer-subprotocol socket with a password, else the SDK default). Close code `4000` is in the WebSocket private-use range —
+  host's `connection.createTransport(target, options)` (browser host: relay transport for a relay
+  pairing link; anything else refused, bar the dev-only `/daemon-ws`). Close code `4000` is in the WebSocket private-use range —
   it appears only in logs, no wire meaning.
 - **A reconnect keeps the client object; whatever the daemon holds per connection must be asked
   for again.** `ReconnectionManager` reconnects in place: `connection-store`'s `client` and `daemon`
@@ -2063,7 +2068,7 @@ referrerPolicy="no-referrer" allow="">` — never `src`, never a `blob:`/object 
   inlines local assets as `data:` URIs rather than rewriting them to blobs). Four invariants a
   future change must not quietly break:
   1. **Never `allow-same-origin`.** Paired with `allow-scripts` it re-grants the previewed document
-     the app's own origin — its DOM, its `localStorage` (which holds the daemon password and
+     the app's own origin — its DOM, its `localStorage` (which holds
      connection state, ui-library's `localStorageKvStore`), and its live authenticated WebSocket. Measured:
      with `allow-scripts` alone, the child's `location.origin` is `"null"` and both
      `parent.document` and `localStorage` throw `SecurityError`. `HTML_SANDBOX_TOKENS`
@@ -2773,7 +2778,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   empty state, not the sidebar) and is unaffected by this rule.
 - **The connection bar's state shape lives in `connection-presentation.ts`, not in the component.**
   `ConnectionBar.tsx` binds stores to DOM only; which of the five states is active, the pill text,
-  whether the url/password fields render or freeze, and the primary action's label/variant/disabled
+  whether the pairing-link field renders or freeze, and the primary action's label/variant/disabled
   flag all come from `connectionBarView()` (design spec § 08). `closing` is a real `ConnectionState`
   the spec doesn't draw — it renders as the connected shape with a disabled action rather than a
   sixth visual.
@@ -2791,7 +2796,7 @@ typecheck` never covers it; only the full `npm run build` (which runs `vite buil
   ("certificate rejected"), a host name the daemon does not accept ("host not allowed"), a timeout,
   401/403/password ("auth failed"), then the loose `refus`. Reordering brings back a wrong password
   that reads "connection refused" (found live, desktop sprint-116/task-005).
-- **Only the url/password fields may shrink in the bar.** Title, status pill, action and panel
+- **Only the pairing-link field may shrink in the bar.** Title, status pill, action and panel
   toggles are all `flex: none`; the fields carry `flex: 0 1 <basis>` plus a `min-width` floor, and
   the bar itself scrolls horizontally once that floor is hit — it never wraps to a second row.
   `input.field` uses element+class selectors so the bar's restyle of the `TextInput` primitive wins

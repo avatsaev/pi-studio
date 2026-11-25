@@ -7,7 +7,6 @@ the daemon and gets you into either one:
 
 ```bash
 pi-studio daemon start   # start (or find) a local daemon, print a pairing QR
-pi-studio ui             # serve the browser UI, connected to that daemon
 ```
 
 <p align="center">
@@ -42,10 +41,6 @@ pi-studio auth login
 
 # start a local daemon (if one isn't already running) and print a pairing QR code
 pi-studio daemon start
-
-# open the full browser UI, pointed at that daemon
-pi-studio ui
-
 # ...or stay in the terminal: run an agent, list it, attach to stream live output
 pi-studio agent run --provider pi/claude-3-5-sonnet "implement user authentication"
 pi-studio agent ls
@@ -59,14 +54,7 @@ Run `pi-studio --help` (or `<command> --help`) for the full command tree.
 
 ## The web UI
 
-`pi-studio ui` serves the production Pi-Studio browser UI — a three-column workspace (sessions on
-the left, chat/terminal/code in the middle, files and git changes on the right) — as a static site,
-no separate install or build step needed. Point it at any daemon, local or remote:
-
-```bash
-pi-studio ui                                    # serves on http://localhost:4173, connects to the local daemon
-pi-studio ui --ui-port 8080 --daemon-host workstation.local:6767
-```
+The browser UI is not served by the CLI; use the desktop app or the hosted web client.
 
 The hero shot above is real: every tool call an agent makes (read/edit/write/shell) renders as its
 own card, with live diff stats, right in the chat.
@@ -191,7 +179,7 @@ does the same thing.
 With the global `--json` flag, `daemon start`, `restart`, `pair` and `stop` each print exactly one
 line of JSON and nothing else (no QR): `start`/`restart` →
 `{"up":true,"started":true|false,"host","port","pairingUrl","relay"}` (failure:
-`{"up":false,"host","port","error":"not_healthy"}`, or `"error":"no_keypair"` with `up:true` when
+`{"up":false,"host","port","error":"not_healthy"}`, `"error":"unprotected_bind"` (a non-loopback `-H` host and no password: nothing is spawned), or `"error":"no_keypair"` with `up:true` when
 the daemon is healthy but has no key file yet), `pair` → `{"pairingUrl","relay"}` (failure
 `{"error":"no_keypair"}`), `stop` → `{"stopped":true|false}`. Failures exit non-zero. `relay` is the
 relay endpoint the link routes through, or `null`. `pairingUrl` is a credential on relay links.
@@ -328,7 +316,7 @@ spawned daemon and never a real credential store.
 `npm run build && npm run build:binary -- --target linux-x64` (also `linux-arm64`, `darwin-arm64`,
 `darwin-x64`) compiles the whole CLI, the daemon, the relay, Pi and `skills` into one `pi-studio`
 executable with Bun, and writes `dist-binary/pi-studio-<version>-<target>/` plus its `.tar.gz`. The
-folder also holds a `bun` script, Pi's runtime assets and `web/` (what `pi-studio ui` serves), so
+folder also holds a `bun` script, Pi's runtime assets and `web/`, so
 it can be moved anywhere and needs no Node. macOS targets are ad-hoc signed only when built on
 macOS. `scripts/binary-container-check.sh` runs the main commands from an unpacked folder in a
 Node-less Docker container.

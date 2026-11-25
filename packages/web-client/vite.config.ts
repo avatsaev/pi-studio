@@ -203,14 +203,13 @@ export default defineConfig(() => {
       host: process.env.WEB_CLIENT_DEV_HOST ?? "0.0.0.0",
       port: Number(process.env.WEB_CLIENT_DEV_PORT ?? 5173),
       allowedHosts: true,
-      // Proxy WebSocket traffic to the daemon through the same port the browser
-      // used to load the page (avoids exposing 6767 across NAT/firewall).
+      // Developer switch: the dev page dials the daemon through this same-origin proxy. The origin
+      // is NOT rewritten, so the daemon sees the page's real origin (the dev daemon allows the
+      // Vite origins); the production build has no direct connection at all.
       proxy: {
         "/daemon-ws": {
           target: `ws://${process.env.PI_STUDIO_DAEMON_HOST ?? "127.0.0.1"}:${process.env.PI_STUDIO_DAEMON_PORT ?? "6767"}`,
           ws: true,
-          changeOrigin: true,
-          rewriteWsOrigin: true,
         },
       },
     },

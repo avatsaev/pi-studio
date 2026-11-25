@@ -74,6 +74,19 @@ describe("legacy migration", () => {
 });
 
 describe("env overlay (env wins)", () => {
+  it("devAllowedOrigins defaults empty; PI_STUDIO_DEV_ALLOWED_ORIGINS wins over config", () => {
+    const base = persistedConfigSchema.parse({});
+    expect(base.daemon.devAllowedOrigins).toEqual([]);
+    const fromFile = persistedConfigSchema.parse({
+      daemon: { devAllowedOrigins: ["http://a.test"] },
+    });
+    expect(overlayEnv(fromFile, {}).daemon.devAllowedOrigins).toEqual(["http://a.test"]);
+    expect(
+      overlayEnv(fromFile, { PI_STUDIO_DEV_ALLOWED_ORIGINS: "http://b.test, http://c.test" }).daemon
+        .devAllowedOrigins,
+    ).toEqual(["http://b.test", "http://c.test"]);
+  });
+
   it("overrides listen, password, relay, app.baseUrl, service-proxy and piHome keys", () => {
     const base = persistedConfigSchema.parse({});
     const cfg = overlayEnv(base, {

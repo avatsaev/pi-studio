@@ -110,7 +110,7 @@ describe("daemon listen address", () => {
   });
 });
 
-describe("unprotected bind warning", () => {
+describe("unprotected bind refusal", () => {
   it.each([
     ["127.0.0.1", true],
     ["127.1.2.3", true],
@@ -125,24 +125,47 @@ describe("unprotected bind warning", () => {
     expect(isLoopbackHost(host)).toBe(expected);
   });
 
-  it("warns exactly once on 0.0.0.0 without password", async () => {
+  it("refuses 0.0.0.0 without a password: error log, exit code, onFatalError, no listen", () => {
     delete process.env.PI_STUDIO_PASSWORD;
-    const { logger, warns } = capture();
-    handle = startDaemon({ home: makeHome(), host: "0.0.0.0", port: 0, logger });
-    expect(warns).toHaveLength(1);
-    expect(handle.exposedWithoutPassword).toBe(true);
+    const errors: unknown[] = [];
+    const { logger } = capture();
+    logger.error = ((obj: unknown, msg: string) => void errors.push([obj, msg])) as Logger["error"];
+    let fatal: NodeJS.ErrnoException | undefined;
+    expect(() =>
+      startDaemon({
+        home: makeHome(),
+        host: "0.0.0.0",
+        port: 0,
+        logger,
+        onFatalError: (e) => (fatal = e),
+      }),
+    ).toThrow(/PI_STUDIO_PASSWORD/);
+    expect(fatal?.code).toBe("unprotected_bind");
+    expect(fatal?.message).toMatch(/daemon\.auth\.password/);
+    expect(errors).toHaveLength(1);
+    expect(process.exitCode).toBe(1);
   });
 
-  it("no warning with password or on loopback", async () => {
+  it("starts on 0.0.0.0 with a password, and on loopback without one", async () => {
     process.env.PI_STUDIO_PASSWORD = "secret";
-    const a = capture();
-    handle = startDaemon({ home: makeHome(), host: "0.0.0.0", port: 0, logger: a.logger });
-    expect(a.warns).toHaveLength(0);
+    handle = startDaemon({ home: makeHome(), host: "0.0.0.0", port: 0, logger: capture().logger });
     await handle.close();
     delete process.env.PI_STUDIO_PASSWORD;
-    const b = capture();
-    handle = startDaemon({ home: makeHome(), host: "127.0.0.1", port: 0, logger: b.logger });
-    expect(b.warns).toHaveLength(0);
-    expect(handle.exposedWithoutPassword).toBe(false);
+    handle = startDaemon({
+      home: makeHome(),
+      host: "127.0.0.1",
+      port: 0,
+      logger: capture().logger,
+    });
+  });
+
+  it("starts on 0.0.0.0 with a config password", () => {
+    delete process.env.PI_STUDIO_PASSWORD;
+    handle = startDaemon({
+      home: makeHome({ auth: { password: "secret" } }),
+      host: "0.0.0.0",
+      port: 0,
+      logger: capture().logger,
+    });
   });
 });

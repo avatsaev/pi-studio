@@ -39,6 +39,7 @@ vite.config.ts             the web build (dist/web): React plugin, brandHtmlPlug
                            pdfjsAssetsPlugin (imported by relative source path,
                            ../workbench/vite/index.ts), `define`s for __APP_VERSION__/__BRAND_TITLE__,
                            worker format es, source aliases, manualChunks, /daemon-ws dev proxy
+                           (origin not rewritten: the daemon sees the page's real origin)
 tsconfig.json              app config (DOM libs, react-jsx, noEmit), references ui-library + workbench
 tsconfig.node.json         config for vite.config.ts
 src/
@@ -75,8 +76,10 @@ the build).
 
 Docker: `docker/web-client.Dockerfile` builds the `build:web` output into an `nginx:alpine` static
 image (SPA fallback + optional same-origin `/daemon-ws` proxy set by `PI_STUDIO_DAEMON_UPSTREAM`);
-`docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The daemon URL is
-entered at runtime, never baked into the image.
+`docker/docker-compose.yml` serves it on `:8080` alongside the daemon/relay. The browser build is "Pi Studio
+Lite": it connects only by relay pairing link (`?pair=`, `#offer=`, or pasted into the one field),
+with no address or password field. `npm run dev` passes `devDirect: import.meta.env.DEV` to
+`createBrowserHost`, so the dev page also connects to the same-origin `/daemon-ws` proxy.
 
 Production builds (`build:web`) set `sourcemap: false` in `vite.config.ts` and run
 `vite build` under `NODE_OPTIONS=--max-old-space-size=6144` — the largest vendor chunks (`vendor`,

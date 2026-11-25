@@ -93,12 +93,6 @@ src/
 
   pi-commands.ts         `pi` pass-through command — proxies argv/exit-code to the embedded Pi CLI.
   pi-commands.test.ts
-
-  ui-commands.ts          `ui` command — serve the prebuilt web-client SPA as a static site.
-  ui-commands.test.ts
-  web-server.ts           Minimal static file server (SPA fallback) rooted at web-client's dist/web.
-  web-server.test.ts
-
   update-commands.ts     Top-level `update` command — self-update the globally installed CLI.
   update-commands.test.ts
   update-control.ts      UpdateRuntime — getLatestVersion/installGlobal seam (+ `binary?: BinaryUpdateRuntime`,
@@ -439,27 +433,6 @@ flag/subcommand surface. Never touches the daemon, the wire protocol, or RPC.
 
 ---
 
-### `ui` command (`ui-commands.ts`)
-
-`pi-studio ui [--ui-host <host>] [--ui-port <port>] [--daemon-host <host>]` — serves the
-prebuilt `@av-pi-studio/web-client` SPA (`dist/web`, built by `npm run build:web -w
-packages/web-client`) as a static site via a minimal `node:http` server (`web-server.ts`;
-`resolveWebClientDist()` locates the built UI through the runtime seam's `webDist` — the installed
-package on Node, `<binary folder>/web` in the binary — and `startWebServer()` serves it with SPA
-fallback to `index.html` for client-side routes).
-
-Intentionally decoupled from daemon lifecycle: `ui` never probes or starts a daemon.
-`--daemon-host` (falls back to the global `--host`) only pre-fills the printed URL's
-`?host=<ws-url>&connect=1` query params (`buildServeUrl()`) so the browser tab auto-connects —
-mirroring the POC `chat.html` quick-launch params. The command blocks until `SIGINT`/`SIGTERM`,
-then closes the server and exits `EXIT_OK`.
-
-`@av-pi-studio/web-client` is a runtime dependency of `cli` purely for its built static assets
-(no JS from it is imported) — the CLI ships the SPA build so `pi-studio ui` works from any
-install shape (npm link, global `npm i -g`) without a separate vite/dev toolchain.
-
----
-
 ### `update` command (`update-commands.ts`)
 
 `pi-studio update [--check]` — self-updates the globally installed CLI to the latest
@@ -634,7 +607,7 @@ branches to `createRelayTransport` when it carries a relay offer).
   after a self-update's shutdown (without it the daemon cannot update itself). Test:
   `packages/server/src/runtime/self.test.ts`.
 - **The runtime seam (sprint-139/task-002) is a further narrow exception.** `daemon-control.ts`,
-  `relay-control.ts`, `pi-commands.ts` and `web-server.ts` import `daemonCommand`, `relayCommand`,
+  `relay-control.ts` and `pi-commands.ts` import `daemonCommand`, `relayCommand`,
   `piCommand` and `webDist` from `@av-pi-studio/server`'s `runtime/self.ts`: pure argv/path builders
   that spawn and bind nothing. The CLI passes the Node-only module resolvers
   (`import.meta.resolve("@av-pi-studio/server")`, `…/relay/server`, `…/web-client/package.json`) in as
@@ -689,7 +662,7 @@ branches to `createRelayTransport` when it carries a relay offer).
 The desktop app runs `pi-studio` and reads its output. Pinned by `describe("desktop app contract …")` in `src/daemon-commands.test.ts`:
 
 - `--json daemon status`: one line `{ up: boolean, host: string, port: number }`; exit 0 when up, 1 when down.
-- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
+- `--json daemon start|restart`: one line with `up` (boolean), `host` (string), `port` (number); success adds `started`, `pairingUrl`, `relay`; the failure shapes (`not_healthy`, `no_keypair`, `unprotected_bind` — a non-loopback `-H` host with no `PI_STUDIO_PASSWORD`/`daemon.auth.password`, checked before spawning so the same reason is printed in text mode — and for `restart` only `still_running`: `up:false`, the old daemon did not exit) add `error` (string) and exit 1.
 - `--json daemon stop`: `{ stopped: boolean }`, plus `error: "still_running"` (string) when the process did not exit in 10 s (exit 1). The app reads `stopped` only and ignores the rest.
 - `--version`: one line, a semantic version, nothing else.
 

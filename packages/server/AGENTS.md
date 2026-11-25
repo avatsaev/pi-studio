@@ -118,7 +118,7 @@ src/
     run.ts                        `runDaemon(opts?)` — `startDaemon` + the process-level parts: fatal-error exit, SIGINT/SIGTERM close+exit, `onUpdateRestart` exit; exported from the package index for detached starters.
     binary-runtime.ts             The compiled binary's start-up, all behind `isBinary` or called only by `packages/cli/src/binary-main.ts`: `preparePiRuntime()` (Pi's `dist/bun/runtime-setup.js`: the OAuth flows and provider modules the executable cannot find by file name; no-op on Node; also handed to the CLI's `auth login` as `prepareAuth`), `prepareBinaryDaemon()` (`preparePiRuntime`, then `applyPiOverrides` with `<assetsDir>/bun` and `BINARY_EXCLUDED_PACKAGES`; no-op on Node; awaited before `runDaemon`), `runBundledPiCli()` (overrides, then Pi's `dist/bun/cli.js`), `runBundledSkillsCli()` (`skills/dist/cli.mjs`). Pi's files are imported by a relative path into the root `node_modules` (its `exports` map does not publish `dist/bun/`); the modules run on import, so each import is dynamic on purpose. `binary-runtime.test.ts` pins that both prepare steps leave a Node process alone.
     dev-main.ts                   Dev entry: wires dev-bootstrap.ts (in-memory, mock-only); loopback default.
-    loopback.ts                   `isLoopbackHost` + the unprotected-bind warning text.
+    loopback.ts                   `isLoopbackHost`, `isUnprotectedBind` and the open-bind refusal message/error (`unprotected_bind`), shared with the CLI.
     bootstrap.ts                  PRODUCTION handler wiring — the full RPC surface (agents,
                                    projects/git/worktrees/GitHub, terminals, files, service proxy,
                                    schedules/chat/loops, provider auth, optional outbound relay).
@@ -2222,7 +2222,7 @@ The daemon creates ONE logger in `startDaemon`/`startDevDaemon` (injectable via
 | Where | What gets logged |
 |---|---|
 | `bootstrap.ts` / `dev-bootstrap.ts` | daemon starting (home, configPath, serverId), agent recovery count, agent archived/deleted, relay dial lifecycle, bind errors, shutdown |
-| `ws/ws-server.ts` | upgrade rejections (host allowlist, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
+| `ws/ws-server.ts` | upgrade rejections (host allowlist, origin, auth — `warn`), handshake failures (`warn`), client disconnect with close code + duration (`info`) |
 | `ws/router.ts` (`HandlerRegistry(logger)`) | every RPC at `debug` (type, requestId, clientId, durationMs), handler failures at `warn`, unknown types at `debug` — one instrumentation point covering the whole RPC surface |
 | `agent/agent-service.ts` | agent created (provider, model, cwd), turn started (prompt SIZE, never contents), turn finished (outcome + durationMs), provider session failures |
 | `terminal/terminal-manager.ts` | terminal opened (slot, shell, cwd, size), kill requested, exited, spawn failures |
@@ -2260,6 +2260,7 @@ messages are fair game.
   more). `bootstrap.ts` owns the full disk-backed feature surface (real provider, orchestration,
   git, relay) and is production-only; `dev-bootstrap.ts` stays intentionally minimal (in-memory,
   mock provider) for fast local iteration and must not grow that same surface.
+- **A non-loopback bind with no password is refused.** `startDaemon` checks it right after resolving the listen address (before the pid lock or any service): it logs an error naming `PI_STUDIO_PASSWORD` and `daemon.auth.password`, sets `process.exitCode = 1`, calls `onFatalError` with an error whose `code` is `unprotected_bind`, and throws; nothing listens. `startDevDaemon` (no auth) refuses every non-loopback host the same way. There is no warning-and-start path.
 - **`startDaemon` never calls `process.exit()`.** On an unrecoverable HTTP-server error (in
   practice `EADDRINUSE` on bind) it logs, sets `process.exitCode = 1`, tears down the WS server,
   and reports the error through the optional `DaemonOptions.onFatalError` callback; after a
@@ -2335,3 +2336,7 @@ and prints candidates (`--write <dir> [--force]`); it imports the built `dist`, 
 `ack` upload with client-sent Begin/Chunk/End → `file_upload_complete`) and one `/bin/sh` PTY
 (create/subscribe/list/rename/capture/kill, `terminals_update`) inside a temp dir, always killing
 the terminal; `TestClient.binaryFrames` collects binary frames so they never hit the JSON parser.
+
+## Direct-port Origin rule
+
+`ws/ws-server.ts` refuses (`403 Origin not allowed`, socket destroyed, `warn` with origin + remote address) every upgrade carrying an `Origin` header that is not in `deps.allowedOrigins` (exact match; default none). Order: Host, Origin, password. CLI/desktop send no `Origin` and are unaffected; the relay path has no daemon-side upgrade. Developer switch: `daemon.devAllowedOrigins` in `config.json`, overridden by `PI_STUDIO_DEV_ALLOWED_ORIGINS` (comma-separated); `bootstrap.ts` logs one `warn` naming them when non-empty. `dev-bootstrap.ts` (`npm run dev:daemon`) hardcodes `http://localhost:5173` and `http://127.0.0.1:5173`.

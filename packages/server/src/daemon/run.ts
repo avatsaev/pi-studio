@@ -33,7 +33,7 @@ export function runDaemon(opts: DaemonOptions = {}, host: ProcessHost = process)
       home: handle.home,
       provider: handle.provider,
     },
-    `pi-studio daemon listening on ${url}${handle.exposedWithoutPassword ? " (WARNING: no password set)" : ""}`,
+    `pi-studio daemon listening on ${url}`,
   );
 
   async function shutdown(): Promise<void> {

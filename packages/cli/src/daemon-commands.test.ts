@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { waitForProcessExit } from "@av-pi-studio/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CliContext } from "./cli-core.js";
 import { connectDaemon } from "./connection.js";
@@ -438,6 +438,70 @@ describe("ensureLocalDaemonAndPair", () => {
     expect(code).toBe(0);
     expect(started).toBe(false);
     expect(out.join("\n")).toContain("already running");
+  });
+});
+
+describe("ensureLocalDaemonAndPair on a non-loopback host", () => {
+  const savedPw = process.env.PI_STUDIO_PASSWORD;
+  afterEach(() => {
+    if (savedPw === undefined) delete process.env.PI_STUDIO_PASSWORD;
+    else process.env.PI_STUDIO_PASSWORD = savedPw;
+  });
+
+  it("refuses without a password: no spawn, unprotected_bind in --json, non-zero exit", async () => {
+    delete process.env.PI_STUDIO_PASSWORD;
+    const home = tmpHome();
+    let started = false;
+    const runtime = fakeRuntime({ start: async () => ((started = true), 1) });
+    const { ctx, out, err } = ctxWith(home, runtime);
+    const code = await ensureLocalDaemonAndPair(
+      ctx,
+      { home, host: "0.0.0.0:6767" },
+      { sleep: noSleep, json: true },
+    );
+    expect(code).toBe(1);
+    expect(started).toBe(false);
+    expect(err).toEqual([]);
+    expect(JSON.parse(out[0] as string)).toEqual({
+      up: false,
+      host: "0.0.0.0",
+      port: 6767,
+      error: "unprotected_bind",
+    });
+  });
+
+  it("prints the reason naming the fix in text mode", async () => {
+    delete process.env.PI_STUDIO_PASSWORD;
+    const home = tmpHome();
+    const { ctx, out, err } = ctxWith(home, fakeRuntime());
+    const code = await ensureLocalDaemonAndPair(ctx, { home, host: "0.0.0.0:6767" });
+    expect(code).toBe(1);
+    expect(out).toEqual([]);
+    expect(err.join("\n")).toMatch(/PI_STUDIO_PASSWORD.*daemon\.auth\.password/);
+  });
+
+  it("starts when a password is configured", async () => {
+    delete process.env.PI_STUDIO_PASSWORD;
+    const home = tmpHome();
+    writeFileSync(join(home, "daemon-keypair.json"), JSON.stringify({ publicKeyB64: "K" }));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ version: 1, daemon: { auth: { password: "hashed" } } }),
+    );
+    let started = false;
+    let probes = 0;
+    const runtime = fakeRuntime({
+      probe: async () => probes++ > 0,
+      start: async () => ((started = true), 1),
+    });
+    const { ctx } = ctxWith(home, runtime);
+    const code = await ensureLocalDaemonAndPair(
+      ctx,
+      { home, host: "0.0.0.0:6767" },
+      { sleep: noSleep },
+    );
+    expect(code).toBe(0);
+    expect(started).toBe(true);
   });
 });
 

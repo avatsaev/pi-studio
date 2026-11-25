@@ -4,11 +4,14 @@
 # (build context is the repo root, one level up.)
 #
 # The daemon opts into the relay so the full client -> relay -> daemon topology runs locally.
-# The web UI is served at http://localhost:${PI_STUDIO_WEB_PORT:-8080}; connect it to the daemon
-# by typing the daemon URL in the toolbar (e.g. http://localhost:6767), or use the same-origin
-# /daemon-ws proxy (host field: ws://localhost:8080/daemon-ws).
+# The web UI is served at http://localhost:${PI_STUDIO_WEB_PORT:-8080}. It is a relay-only "Lite"
+# client: it connects with a pairing link, never straight to the daemon. Generate one with
+#   docker compose exec daemon pi-studio daemon pair
+# and open it. The CLI and the desktop app connect directly to the daemon port with the password.
+# PI_STUDIO_PASSWORD is REQUIRED: the daemon listens on 0.0.0.0 inside the container and refuses
+# to start without one.
 # Point projects at the host directory you want agents to work in via PI_STUDIO_PROJECTS
-# (defaults to the repo checkout above). Set PI_STUDIO_PASSWORD before exposing beyond localhost.
+# (defaults to the repo checkout above).
 
 name: pi-studio
 
@@ -45,8 +48,8 @@ services:
     environment:
       PI_STUDIO_HOME: /data
       PI_STUDIO_LISTEN: 0.0.0.0:6767
-      # Optional connection password (bcrypt-checked). Strongly recommended before exposing.
-      PI_STUDIO_PASSWORD: "${PI_STUDIO_PASSWORD:-}"
+      # Required connection password (bcrypt-checked). The daemon refuses to start without it.
+      PI_STUDIO_PASSWORD: "${PI_STUDIO_PASSWORD:?set PI_STUDIO_PASSWORD}"
       PI_STUDIO_RELAY_ENABLED: "true"
       PI_STUDIO_RELAY_ENDPOINT: relay:7000
       PI_STUDIO_RELAY_USE_TLS: "false"
@@ -89,12 +92,6 @@ services:
       dockerfile: docker/web-client.Dockerfile
     image: pi-studio-web-client
     restart: unless-stopped
-    depends_on:
-      daemon:
-        condition: service_healthy
-    environment:
-      # Same-origin WebSocket proxy target for /daemon-ws (points at the daemon service).
-      PI_STUDIO_DAEMON_UPSTREAM: daemon:6767
     ports:
       - "${PI_STUDIO_WEB_PORT:-8080}:8080"
     healthcheck:

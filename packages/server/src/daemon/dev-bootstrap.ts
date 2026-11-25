@@ -52,7 +52,7 @@ import {
   type DevUpdateScript,
 } from "../update/dev-update-script.js";
 import { UpdateService } from "../update/update-service.js";
-import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
+import { isLoopbackHost, unprotectedBindError } from "./loopback.js";
 
 export interface DevBootstrapOptions {
   host: string;
@@ -95,6 +95,9 @@ export interface DevBootstrapHandle {
   close(): Promise<void>;
 }
 
+/** Vite dev origins: web development keeps working; every other `Origin` is refused. */
+const DEV_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
 /** Broadcast helper — see `bootstrap.ts`'s `wrapSessionEnvelope` for the full rationale. */
 function broadcast(sessions: Iterable<Session>, message: unknown): void {
   const envelope = wrapSessionEnvelope(message);
@@ -107,6 +110,15 @@ function broadcast(sessions: Iterable<Session>, message: unknown): void {
   }
 }
 export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
+  // The dev daemon has no auth at all, so it never accepts a bind beyond this machine.
+  if (!isLoopbackHost(opts.host)) {
+    const err = unprotectedBindError(opts.host, opts.port);
+    const logger =
+      opts.logger ?? createDaemonLogger(undefined, { tap: opts.logTap ?? new LogTap() });
+    logger.error({ host: opts.host, port: opts.port, code: err.code }, err.message);
+    process.exitCode = 1;
+    throw err;
+  }
   const serverId = opts.serverId ?? randomUUID();
   const logTap = opts.logTap ?? new LogTap();
   const logger = opts.logger ?? createDaemonLogger(undefined, { tap: logTap });
@@ -482,6 +494,7 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
+    allowedOrigins: DEV_ALLOWED_ORIGINS,
     hostname: opts.host,
     // A getter: the simulated restart changes the version new handshakes report.
     get version() {
@@ -518,10 +531,6 @@ export function startDevDaemon(opts: DevBootstrapOptions): DevBootstrapHandle {
 
   httpServer.listen(opts.port, opts.host);
   void updateService.start();
-  // The dev daemon has no auth at all.
-  if (!isLoopbackHost(opts.host)) {
-    logger.warn({ host: opts.host, port: opts.port }, UNPROTECTED_BIND_WARNING);
-  }
 
   return {
     httpServer,

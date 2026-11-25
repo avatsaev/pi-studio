@@ -120,7 +120,7 @@ import {
 
 import { SERVER_FEATURES } from "@av-pi-studio/protocol";
 import { parseDaemonListen } from "./index.js";
-import { isLoopbackHost, UNPROTECTED_BIND_WARNING } from "./loopback.js";
+import { isUnprotectedBind, unprotectedBindError } from "./loopback.js";
 import { attachRelaySession } from "./relay-sessions.js";
 import { connectRelay, type RelayTransportHandle } from "./relay-transport.js";
 
@@ -178,8 +178,6 @@ export interface DaemonHandle {
   logger: Logger;
   /** The address actually bound. */
   listen: { host: string; port: number };
-  /** True when bound beyond loopback with no password configured (a warning was logged). */
-  exposedWithoutPassword: boolean;
   close(): Promise<void>;
 }
 
@@ -314,6 +312,18 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     logger.error({ err: (err as Error).message }, "invalid listen address");
     process.exitCode = 1;
     opts.onFatalError?.(err as NodeJS.ErrnoException);
+    throw err;
+  }
+  if (
+    isUnprotectedBind(listen.host, {
+      configPassword: config.daemon.auth.password,
+      envPassword: process.env.PI_STUDIO_PASSWORD,
+    })
+  ) {
+    const err = unprotectedBindError(listen.host, listen.port);
+    logger.error({ host: listen.host, port: listen.port, code: err.code }, err.message);
+    process.exitCode = 1;
+    opts.onFatalError?.(err);
     throw err;
   }
   const serverId = resolveServerId(home, opts.serverId);
@@ -909,8 +919,17 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
   /** `server_info.features`: every `SERVER_FEATURES` key (incl. `daemonUpdate`), direct and relay. */
   const serverFeatures = Object.fromEntries(Object.values(SERVER_FEATURES).map((k) => [k, true]));
 
+  const devAllowedOrigins = config.daemon.devAllowedOrigins;
+  if (devAllowedOrigins.length > 0) {
+    logger.warn(
+      { origins: devAllowedOrigins },
+      "dev: direct WebSocket port accepts browser Origins: " + devAllowedOrigins.join(", "),
+    );
+  }
+
   const wsHandle = createWebSocketServer(httpServer, {
     serverId,
+    allowedOrigins: devAllowedOrigins,
     features: serverFeatures,
     hostname: opts.host,
     version: SERVER_VERSION,
@@ -1021,9 +1040,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
 
   httpServer.listen(listen.port, listen.host);
   logger.info({ host: listen.host, port: listen.port }, "http/ws server accepting connections");
-  const exposedWithoutPassword = !isLoopbackHost(listen.host) && !passwordHash;
-  if (exposedWithoutPassword)
-    logger.warn({ host: listen.host, port: listen.port }, UNPROTECTED_BIND_WARNING);
 
   // Fire-and-forget: never delays daemon readiness, never blocks the return below. Mirrors the
   // agent-recovery block above, but deliberately kicked off AFTER listen() rather than before —
@@ -1065,7 +1081,6 @@ export function startDaemon(opts: DaemonOptions): DaemonHandle {
     provider: "pi",
     logger,
     listen,
-    exposedWithoutPassword,
     close: closeDaemon,
   };
 }

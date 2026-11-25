@@ -107,7 +107,7 @@ pi-studio daemon listening on http://127.0.0.1:6767
 
 By default the daemon:
 
-- listens on **`127.0.0.1:6767`** (loopback only). Override with `PI_STUDIO_LISTEN` or `config.json` `daemon.listen` (env wins); for LAN access use `0.0.0.0:6767` **together with `PI_STUDIO_PASSWORD`** — an unprotected non-loopback bind logs a warning
+- listens on **`127.0.0.1:6767`** (loopback only). Override with `PI_STUDIO_LISTEN` or `config.json` `daemon.listen` (env wins); for LAN access use `0.0.0.0:6767` **together with `PI_STUDIO_PASSWORD`** — a non-loopback bind without a password is **refused** (the daemon logs the reason, exits 1 and never listens)
 - (**Upgrade note:** earlier builds bound `0.0.0.0` by default. To keep LAN access set `PI_STUDIO_LISTEN=0.0.0.0:6767` or `daemon.listen`, together with `PI_STUDIO_PASSWORD`.)
 - stores all state under **`$PI_STUDIO_HOME`** (default **`~/.pi-studio`**)
 - writes logs to **`$PI_STUDIO_HOME/logs/`**
@@ -208,6 +208,7 @@ All optional.
 | `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon listen address (`host:port`); falls back to `config.json` `daemon.listen`, then the default |
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Require this password for connections (bcrypt-checked) |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (comma-separated, or `true` to allow all) |
+| `PI_STUDIO_DEV_ALLOWED_ORIGINS` | _(empty)_ | Developer switch: comma-separated browser `Origin`s (exact scheme+host+port) the direct WebSocket port accepts; overrides `config.json` `daemon.devAllowedOrigins`. Any other `Origin` gets `403 Origin not allowed`; requests without an `Origin` (CLI, desktop) are unaffected. Logs a `warn` at start when non-empty |
 | `PI_STUDIO_SERVER_ID` | _(persisted/generated)_ | Stable server identity |
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into the outbound relay dial (env equivalent of `daemon.relay.enabled`; `1`/`true`/`yes`/`on`) |
 | `PI_STUDIO_RELAY_ENDPOINT` | _(unset)_ | Relay server to dial outbound to when `daemon.relay.enabled` (`host:port`) |

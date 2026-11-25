@@ -106,7 +106,7 @@ provider. Mount `ToastViewport` and `Announcer` yourself (the default shell does
 | `WorkbenchProvider` | Host installation, theme, query cache. Props: `host?`, `children` |
 | `WorkbenchBoot` | The boot sequence (connect intent, deep links, session/terminal restore, shortcuts, resume). Renders nothing; mount one |
 | `WorkspaceShell` | The default three-column layout |
-| `ConnectionBar` | Top bar: brand, status, address/password, connect, panel toggles, settings |
+| `ConnectionBar` | Top bar: brand, status, pairing link (browser) or daemon switcher (desktop), connect, panel toggles, settings |
 | `SessionList` | Left sidebar: workspaces and conversations |
 | `PaneArea` | Split panes and tabs (chat, files, terminals) |
 | `RightSidebar` | Files and git changes |
@@ -134,9 +134,9 @@ render; the first host wins (a later different one is ignored, with a developmen
 | `clipboard.writeText(text)` | Promise; rejects on failure |
 | `dialogs.confirm/alert` | Promises. Dismissal resolves `false` / nothing. Session rename is not a host dialog: the workbench draws its own |
 | `links.openExternal?(url)` | Optional. When present, every external link (login dialog, messages, Markdown files) calls it and the default navigation is suppressed; when absent the link opens in a new tab (`target="_blank"`, `rel="noreferrer"`) |
-| `launch.initialConnect()` | Read once at boot: `{ url?, password?, cwd?, connect } \| null`. `url` may be a pairing link |
+| `launch.initialConnect()` | Read once at boot: `{ url?, password?, cwd?, connect } \| null`. `url` may be a pairing link. The browser host reads `?pair=` and an own-URL `#offer=` only; the desktop app ignores `password` on a registry connect |
 | `launch.agentDeepLink` | `{ current(), subscribe(listener), consume() }`: "open this agent" requests |
-| `connection.createTransport(target, { password })` | The `Transport` for one connect, or `undefined` for the SDK's WebSocket. `target` is `{ mode: "direct", url }` or `{ mode: "relay", url, daemonPublicKey }`. **A transport must deliver frames in wire order and binary frames as `ArrayBuffer`.** Throwing fails that connect with your message |
+| `connection.createTransport(target, { password })` | The `Transport` for one connect, or `undefined` for the SDK's WebSocket (the browser host only builds a relay transport, refuses a direct target, and allows the same-origin `/daemon-ws` under `createBrowserHost({ devDirect })`). `target` is `{ mode: "direct", url }` or `{ mode: "relay", url, daemonPublicKey }`. **A transport must deliver frames in wire order and binary frames as `ArrayBuffer`.** Throwing fails that connect with your message |
 | `connection.timers` | `setTimer`/`clearTimer` for reconnect backoff; must keep firing while the window is hidden |
 | `connection.onResume(listener)` | Fire on wake, focus or network change; the workbench decides whether to probe or reconnect |
 | `files.upload(dir, source, options?)` | Upload `source` (`{ name, size? }`; you must also accept a browser `File`) to `<dir>/<name>`. Resolve only once the daemon has confirmed the write (the SDK does this when the daemon advertises `fileTransferAck`) and reject with the daemon's reason. `options` is a `TransferOptions` (below). The explorer shows a percentage from `onProgress`. The browser host passes the `File` itself to the SDK (no `arrayBuffer()`), so a large upload does not sit in memory |

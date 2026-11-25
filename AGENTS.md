@@ -30,7 +30,7 @@ packages/
   relay/       Relay protocol 2: standalone relay server (control/data/client sockets, pairing, limits) + E2EE channel (Curve25519 ECDH + NaCl box) shared by daemon + client.
   web-client/  The browser shell: a thin Vite SPA rendering `@av-pi-studio/workbench` with a browser host (`main.tsx`,
                build-time brand title/favicon override, pdf.js worker, `vite.config.ts`). Ships only the prebuilt
-               static SPA (`dist/web`) that `pi-studio ui` and the Docker image serve. See packages/web-client/AGENTS.md.
+               static SPA (`dist/web`) that the Docker image serves. See packages/web-client/AGENTS.md.
   ui-library/  `@av-pi-studio/ui-library` — publishable React design system extracted from web-client: primitives,
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
@@ -100,7 +100,7 @@ ui-gallery  ──────► ui-library
 `cli` depends on `server` and `web-client` primarily NOT to import their runtime code, but to
 (a) resolve `@av-pi-studio/server`'s/`@av-pi-studio/relay/server`'s absolute module URL via
 `import.meta.resolve` for spawning a detached daemon/relay subprocess, and (b) ship
-`web-client`'s prebuilt static SPA assets for the `pi-studio ui` command. One narrow, deliberate
+`web-client`'s prebuilt static SPA assets (sprint-148/task-003 removes this dependency). One narrow, deliberate
 exception: `pi-studio extensions list --local` (sprint-057/task-005) imports `server`'s pure
 extension-planning modules (`extensions/index.ts`'s `curated-packs`/`sync-planner`/
 `extensions-state`, plus `daemon-config.ts`'s `loadConfig`) in-process, to run the same read-only
@@ -389,11 +389,12 @@ published — hence name-based lookup and no CLI.
 |----------|---------|---------|
 | `PI_STUDIO_HOME` | `~/.pi-studio` | State, config, logs directory |
 | `PI_STUDIO_PI_HOME` | _(unset, Pi CLI defaults to `~/.pi`)_ | Redirects the bundled Pi CLI's own `.pi` config dir (`models.json`, `auth.json`, `settings.json`, session JSONL files, …) — separate from `PI_STUDIO_HOME`, which is Pi-Studio's own daemon state. Sets `PI_CODING_AGENT_DIR=<dir>/agent` and `PI_CODING_AGENT_SESSION_DIR=<dir>/agent/sessions` for every spawned `pi` process; also settable via `daemon.piHome` in `config.json`, or per-provider `agents.providers.pi.env` (which wins over both). `pi-studio --pi-home <dir> daemon start` sets this for a locally-spawned daemon (`--pi-home` is a **root** option — it must precede the subcommand, since the CLI's root program uses Commander's `enablePositionalOptions()`). The same `--pi-home`/env resolution selects the `auth.json` that `pi-studio auth login`/`status`/`logout` read and write (`packages/cli`'s `auth-runtime.ts`), so a credential entered via the CLI is the exact one a daemon started against the same `--pi-home` hands to its spawned `pi --mode rpc` agents — see `packages/cli/AGENTS.md`'s `auth` group section. |
-| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password logs one warning (`DaemonHandle.exposedWithoutPassword`) |
+| `PI_STUDIO_LISTEN` | `127.0.0.1:6767` | Daemon bind address (`host:port`). Precedence: `PI_STUDIO_LISTEN` → `config.json` `daemon.listen` → default; explicit `startDaemon` host/port win. A non-loopback bind with no password (`PI_STUDIO_PASSWORD` / `daemon.auth.password`) is refused: the daemon logs an error, exits 1 and never listens (`unprotected_bind`) |
 | `PI_STUDIO_INSTALL_KIND` | _(detected)_ | `npm-global`, `docker`, `source`, `binary` or `unknown`; wins over detection (`packages/server/src/update/install-kind.ts`); a compiled binary is detected as `binary` without it. `docker/daemon.Dockerfile` sets `docker` |
 |`PI_STUDIO_DAEMON_UPDATE_URL`|`https://github.com/avatsaev/pi-studio/releases/download/daemon-updates/latest.json`|Where a single-binary daemon, and `pi-studio update` of one, reads the newest release (`update/binary-manifest.ts`); for tests and private release channels only (`scripts/binary-update-check/` serves one locally)|
 | `PI_STUDIO_PASSWORD` | _(unset)_ | Bcrypt-checked connection password |
 | `PI_STUDIO_HOSTNAMES` | `localhost,*.localhost` | Allowed `Host` header values (`true` disables validation) |
+| `PI_STUDIO_DEV_ALLOWED_ORIGINS` | _(empty)_ | Developer switch: comma-separated browser `Origin`s (exact scheme+host+port) the direct WebSocket port accepts; overrides `config.json` `daemon.devAllowedOrigins`. Any other `Origin` gets `403 Origin not allowed`; requests without an `Origin` (CLI, desktop) are unaffected. Logs a `warn` at start when non-empty |
 | `PI_STUDIO_SERVER_ID` | _(generated UUID)_ | Stable server identity |
 | `PI_STUDIO_LOG_LEVEL` | `info` | pino log level (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) |
 | `PI_STUDIO_RELAY_ENABLED` | `false` | Opt into dialing the outbound relay (env equivalent of `daemon.relay.enabled`) |

@@ -15,6 +15,7 @@ if (!root) throw new Error("Missing #root element");
 
 const host = createBrowserHost({
   app: { title: __BRAND_TITLE__, version: __APP_VERSION__ },
+  devDirect: import.meta.env.DEV,
   pdf: {
     createWorker: () => new PdfWorker({ name: "pdfjs" }),
     // Served/emitted by `pdfjsAssetsPlugin` (vite.config.ts) under the app base.

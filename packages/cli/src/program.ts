@@ -7,7 +7,6 @@ import { registerExtensionsCommands } from "./extensions-commands.js";
 import { registerFeatureCommands, runOpenProject } from "./feature-commands.js";
 import { registerPiCommands } from "./pi-commands.js";
 import { registerRelayCommands } from "./relay-commands.js";
-import { registerUiCommands } from "./ui-commands.js";
 import { registerUpdateCommands } from "./update-commands.js";
 import { type CliContext, type GlobalOptions, defaultContext } from "./cli-core.js";
 import { PACKAGE_VERSION as version } from "./version.generated.js";
@@ -69,7 +68,6 @@ function registerCommands(
   registerFeatureCommands(program, ctx, setExit);
   registerPiCommands(program, ctx, setExit);
   registerRelayCommands(program, ctx, setExit);
-  registerUiCommands(program, ctx, setExit);
   registerUpdateCommands(program, ctx, setExit);
 }
 

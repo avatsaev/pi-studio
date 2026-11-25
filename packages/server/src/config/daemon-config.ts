@@ -94,6 +94,8 @@ export const persistedConfigSchema = z
           })
           .default({}),
         appendSystemPrompt: z.string().default(""),
+        /** Developer switch: browser `Origin`s the direct WS port accepts (exact match). Default: none. */
+        devAllowedOrigins: z.array(z.string()).default([]),
         cors: z.object({ allowedOrigins: z.array(z.string()).default([]) }).default({}),
         relay: z
           .object({
@@ -249,6 +251,12 @@ export function overlayEnv(config: PersistedConfig, env: Env): PersistedConfig {
             .split(",")
             .map((h) => h.trim())
             .filter((h) => h.length > 0);
+  }
+
+  if (env.PI_STUDIO_DEV_ALLOWED_ORIGINS !== undefined) {
+    next.daemon.devAllowedOrigins = env.PI_STUDIO_DEV_ALLOWED_ORIGINS.split(",")
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0);
   }
 
   if (env.PI_STUDIO_RELAY_ENABLED !== undefined) {

@@ -12,7 +12,6 @@
  */
 
 import { useEffect, useRef } from "react";
-import { parsePairingUrl } from "@av-pi-studio/client";
 import { useDaemonsStore } from "../features/daemons/daemons-store.js";
 import { getHost } from "../host/install.js";
 import { type ConnectIntent, type WorkbenchHost } from "../host/types.js";
@@ -21,10 +20,9 @@ import { useUiStore } from "../stores/ui-store.js";
 
 export interface ConnectIntentDeps {
   setHost(host: string): void;
-  setPassword(password: string): void;
   setCwd(cwd: string): void;
   /** The connection bar's fields after pre-filling (a missing `url` keeps its current host). */
-  fields(): { host: string; password: string };
+  fields(): { host: string };
   connect(options: ConnectOptions): void;
 }
 
@@ -32,12 +30,9 @@ export interface ConnectIntentDeps {
 export function applyConnectIntent(intent: ConnectIntent | null, deps: ConnectIntentDeps): void {
   if (!intent) return;
   if (intent.url) deps.setHost(intent.url);
-  if (intent.password) deps.setPassword(intent.password);
   if (intent.cwd) deps.setCwd(intent.cwd);
   if (!intent.connect) return;
-  const { host, password } = deps.fields();
-  const pairing = parsePairingUrl(host) !== null;
-  deps.connect({ url: host, password: pairing ? undefined : password || undefined });
+  deps.connect({ url: deps.fields().host });
 }
 
 export interface ConnectBootDeps extends ConnectIntentDeps {
@@ -67,7 +62,6 @@ export function useConnectionBoot(): void {
     const ui = useUiStore.getState();
     bootConnection(getHost(), {
       setHost: ui.setHost,
-      setPassword: ui.setPassword,
       setCwd: ui.setCwd,
       fields: () => useUiStore.getState(),
       connect: (options) => void useConnectionStore.getState().connect(options),

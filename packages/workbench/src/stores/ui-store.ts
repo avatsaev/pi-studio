@@ -6,7 +6,7 @@
  * scope" — that's `tab-store.ts`'s `activeWorkspaceCwd`, driven by whichever tab is in view
  * (§4.7 follow-up: workspace-scoped tabs). Sidebar visibility/width (collapsed flags, resizable
  * widths dragged via `ResizeHandle`) also live here. Mirrors POC globals `$("host")`,
- * `$("password")`, `$("chat-cwd")`, `cwdPickerPath`, `menuTargetSessionId`.
+ * `$("chat-cwd")`, `cwdPickerPath`, `menuTargetSessionId`.
  */
 
 import { create } from "zustand";
@@ -22,7 +22,6 @@ function clampSidebarWidth(width: number): number {
 
 export interface UiStoreState {
   host: string;
-  password: string;
   cwd: string;
 
   cwdPickerOpen: boolean;
@@ -57,7 +56,6 @@ export interface UiStoreState {
   rightSidebarWidth: number;
 
   setHost(host: string): void;
-  setPassword(password: string): void;
   setCwd(cwd: string): void;
   openCwdPicker(): void;
   closeCwdPicker(): void;
@@ -93,8 +91,7 @@ export interface UiStoreState {
 }
 
 export const useUiStore = create<UiStoreState>()((set) => ({
-  host: "ws://127.0.0.1:6767",
-  password: "",
+  host: "",
   cwd: "~",
 
   cwdPickerOpen: false,
@@ -112,7 +109,6 @@ export const useUiStore = create<UiStoreState>()((set) => ({
   rightSidebarWidth: DEFAULT_RIGHT_SIDEBAR_WIDTH,
 
   setHost: (host) => set({ host }),
-  setPassword: (password) => set({ password }),
   setCwd: (cwd) => set({ cwd }),
   openCwdPicker: () => set({ cwdPickerOpen: true }),
   closeCwdPicker: () => set({ cwdPickerOpen: false }),

@@ -155,7 +155,7 @@ button.switcher[data-state="open"] {
   color: var(--pi-color-statusDanger);
 }
 
-/* ---- Url / password fields ----
+/* ---- Pairing-link field ----
    Element+class selectors (`input.field`) so these win over `TextInput`'s own `.input` rules
    regardless of CSS-module bundle order — the bar restyles the primitive substantially (26px tall,
    2xs text, surface1, mono url) rather than just resizing it. */
@@ -176,9 +176,6 @@ input.field {
 input.fieldUrl {
   flex-basis: 220px;
   font-family: var(--pi-font-mono);
-}
-input.fieldPassword {
-  flex-basis: 120px;
 }
 input.field:focus {
   border-color: var(--pi-color-accentBright);
