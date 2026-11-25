@@ -40,6 +40,7 @@
     "docker:publish": "bash scripts/docker-publish.sh",
     "docker:deploy": "bash scripts/dokploy-deploy.sh",
     "release": "bash scripts/release.sh",
+    "version:set": "node scripts/set-version.mjs",
     "build:ui-gallery": "npm run build -w packages/ui-gallery",
     "build:binary": "node scripts/build-binary.mjs",
     "test:binary": "node scripts/binary-smoke.mjs"

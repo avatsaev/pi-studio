@@ -1,13 +1,15 @@
 name: Release
 
-# Runs the exact same pipeline as `npm run release` locally: bump + publish npm packages, build +
+# Runs the exact same pipeline as `npm run release` locally: publish the npm packages, build +
 # push Docker images tagged to match, then pin + deploy relay/web-client to production on Dokploy.
 # See scripts/release.sh (and AGENTS.md's "Release & production deployment" section) for what each
 # step actually does — this workflow adds no new logic, it just runs those scripts on a runner.
 #
-# Triggers ONLY on a push (including a merged PR, which GitHub delivers as a push) to `main`.
-# The version-bump commit this workflow pushes back includes `[skip ci]`, which GitHub itself
-# recognizes and skips creating a workflow run for — no manual re-trigger guard needed.
+# Triggers ONLY on a push (including a merged PR, which GitHub delivers as a push) to `main`. Every
+# such push is a new release, like the desktop app's (desktop-release.yml): the version is computed
+# on the runner from what npm has (step `Next version`), never committed back, so there is no
+# version-bump commit and nothing to pull after a release. The version committed in
+# packages/*/package.json is a floor; raise it with `npm run version:set` for a minor or major release.
 #
 # A push that touches only the desktop client (`desktop/`) is not a release: that directory is not
 # part of any npm package or Docker image, and its gate is desktop-ci.yml.
@@ -19,7 +21,7 @@ on:
       - ".github/workflows/desktop-*.yml"
 
 # Serialize releases if two pushes land close together (e.g. two PRs merged back-to-back) rather
-# than letting two version bumps race each other.
+# than letting two releases race each other.
 concurrency:
   group: release-main
   cancel-in-progress: false
@@ -35,8 +37,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      commit: ${{ steps.bump.outputs.commit }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ github.sha }}
     env:
       # Not secret — already documented in this repo's AGENTS.md / docker/README.md.
       DOKPLOY_URL: https://infra.molagent.ai
@@ -59,37 +61,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The committed version is only a floor (scripts/release/version.mjs): the release is the patch
+      # after the highest version npm has for any published package, or the floor when that is
+      # higher. It is written into this runner's copy only; nothing is committed back. Fails when
+      # npm cannot answer, rather than risk reusing a version.
+      - name: Next version
+        id: version
+        run: |
+          node scripts/set-version.mjs next
+          echo "version=$(node -p "require('./packages/protocol/package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Docker Hub login
         run: echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Configure git identity (for the version-bump commit)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Release (npm publish -> docker publish -> dokploy deploy)
         run: npm run release
         env:
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
-
-      - name: Commit + push version bump
-        id: bump
-        run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            VERSION="$(node -e "console.log(require('./packages/protocol/package.json').version)")"
-            git add -A
-            git commit -m "chore: release $VERSION [skip ci]"
-            git push origin HEAD:main
-          else
-            echo "no version-bump changes to commit (--no-bump path or nothing changed)"
-          fi
-          {
-            echo "version=$(node -e "console.log(require('./packages/protocol/package.json').version)")"
-            echo "commit=$(git rev-parse HEAD)"
-          } >> "$GITHUB_OUTPUT"
 
       # Retry against the propagation window: Dokploy reports "deployed successfully" once the
       # new container is healthy, but the reverse proxy in front of it can take a few seconds to

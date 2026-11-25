@@ -26,7 +26,7 @@ builds from workspace sources with no package build in between. Must **not** imp
 **Packaging: every entry in `package.json` is a `devDependency`.** This package has no `main`, no
 `exports`, no `bin` — it is `"private": true` (never published to npm) and ships only the prebuilt static assets
 (`files: ["dist", ...]`), which `docker/web-client.Dockerfile` serves. Its version still follows the
-monorepo's lockstep (`publish.sh` bumps it; the UI shows it), and its `@av-pi-studio/*` ranges are `*`. Keeping build tools as
+monorepo's lockstep (`npm run version:set` sets it; the UI shows it), and its `@av-pi-studio/*` ranges are `*`. Keeping build tools as
 `dependencies` once made every `npm install @av-pi-studio/cli` pull a 627 MB build-only tree.
 
 ---

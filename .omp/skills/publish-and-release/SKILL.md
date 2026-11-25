@@ -28,13 +28,17 @@ If any auth check fails, stop and tell the user exactly which one (don't guess c
 
 ## 1. Run the pipeline
 
-Default ("publish and deploy everything", the common case):
+Default ("publish and deploy everything", the common case). Check first that the version on disk is
+the one to ship and that npm does not have it (`npm view @av-pi-studio/cli version`):
 
 ```bash
 npm run release
 ```
 
-This bumps every workspace package's patch version, rebuilds+typechecks+tests, publishes to npm,
+This publishes the version committed in `packages/*/package.json` (a floor: a local run never bumps
+it and `release.sh` refuses a version npm already has — use `npm run version:set -- patch|x.y.z`
+and commit first). A push to `main` releases through CI instead, which computes the version itself
+(patch after the highest on npm) and commits nothing. It rebuilds+typechecks+tests, publishes to npm,
 builds+boot-smoke-tests+pushes the three Docker images (`avatsaev/pi-studio-{relay,daemon,
 web-client}`) tagged both `:<version>` and `:latest`, then pins and redeploys the `relay` and
 `web-client` Dokploy compose stacks to that concrete version tag and polls each to completion.
@@ -89,7 +93,6 @@ Report the actual verified values to the user, not just "it said success."
 | npm already done, finish docker+deploy | `npm run release -- --skip-npm` |
 | Only redeploy one service (images already pushed) | `npm run release -- --skip-npm --skip-docker relay` or `... web-client` |
 | Preview without publishing/pushing/deploying | `npm run release -- --dry-run` (steps 1+2 dry-run; step 3 is skipped entirely — nothing was pushed for it to deploy) |
-| Republish current version, no version bump | `npm run release -- --no-bump` |
 | Trigger deploy but don't poll for completion | `npm run release -- --no-wait` (only affects step 3) |
 
 Every step is independently re-runnable — a failure in step 2 or 3 does NOT require re-running

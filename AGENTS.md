@@ -237,9 +237,10 @@ npm run lint                  # oxlint
 npm run fmt:check             # oxfmt --check
 npm run fmt                   # oxfmt (auto-fix)
 npm run clean                 # rm dist/ and *.tsbuildinfo everywhere
+npm run version:set -- <patch|minor|major|x.y.z|next>   # raise the committed floor of the lockstep npm/daemon version, or (`next`, CI) write the release's (see § Release)
 npm run build:binary          # the single binary for one target (`-- --target <t>`, `--version`, `--out-dir`) -> dist-binary/
 npm run test:binary           # smoke-test a built binary (daemon, mock turn, terminal, 1 MiB transfer, `__pi`)
-node --test 'scripts/release/*-test.mjs'   # the root release scripts (daemon-manifest); the desktop's run from desktop/apps/pistudiodesktop
+node --test 'scripts/release/*-test.mjs'   # the root release scripts (daemon-manifest, the version rules of set-version); the desktop's run from desktop/apps/pistudiodesktop
 
 # Run the production daemon (real Pi provider, disk persistence, full RPC surface; builds server first)
 npm start
@@ -257,10 +258,27 @@ cd docker && docker compose up --build   # see docker/README.md
 
 ## Release & production deployment
 
-`npm run release` (`scripts/release.sh`) chains all three steps below end-to-end: bump+publish npm
+`npm run release` (`scripts/release.sh`) chains all three steps below end-to-end: publish npm
 packages, build+push Docker images tagged to match, then pin+deploy production on that exact tag.
 Pure orchestration — no logic beyond what the three scripts already do; each remains independently
 runnable (and this is what `release.sh` calls under the hood).
+
+**The npm/daemon version is computed on the release runner, never committed back** — the same rule as the
+desktop's, with npm as the source instead of tags. The version committed in `packages/*/package.json` (one
+lockstep line of 8 packages, also the daemon's `PACKAGE_VERSION`) is only a **floor**. Every push to `main`
+(outside `desktop/`) runs `release.yml`, whose step `Next version` runs `scripts/set-version.mjs next`: the
+release is the patch after the highest version npm has for any of the five published packages, or the floor
+itself when that is higher (`scripts/release/version.mjs`, tested by `version-test.mjs`). It is written into
+the runner's copy only, so there is no version-bump commit and nothing to pull after a release; the same
+version names the npm packages, the Docker tags and the daemon binaries (the binaries job passes it as
+`build:binary --version`, since the commit it checks out holds only the floor). The step **fails when npm
+cannot answer** instead of guessing. A version some packages reached and `cli` did not is skipped over, never
+completed from other code. A checkout therefore does not know the released version; a daemon run from source
+is never offered an update (`UpdateService.resolveState`, `source` installs). For a minor or major release
+(or when `MIN_CLI_VERSION` in `desktop/crates/shell/src/cli_answers.rs` is raised past the floor) raise the
+floor with `npm run version:set -- minor|major|x.y.z` in a pull request. There is no manual trigger; a
+failed run is retried by pushing again (the next run skips the half-published number). There are no git
+tags for npm versions; locally, `release.sh` publishes the committed version and refuses one npm has.
 
 **The desktop client is released separately, and also automatically.** It has its own version line
 and is in none of the three steps below. `.github/workflows/desktop-release.yml` runs after every
@@ -282,7 +300,7 @@ local server, and publishes nothing. The installers are not signed with a real i
 (including the updater key): `desktop/docs/development.md` § Releasing.
 
 **The daemon binary is released by the `binaries` job** of `release.yml` (it calls
-`.github/workflows/daemon-binaries.yml` with `publish: true` on the commit the release job pushed; npm, Docker and
+`.github/workflows/daemon-binaries.yml` with `publish: true` on the commit that was released; npm, Docker and
 the deploy never wait for it). The workflow builds and smoke-tests `pi-studio` on four systems
 (linux-x64 and linux-arm64 on Ubuntu 24.04, darwin-arm64 on macos-15, darwin-x64 on macos-15-intel); when all four pass it
 publishes the GitHub release `daemon-v<version>` (the four `pi-studio-<version>-<target>.tar.gz` and `SHA256SUMS`;
@@ -295,9 +313,12 @@ it waits up to 30 minutes for a published daemon at or above the app's minimum a
 binary on first use.
 
 ```bash
+npm run version:set -- minor       # raise the committed FLOOR (`patch`|`minor`|`major`|`x.y.z`, must be higher; for a minor or major release)
+                                   # Rewrites the 8 lockstep package.json files, the published packages' internal ranges, the committed `version.generated.ts` of
+                                   # server/cli/relay and package-lock.json (`scripts/set-version.mjs`); commit it in a pull request
+npm run version:set -- next        # what release.yml's runner does (needs npm): floor -> the version to release; never committed
 npm run release                    # full pipeline: publish npm -> publish docker -> deploy
 npm run release -- --dry-run       # steps 1+2 in dry-run; step 3 is skipped (nothing to deploy)
-npm run release -- --no-bump       # publish the current npm version as-is, no version bump
 npm run release -- --skip-npm      # npm already published — start from the on-disk version
 npm run release -- --skip-docker   # images already pushed for this version
 npm run release -- --skip-deploy   # publish only; deploy separately/later
@@ -308,13 +329,14 @@ npm run release -- web-client      # (forwarded to step 3) deploy web-client onl
 Or run the three steps individually — each is idempotent and safe to re-run on its own:
 
 ```bash
-# 1. Publish npm packages — bumps every workspace package to one aligned patch version,
-#    rewrites internal @av-pi-studio/* deps to match (dependencies AND devDependencies,
-#    only for the published packages — private workspace packages (ui-library, workbench, web-client) keep "*" ranges and just get
-#    the version bumped), builds+typechecks+tests, then publishes
+# 1. Publish npm packages — publishes the version in packages/*/package.json and
+#    never changes it (in CI `scripts/set-version.mjs next` has just written it, see above). Refuses to run when the 8 lockstep
+#    versions, or the published packages' internal @av-pi-studio/* ranges (`^<version>`, dependencies
+#    AND devDependencies), do not match; private workspace packages (ui-library, workbench, web-client) keep
+#    "*" ranges. Then builds+typechecks+tests, then publishes
 #    protocol/relay/client/server/cli (5 packages) to npm in that dependency
-#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ALL_PACKAGES` there is the lockstep-bump list and also
-#    holds the three private packages; `ui-gallery` is private and neither bumped nor published). Published
+#    order (`PUBLISH_ORDER` in scripts/publish.sh; `ALL_PACKAGES` there is the lockstep list and also
+#    holds the three private packages; `ui-gallery` is private and neither versioned nor published). Published
 #    packages must never depend on a private one.
 #    The single version line lives in packages/*/package.json (the 8 listed in `ALL_PACKAGES` kept identical; the script
 #    reads packages/protocol/package.json as the reference; web-client displays its own). The root package.json intentionally
@@ -351,7 +373,6 @@ Or run the three steps individually — each is idempotent and safe to re-run on
 #    Aborts if the git working tree isn't clean.
 npm run publish
 npm run publish -- --dry-run     # do everything except the actual `npm publish`
-npm run publish -- --no-bump     # publish current versions as-is, no version bump
 
 # 2. Build + push Docker images — builds pi-studio-{relay,daemon,web-client} from local source,
 #    boot-smoke-tests web-client (runs it, curls for a 200) before pushing anything, then tags

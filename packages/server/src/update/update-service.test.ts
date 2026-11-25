@@ -111,7 +111,6 @@ describe("UpdateService check", () => {
 
   it.each([
     ["docker", "docker"],
-    ["source", "source"],
     ["unknown", "unknown_install"],
   ] as const)("a %s install with a newer version is cannot_update(%s)", async (kind, reason) => {
     const { service } = setup({ detectInstallKind: async () => kind });
@@ -123,6 +122,15 @@ describe("UpdateService check", () => {
       version: "0.0.11",
       command: MANUAL_UPDATE_COMMANDS[reason],
     });
+  });
+
+  it("a source install is never offered an update: its version is only the release floor", async () => {
+    const { service } = setup({ detectInstallKind: async () => "source" });
+    await service.start();
+    const status = await service.check("manual");
+    expect(status.state).toEqual({ kind: "idle" });
+    expect(status.checkError).toBeUndefined();
+    expect(service.apply()).toEqual({ ok: false, error: "not_available" });
   });
 
   it("a daemon that cannot update stays idle when nothing newer exists", async () => {
@@ -600,7 +608,7 @@ describe("UpdateService apply", () => {
   });
 
   it("refuses cannot_update for every blocked install", async () => {
-    for (const kind of ["docker", "source", "unknown"] as const) {
+    for (const kind of ["docker", "unknown"] as const) {
       const { service } = setup({ detectInstallKind: async () => kind });
       await service.start();
       await service.check("manual");

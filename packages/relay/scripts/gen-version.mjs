@@ -3,8 +3,9 @@
 // (and Bun's bundler, which does not follow `createRequire`) gets the version as a plain constant.
 // tsc cannot import `../package.json` (it sits outside `rootDir`), hence the generated module.
 // The file is committed (clean checkouts, Docker stages and every `tsc -b` that reaches this
-// project compile without a pre-step) and rewritten by this package's build, which the release
-// runs after the version bump — so it always equals package.json; a test guards the drift.
+// project compile without a pre-step) and rewritten by this package's build and by
+// scripts/set-version.mjs, which moves the version — so it always equals package.json; a test
+// guards the drift.
 // Identical in packages/{server,cli,relay}/scripts/ (Docker builds copy one package at a time).
 import { readFileSync, writeFileSync } from "node:fs";
 
