@@ -1,11 +1,11 @@
-//! What the webview may call: twenty-one commands, and nothing else of the app is reachable from it.
+//! What the webview may call: twenty-two commands, and nothing else of the app is reachable from it.
 //!
 //! The list is enforced by Tauri, not by this file: `build.rs` names the commands, and
 //! `capabilities/default.json` grants `allow-boot`, `allow-engine-command`, `allow-daemon-resolve-current`, `allow-daemon-switch`, `allow-storage-set`, `allow-dialog-confirm`,
 //! `allow-dialog-alert`, `allow-open-external`, `allow-save-begin`, `allow-save-write`,
 //! `allow-save-finish`, `allow-save-discard`, `allow-upload-pick`, `allow-transfer-upload`, `allow-transfer-save`,
 //! `allow-transfer-cancel`, `allow-transfers-set`, `allow-preview-mount`,
-//! `allow-preview-release`, `allow-transport-open` and `allow-ssh-config-hosts` to the main window, and listening for events (`core:event:allow-listen`
+//! `allow-preview-release`, `allow-transport-open`, `allow-ssh-config-hosts` and `allow-window-set-zoom` to the main window, and listening for events (`core:event:allow-listen`
 //! and `allow-unlisten`: Tauri cannot scope them to names, so the app emits only `daemons_changed`,
 //! `daemons_manage`, `connection_resume` and `transfer_progress`). A command missing from either
 //! is refused before it runs. Keep the three in step; the tests at the end of this file check what
@@ -294,6 +294,20 @@ pub async fn transfer_cancel(mode: State<'_, TransfersMode>, engine: State<'_, T
 #[tauri::command]
 pub fn transfers_set(transfers: State<'_, Transfers>, count: usize) {
     transfers.set(count);
+}
+
+/// The zoom the page may set: its own ladder (Settings → Appearance) spans 0.5 to 2.
+const ZOOM_RANGE: std::ops::RangeInclusive<f64> = 0.5..=2.0;
+
+/// Set the window's page zoom (1 = 100%): the native zoom a browser's Ctrl/Cmd + and − apply, so
+/// layout, pointer coordinates and device pixels follow it. The page owns and stores the level and
+/// calls this at start and on each change. A factor outside 0.5 to 2 (or not a number) is refused.
+#[tauri::command]
+pub fn window_set_zoom<R: tauri::Runtime>(webview: tauri::Webview<R>, factor: f64) -> Result<(), String> {
+    if !ZOOM_RANGE.contains(&factor) {
+        return Err(format!("the zoom {factor} is outside 0.5 to 2"));
+    }
+    webview.set_zoom(factor).map_err(|e| format!("the zoom was not applied: {e}"))
 }
 
 /// Mount an HTML document for preview. Answers `{ "url": … }`, the address the document is served

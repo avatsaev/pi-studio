@@ -27,7 +27,7 @@ use tauri::{App, Manager as _, RunEvent, WebviewUrl, WebviewWindow, WebviewWindo
 use super::{
     boot, daemon_resolve_current, daemon_switch, dialog_alert, dialog_confirm, engine_command, open_external, preview_mount, preview_release, save_begin,
     save_discard, save_finish, save_write, ssh_config_hosts, storage_set, transfer_cancel, transfer_save, transfer_upload, transfers_set, transport_open,
-    unwrap_reply, upload_pick,
+    unwrap_reply, upload_pick, window_set_zoom,
 };
 use crate::bridge::{Bridge, Launch, idle_update, on_run_event, spawn_owner};
 use crate::daemons::Events;
@@ -136,6 +136,7 @@ fn built_app_ssh(
             preview_release,
             transport_open,
             ssh_config_hosts,
+            window_set_zoom,
             unlisted
         ])
         .build(tauri::generate_context!())
@@ -480,7 +481,7 @@ fn a_dialog_or_link_call_with_the_wrong_arguments_is_an_error_and_shows_and_open
 }
 
 #[test]
-fn the_capability_grants_the_twenty_one_commands_and_listening_for_events_and_nothing_else() {
+fn the_capability_grants_the_twenty_two_commands_and_listening_for_events_and_nothing_else() {
     let capability: Value = serde_json::from_str(include_str!("../../capabilities/default.json")).unwrap();
     assert_eq!(capability["windows"], json!(["main"]));
     assert_eq!(
@@ -507,6 +508,7 @@ fn the_capability_grants_the_twenty_one_commands_and_listening_for_events_and_no
             "allow-preview-release",
             "allow-transport-open",
             "allow-ssh-config-hosts",
+            "allow-window-set-zoom",
             "core:event:allow-listen",
             "core:event:allow-unlisten"
         ])
@@ -718,6 +720,18 @@ fn a_chunk_over_sixteen_mebibytes_and_a_malformed_chunk_call_are_refused() {
         [("save_begin", json!({})), ("save_begin", json!({"suggestedName": 1})), ("save_finish", json!({})), ("save_discard", json!({"handle": 5}))]
     {
         assert!(invoke(&window, command, body.clone()).is_err(), "{command} {body}");
+    }
+}
+
+#[test]
+fn the_page_sets_the_window_zoom_within_its_ladder_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window) = app_on(dir.path());
+    for factor in [0.5, 1.0, 1.25, 2.0] {
+        assert_eq!(invoke(&window, "window_set_zoom", json!({ "factor": factor })).unwrap(), Value::Null, "{factor}");
+    }
+    for body in [json!({"factor": 0.49}), json!({"factor": 2.01}), json!({"factor": -1}), json!({"factor": "2"}), json!({})] {
+        assert!(invoke(&window, "window_set_zoom", body.clone()).is_err(), "{body}");
     }
 }
 

@@ -4,7 +4,7 @@ import { type BootSnapshot } from "./boot.js";
 import { createDesktopConnection } from "./connection.js";
 import { createDesktopDaemons } from "./daemons.js";
 import { type Ipc, type IpcEvents } from "./ipc.js";
-import { createNativeDialogs, createNativeLinks } from "./native.js";
+import { createNativeDialogs, createNativeLinks, createNativeZoom } from "./native.js";
 import { createDesktopPreview } from "./preview.js";
 import { createDesktopStorage } from "./storage.js";
 import { countTransfers, createEngineFiles, createSaveTarget, engineServes } from "./transfers.js";
@@ -16,7 +16,7 @@ const NO_LAUNCH: WorkbenchHost["launch"] = {
   agentDeepLink: { current: () => null, subscribe: () => () => undefined, consume: () => undefined },
 };
 
-/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves), `daemons` and `updates` replaced or added by the desktop's. */
+/** The browser host with `app`, `storage`, `launch`, `dialogs`, `links`, `preview`, `files` (the engine's, when it serves), `daemons`, `updates` and `zoom` replaced or added by the desktop's. */
 export function createDesktopHost(
   snapshot: BootSnapshot,
   ipc: Ipc & IpcEvents,
@@ -45,5 +45,6 @@ export function createDesktopHost(
     launch: NO_LAUNCH,
     daemons,
     updates: createDesktopUpdates(snapshot.update, ipc, log),
+    zoom: createNativeZoom(ipc, log),
   };
 }

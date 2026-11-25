@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { type Ipc } from "./ipc.js";
-import { createNativeDialogs, createNativeLinks } from "./native.js";
+import { createNativeDialogs, createNativeLinks, createNativeZoom } from "./native.js";
 
 const fake = (impl: Ipc["invoke"]) => ({ invoke: vi.fn<Ipc["invoke"]>(impl) });
 
@@ -41,6 +41,19 @@ describe("native links", () => {
   it("logs a failure", async () => {
     const log = vi.fn<(m: string, e: unknown) => void>();
     createNativeLinks(fake(() => Promise.reject(new Error("x"))), log).openExternal?.("u");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(log).toHaveBeenCalledOnce();
+  });
+});
+
+describe("native zoom", () => {
+  it("sends the factor to Rust and logs a refusal", async () => {
+    const ipc = fake(async () => null);
+    createNativeZoom(ipc, vi.fn<(m: string, e: unknown) => void>()).set(1.25);
+    expect(ipc.invoke).toHaveBeenCalledWith("window_set_zoom", { factor: 1.25 });
+    const log = vi.fn<(m: string, e: unknown) => void>();
+    createNativeZoom(fake(() => Promise.reject(new Error("x"))), log).set(3);
     await Promise.resolve();
     await Promise.resolve();
     expect(log).toHaveBeenCalledOnce();

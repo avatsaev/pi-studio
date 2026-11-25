@@ -14,6 +14,16 @@ describe("SETTINGS_CATEGORIES", () => {
     expect(viewers!.available(caps)).toBe(true);
   });
 
+  it("Appearance is available with no server capabilities, after Model Providers", () => {
+    const ids = SETTINGS_CATEGORIES.filter((c) =>
+      c.available(buildSettingsCategoryCapabilities({ providerAuth: true })),
+    ).map((c) => c.id);
+    expect(ids[0]).toBe("providers");
+    expect(ids).toContain("appearance");
+    const appearance = SETTINGS_CATEGORIES.find((c) => c.id === "appearance")!;
+    expect(appearance.available(buildSettingsCategoryCapabilities(undefined))).toBe(true);
+  });
+
   it("at least one category is available with no server capabilities — the settings gear must be reachable", () => {
     const caps = buildSettingsCategoryCapabilities(undefined);
     expect(SETTINGS_CATEGORIES.some((c) => c.available(caps))).toBe(true);

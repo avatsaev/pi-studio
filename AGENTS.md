@@ -35,7 +35,7 @@ packages/
                theme/tokens/appearance (`ThemeBoundary`), accent-only brand injection, breakpoints, toast/announcer
                stores; one prebuilt `dist/styles.css` + opt-in `reset.css`. See packages/ui-library/AGENTS.md.
   workbench/   `@av-pi-studio/workbench` — the client application as a library (connection, sessions, chat/timeline,
-               composer, files and viewers, git, terminals, settings; split panes with per-pane tab strips, persisted per
+               composer, files and viewers, git, terminals, settings incl. Appearance (themes, window zoom); split panes with per-pane tab strips, persisted per
                workspace; `#agent=<id>` deep links; drag a Files-tree entry onto the composer to insert its path), consumed
                by web-client and the desktop app (`desktop/`) through one `WorkbenchHost` object
                (`swe/architecture/workbench-package.md`, `workbench-host-adapter.md`). Public API: shell components, three
@@ -51,7 +51,7 @@ desktop/            Pi Studio Desktop: a Cargo workspace (Tauri app, crates, xta
                     publish npm (`paths-ignore` in release.yml) and runs desktop-ci.yml instead. Its installers are
                     built and released by desktop-release.yml (see § Release & production deployment). Its window renders
                     `@av-pi-studio/workbench` from source (Vite aliases to packages/*/src, like web-client) with
-                    a desktop host (the browser host with storage, dialogs, links, save-to-disk, the HTML preview,
+                    a desktop host (the browser host with storage, dialogs, links, save-to-disk, the window's zoom, the HTML preview,
                     the daemon registry and, for every entry (local, direct, relay or SSH), the transport backed by Rust: Rust
                     opens the daemon's socket (a dial, the relay's encrypted channel, or a channel of an SSH connection to the
                     host) and the page's own WebSocket reaches it through a single-use loopback proxy; no pairing link or

@@ -185,6 +185,7 @@ fn main() {
             commands::preview_release,
             commands::transport_open,
             commands::ssh_config_hosts,
+            commands::window_set_zoom,
             commands::transfer_upload,
             commands::transfer_save,
             commands::transfer_cancel

@@ -123,16 +123,18 @@ export function SessionList() {
           );
         })}
       </div>
-      <button
-        type="button"
-        className={styles.footer}
-        disabled={status !== "open"}
-        title={status !== "open" ? "Connect to open a workspace" : "Open a workspace folder"}
-        onClick={() => openCwdPicker()}
-      >
-        <Icon icon={Plus} size="xs" />
-        Add workspace
-      </button>
+      <div className={styles.footerWrap}>
+        <button
+          type="button"
+          className={styles.footer}
+          disabled={status !== "open"}
+          title={status !== "open" ? "Connect to open a workspace" : "Open a workspace folder"}
+          onClick={() => openCwdPicker()}
+        >
+          <Icon icon={Plus} size="xs" />
+          Add workspace
+        </button>
+      </div>
       <SessionContextMenu />
       <RenameSessionDialog />
       <WorkspaceContextMenu />

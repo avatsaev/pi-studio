@@ -52,6 +52,8 @@ export interface TestHostOptions {
   minDaemonVersion?: string;
   /** The host's `updates`, e.g. from `createTestUpdates`. Absent by default. */
   updates?: HostUpdates;
+  /** Give the host a `zoom` member (each `set` is recorded as `zoom.set`). Absent by default. */
+  zoom?: boolean;
 }
 
 /** One `files.upload` or `files.saveToDisk` call, with the options it was given. */
@@ -232,5 +234,6 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
     ...(preview ? { preview } : {}),
     ...(options.daemons ? { daemons: options.daemons } : {}),
     ...(options.updates ? { updates: options.updates } : {}),
+    ...(options.zoom ? { zoom: { set: (factor: number) => record("zoom.set", factor) } } : {}),
   };
 }

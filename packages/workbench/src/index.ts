@@ -56,6 +56,7 @@ export type {
   HostPreview,
   HostTimers,
   HostUpdates,
+  HostZoom,
   LocalDaemonState,
   NewDaemon,
   RemoteDaemonState,
